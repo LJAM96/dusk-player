@@ -1,5 +1,8 @@
 import Foundation
 import SwiftUI
+#if os(tvOS)
+import UIKit
+#endif
 
 enum PlayerLoadingState: Equatable {
     case hidden
@@ -131,8 +134,8 @@ final class PlaybackCoordinator {
     /// view is rebuilt (fresh `.id`) on every episode transition: two idle-timer
     /// modifiers would overlap during the swap and the departing one would clear
     /// the flag the arriving one just set, letting the screen saver appear on the
-    /// next episode. Driven off the continuously-polled playback state so a
-    /// transient wrong value self-corrects on the following tick.
+    /// next episode. On tvOS, each playback snapshot also reconciles UIKit's
+    /// actual flag because VLCKit writes it independently on state changes.
     var isIdleTimerSuppressed = false
 
     @ObservationIgnored nonisolated(unsafe) var timelineTimer: Timer?
@@ -659,6 +662,7 @@ final class PlaybackCoordinator {
         pendingPictureInPictureRestoreCompletion = nil
 
         playerPresentationID = UUID()
+        noteActivePlaybackState(.idle)
         showPlayer = true
     }
 
@@ -666,6 +670,7 @@ final class PlaybackCoordinator {
     /// the cover's `onDismiss` (`onPlayerDismissed` → `clearPlayerState`).
     func dismissFailedPlayback() {
         showPlayer = false
+        noteActivePlaybackState(.idle)
     }
 
     /// Called when the full-screen player cover is dismissed.
@@ -706,12 +711,24 @@ final class PlaybackCoordinator {
         latestActivePlaybackState = state
 
         let shouldSuppress: Bool
+        #if os(tvOS)
+        // A finalized engine stays behind Up Next, and late engine callbacks
+        // must not keep that waiting screen awake. Loading alone is not playback.
+        shouldSuppress = showPlayer && !didFinalizeCurrentSession &&
+            upNextPresentation == nil && state == .playing
+        // VLCKit can change UIKit's flag without changing our observed Bool.
+        // Reconcile the actual value on every snapshot, not just on transitions.
+        if UIApplication.shared.isIdleTimerDisabled != shouldSuppress {
+            UIApplication.shared.isIdleTimerDisabled = shouldSuppress
+        }
+        #else
         switch state {
         case .loading, .playing:
             shouldSuppress = !isAirPlayPlaybackActive
         case .idle, .paused, .stopped, .error:
             shouldSuppress = false
         }
+        #endif
         if isIdleTimerSuppressed != shouldSuppress {
             isIdleTimerSuppressed = shouldSuppress
         }

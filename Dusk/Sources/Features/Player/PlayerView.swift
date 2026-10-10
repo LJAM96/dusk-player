@@ -222,11 +222,18 @@ struct PlayerView: View {
         } message: { message in
             Text(message)
         }
+        #if os(tvOS)
+        // tvOS owns the actual flag in the coordinator; never restore a saved
+        // value that may have been set by VLCKit's independent idle-timer writes.
+        .onAppear { playback.noteActivePlaybackState(playback.engine?.state ?? .idle) }
+        .onDisappear { playback.noteActivePlaybackState(.idle) }
+        #else
         // Attached here, not in `PlayerSessionView`, so a single idle-timer
         // modifier survives across episode transitions (the session view is
         // rebuilt with a fresh `.id` each time). See
         // `PlaybackCoordinator.isIdleTimerSuppressed`.
         .playerIdleTimerDisabled(playback.isIdleTimerSuppressed)
+        #endif
         .playerSharePlayPresentation(isPlayer: true)
     }
 
@@ -723,12 +730,18 @@ private struct PlayerSessionView: View {
                 handleReachedCreditsMarker(creditsMarker)
             }
             viewModel.playbackSnapshotHandler = { state, currentTime, duration in
+                guard playback.playerPresentationID == presentationID else { return }
                 playback.nowPlayingController.updatePlaybackState(
                     state: state,
                     currentTime: currentTime,
                     duration: duration
                 )
+                #if os(tvOS)
+                // The HUD optimistically shows play before the engine resumes.
+                playback.noteActivePlaybackState(viewModel.engine.state)
+                #else
                 playback.noteActivePlaybackState(state)
+                #endif
             }
             viewModel.bufferingPresentationHandler = { isVisible in
                 playback.setBufferingPresentationVisible(
@@ -1295,6 +1308,7 @@ private struct PlayerSessionView: View {
     #endif
 }
 
+#if !os(tvOS)
 private extension View {
     func playerIdleTimerDisabled(_ isDisabled: Bool) -> some View {
         modifier(PlayerIdleTimerModifier(isDisabled: isDisabled))
@@ -1331,6 +1345,7 @@ private struct PlayerIdleTimerModifier: ViewModifier {
         self.previousIdleTimerDisabled = nil
     }
 }
+#endif
 
 
 #if !os(tvOS)

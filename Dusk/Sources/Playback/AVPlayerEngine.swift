@@ -115,6 +115,11 @@ final class AVPlayerEngine: NSObject, PlaybackEngine {
         player.playbackCoordinator.delegate = self
         player.appliesMediaSelectionCriteriaAutomatically = false
         player.automaticallyWaitsToMinimizeStalling = true
+        #if os(tvOS)
+        // The coordinator owns display sleep for both engines, including
+        // paused playback and the retained engine behind the Up Next screen.
+        player.preventsDisplaySleepDuringVideoPlayback = false
+        #endif
         #if os(iOS)
         player.allowsExternalPlayback = true
         player.externalPlaybackVideoGravity = .resizeAspect

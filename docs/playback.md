@@ -1368,10 +1368,21 @@ so the whole live HUD is derived from one instant.
   `UIHoverGestureRecognizer` reveals the HUD on movement. Moving the pointer over
   the visible controls keeps them up via `onContinuousHover` →
   `noteControlsInteraction()`. Touch-only playback never triggers any of it.
-- The player disables the system idle timer while a session is actively loading,
-  playing, or buffering, then restores the previous value on pause, stop, error,
-  or dismissal. This is required because Video Enhancement can render through a
-  Metal view instead of the native AVPlayer/VLCKit video surface.
+- On tvOS, `PlaybackCoordinator.noteActivePlaybackState` owns the actual UIKit
+  idle-timer flag: only a playing, unfinalized session under the visible player
+  cover suppresses sleep. Pause, loading, stop, errors, Up Next (including
+  passout protection or a failed next-episode start), finalization, and dismissal
+  enable the screensaver. Every engine snapshot reconciles UIKit's actual value
+  because VLCKit 3.x also writes it asynchronously; never capture and restore
+  that engine-written `true` as a previous value. Finalization releases the flag
+  immediately, and snapshots from replaced session views are ignored. tvOS
+  AVPlayer disables its independent `preventsDisplaySleepDuringVideoPlayback`
+  assertion so both engines follow this policy; actual playback resumes the
+  suppression, not the HUD's optimistic play state.
+- iOS keeps the cover-level idle-timer modifier: loading, playing, or buffering
+  suppresses auto-lock (except AirPlay); pause, stop, error, and dismissal restore
+  the prior value. The cover-level lifetime survives episode/engine swaps. This
+  also covers Metal rendering instead of a native video surface.
 - `PlayerControlsOverlay` chooses iOS vs tvOS controls; shared controls live in
   `PlayerControlsSharedViews.swift`.
 - `PlayerPlaybackInfoView` presents `PlaybackDebugInfo` from the iOS gear menu

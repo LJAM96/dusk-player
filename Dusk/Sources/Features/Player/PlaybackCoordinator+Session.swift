@@ -1480,6 +1480,7 @@ extension PlaybackCoordinator {
         guard upNextPresentation == nil else { return }
         isHandlingPlaybackEnded = true
         defer { isHandlingPlaybackEnded = false }
+        noteActivePlaybackState(.stopped)
 
         // The credits poster is up: its mode already decided how the episode
         // should end when it was raised.
@@ -1515,6 +1516,7 @@ extension PlaybackCoordinator {
     func finalizeCurrentPlaybackSession(markCompleted: Bool) {
         guard !didFinalizeCurrentSession else { return }
         didFinalizeCurrentSession = true
+        noteActivePlaybackState(.stopped)
 
         timelineTimer?.invalidate()
         timelineTimer = nil
@@ -1649,8 +1651,7 @@ extension PlaybackCoordinator {
         lastReportedTimeMs = 0
         lastReportedDurationMs = 0
         continuousPlayEpisodeRunCount = 0
-        latestActivePlaybackState = .idle
-        isIdleTimerSuppressed = false
+        noteActivePlaybackState(.idle)
     }
 
     private func presentQualitySwitchError(_ message: String) {
