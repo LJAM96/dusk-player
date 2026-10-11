@@ -134,7 +134,6 @@ struct DownloadsRootContent: View {
                     Button("Done") {
                         isShowingQueue = false
                     }
-                    .foregroundStyle(Color.duskAccent)
                 }
             }
             .duskAppNavigationDestinations()
@@ -144,7 +143,7 @@ struct DownloadsRootContent: View {
     private var pendingSyncBanner: some View {
         HStack(spacing: 12) {
             Image(systemName: "arrow.triangle.2.circlepath")
-                .foregroundStyle(Color.duskAccent)
+                .foregroundStyle(Color.duskTextSecondary)
 
             Text("\(offlinePlaybackSyncManager.pendingSyncCount) watch progress update\(offlinePlaybackSyncManager.pendingSyncCount == 1 ? "" : "s") waiting to sync.")
                 .font(.caption)
@@ -399,14 +398,14 @@ private struct DownloadQueueToolbarButton: View {
 
                     Circle()
                         .trim(from: 0, to: progress)
-                        .stroke(Color.duskAccent, style: StrokeStyle(lineWidth: 2.5, lineCap: .round))
+                        .stroke(Color.duskTextPrimary, style: StrokeStyle(lineWidth: 2.5, lineCap: .round))
                         .rotationEffect(.degrees(-90))
                         .frame(width: 30, height: 30)
                 }
 
                 Image(systemName: "arrow.down")
                     .font(.system(size: 14, weight: .bold))
-                    .foregroundStyle(isActive ? Color.duskAccent : Color.duskTextPrimary)
+                    .foregroundStyle(Color.duskTextPrimary)
             }
             .frame(width: 34, height: 34)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
@@ -419,7 +418,7 @@ private struct DownloadQueueToolbarButton: View {
                     .lineLimit(1)
                     .minimumScaleFactor(0.8)
                     .frame(width: badgeWidth, height: 18)
-                    .background(Color.duskAccent, in: Capsule())
+                    .background(Color.duskTextPrimary, in: Capsule())
                     .padding(.top, 5)
                     .padding(.trailing, 3)
             }
@@ -596,13 +595,12 @@ private struct DownloadQueueRow: View {
         if state.isDeleting {
             ProgressView()
                 .controlSize(.small)
-                .tint(Color.duskAccent)
         } else if record.status == .downloading {
             CircularProgressView(progress: record.progress)
                 .frame(width: 24, height: 24)
         } else if record.status == .paused {
             Image(systemName: "pause.circle.fill")
-                .foregroundStyle(Color.duskAccent)
+                .foregroundStyle(Color.duskTextSecondary)
         } else if record.status == .failed {
             Image(systemName: "exclamationmark.circle.fill")
                 .foregroundStyle(.red)

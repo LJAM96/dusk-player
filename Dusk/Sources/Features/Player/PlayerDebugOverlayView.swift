@@ -133,7 +133,7 @@ struct PlayerPlaybackInfoView: View {
         .overlay {
             RoundedRectangle(cornerRadius: 14, style: .continuous)
                 .strokeBorder(
-                    isFocused ? Color.duskAccent.opacity(0.45) : .white.opacity(0.04),
+                    isFocused ? .white.opacity(0.35) : .white.opacity(0.04),
                     lineWidth: 1
                 )
         }

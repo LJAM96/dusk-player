@@ -59,10 +59,8 @@ struct SubtitleSearchView: View {
                         }
                     }
                     .pickerStyle(.menu)
-                    .tint(Color.duskAccent)
 
                     Toggle("Hearing Impaired", isOn: $vm.hearingImpaired)
-                        .tint(Color.duskAccent)
 
                     Button {
                         Task { await viewModel.search() }
@@ -368,7 +366,7 @@ struct SubtitleSearchView: View {
             } else {
                 Image(systemName: "arrow.down.circle")
                     .font(DuskFont.glyphMedium(ios: .body.weight(.semibold)))
-                    .foregroundStyle(Color.duskAccent)
+                    .foregroundStyle(Color.duskTextSecondary)
             }
         }
         .contentShape(Rectangle())

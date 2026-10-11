@@ -69,7 +69,6 @@ struct SettingsTVView: View {
 
                         TVSettingsActionRow(
                             title: "Switch User",
-                            tint: Color.duskAccent,
                             showsChevron: true
                         ) {
                             viewModel.showHomeUserPicker = true
@@ -244,7 +243,6 @@ struct SettingsTVView: View {
                 TVSettingsSection(title: "Storage", footer: viewModel.storageFooterText) {
                     TVSettingsActionRow(
                         title: "Clear Image Cache",
-                        tint: Color.duskAccent,
                         detail: viewModel.formattedCacheSize
                     ) {
                         viewModel.clearImageCache()

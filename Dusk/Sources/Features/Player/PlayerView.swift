@@ -442,7 +442,7 @@ private struct PlayerAirPlayRemoteBackground: View {
         HStack(spacing: 8) {
             Image(systemName: "airplayvideo")
                 .font(.footnote.weight(.semibold))
-                .foregroundStyle(Color.duskAccent)
+                .foregroundStyle(.white.opacity(0.72))
 
             Text(routeLabel)
                 .font(.subheadline.weight(.semibold))
@@ -1179,14 +1179,14 @@ private struct PlayerSessionView: View {
         VStack(spacing: 16) {
             Image(systemName: "exclamationmark.triangle")
                 .font(.system(size: 40))
-                .foregroundStyle(Color.duskAccent)
+                .foregroundStyle(Color.duskTextSecondary)
 
             Text(error.localizedDescription)
                 .font(DuskFont.sectionHeader(ios: .headline))
                 .foregroundStyle(Color.duskTextPrimary)
                 .multilineTextAlignment(.center)
 
-            Button(error.requiresReauthentication ? "Sign In" : "Close") {
+            FeaturePrimaryButton(title: error.requiresReauthentication ? "Sign In" : "Close") {
                 if error.requiresReauthentication {
                     viewModel.cleanup()
                     AuthenticationFailure.beginReauthentication(
@@ -1197,13 +1197,6 @@ private struct PlayerSessionView: View {
                     dismissPlayer()
                 }
             }
-            .font(DuskFont.buttonLabel(ios: .headline))
-            .foregroundStyle(.white)
-            .padding(.horizontal, 32)
-            .padding(.vertical, 12)
-            .background(Color.duskAccent, in: Capsule())
-            .duskSuppressTVOSButtonChrome()
-            .duskTVOSFocusEffectShape(Capsule())
         }
         .padding(32)
         .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 28))

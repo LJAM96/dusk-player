@@ -197,7 +197,7 @@ struct MovieDetailView: View {
                     ratingBadge(
                         icon: "person.fill",
                         value: String(format: "%.0f%%", audience * 10),
-                        color: Color.duskAccent
+                        color: Color.primary.opacity(0.72)
                     )
                 }
             }

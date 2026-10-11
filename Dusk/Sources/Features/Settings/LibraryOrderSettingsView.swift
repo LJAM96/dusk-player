@@ -84,7 +84,6 @@ struct LibraryOrderSettingsView: View {
 
                     if viewModel.isSaving {
                         ProgressView()
-                            .tint(Color.duskAccent)
                     }
                 }
             } footer: {

@@ -133,7 +133,6 @@ struct SeerrSettingsView: View {
                     } else {
                         TVSettingsActionRow(
                             title: "Connect with Plex",
-                            tint: Color.duskAccent,
                             isLoading: viewModel.isWorking
                         ) {
                             Task { await viewModel.prepareConnection(using: seerrService) }

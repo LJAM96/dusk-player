@@ -168,22 +168,21 @@ struct SignInView: View {
             HStack(spacing: 8) {
                 if isSigningIn {
                     ProgressView()
-                        .tint(.white)
+                        #if !os(tvOS)
+                        .tint(Color.duskPrimaryActionLabel)
+                        #endif
                 }
                 Text(isSigningIn ? "Waiting for approval…" : "Sign in with Plex")
             }
             .font(DuskFont.buttonLabel(ios: .headline))
             .frame(maxWidth: .infinity)
-            .padding(.vertical, 14)
-            .foregroundStyle(.white)
-            .background {
-                RoundedRectangle(cornerRadius: 100)
-                    .fill(Color.duskAccent)
-            }
+            .padding(.vertical, 8)
+            #if !os(tvOS)
+            .foregroundStyle(Color.duskPrimaryActionLabel)
+            #endif
         }
         .disabled(isSigningIn)
-        .duskSuppressTVOSButtonChrome()
-        .duskTVOSFocusEffectShape(RoundedRectangle(cornerRadius: 100, style: .continuous))
+        .detailHeroNativePrimaryButtonStyle()
     }
 
     private var cancelButton: some View {

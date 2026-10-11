@@ -78,12 +78,12 @@ private struct MoreRow: View {
         HStack(spacing: 14) {
             ZStack {
                 RoundedRectangle(cornerRadius: 12, style: .continuous)
-                    .fill(Color.duskAccent.opacity(0.14))
+                    .fill(Color.duskTextSecondary.opacity(0.14))
                     .frame(width: 34, height: 34)
 
                 Image(systemName: systemImage)
                     .font(.subheadline.weight(.semibold))
-                    .foregroundStyle(Color.duskAccent)
+                    .foregroundStyle(Color.duskTextPrimary)
             }
 
             Text(title)

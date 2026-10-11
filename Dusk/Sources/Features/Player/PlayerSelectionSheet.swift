@@ -76,7 +76,7 @@ struct PlayerSelectionSheet<Item: Identifiable>: View {
             if isSelected {
                 Image(systemName: "checkmark")
                     .font(DuskFont.glyphSmall(ios: .caption.weight(.bold)))
-                    .foregroundStyle(Color.duskAccent)
+                    .foregroundStyle(Color.duskTextPrimary)
             }
         }
     }

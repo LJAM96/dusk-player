@@ -26,7 +26,6 @@ struct LibraryTabSettingsView: View {
                         Label(libraryType.tabTitle, systemImage: libraryType.systemImage)
                             .foregroundStyle(Color.duskTextPrimary)
                     }
-                    .tint(Color.duskAccent)
                 }
                 .onMove(perform: preferences.moveLibraryTabs)
             } header: {

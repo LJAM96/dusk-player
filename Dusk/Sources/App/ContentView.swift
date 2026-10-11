@@ -140,7 +140,6 @@ struct ContentView: View {
                     }
                 } else {
                     ProgressView()
-                        .tint(Color.duskAccent)
 
                     Text("Loading…")
                         .duskFont(tvOnly: DuskFont.TV.body)

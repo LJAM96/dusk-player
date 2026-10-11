@@ -178,7 +178,7 @@ struct HomeUserPickerView: View {
         VStack(spacing: 18) {
             Image(systemName: "person.2.fill")
                 .font(.system(size: iconSize, weight: .semibold))
-                .foregroundStyle(Color.duskAccent)
+                .foregroundStyle(Color.duskTextSecondary)
 
             VStack(spacing: 9) {
                 Text("Who’s Watching?")
@@ -208,7 +208,6 @@ struct HomeUserPickerView: View {
                     .fixedSize(horizontal: false, vertical: true)
             }
         }
-        .tint(Color.duskAccent)
         .padding(22)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(Color.duskSurface, in: RoundedRectangle(cornerRadius: 24, style: .continuous))
@@ -347,7 +346,7 @@ struct PlexHomeUserAvatar: View {
     var body: some View {
         ZStack {
             Circle()
-                .fill(Color.duskAccent.opacity(0.14))
+                .fill(Color.duskTextSecondary.opacity(0.14))
 
             DuskAsyncImage(url: user.avatarURL) { phase in
                 switch phase {
@@ -358,7 +357,7 @@ struct PlexHomeUserAvatar: View {
                 case .empty, .failure:
                     Image(systemName: "person.fill")
                         .font(.system(size: size * 0.44, weight: .medium))
-                        .foregroundStyle(Color.duskAccent)
+                        .foregroundStyle(Color.duskTextSecondary)
                 }
             }
         }
@@ -407,14 +406,13 @@ private struct HomeUserCard: View {
                     if isCurrent {
                         Image(systemName: "checkmark.circle.fill")
                             .font(DuskFont.glyphSmall(ios: .subheadline))
-                            .foregroundStyle(Color.duskAccent)
+                            .foregroundStyle(Color.duskTextSecondary)
                     }
                 }
 
                 ZStack {
                     if isSwitching {
                         ProgressView()
-                            .tint(Color.duskAccent)
                     }
                 }
                 .frame(height: 24)
@@ -425,7 +423,7 @@ private struct HomeUserCard: View {
             .background(Color.duskSurface, in: RoundedRectangle(cornerRadius: 28, style: .continuous))
             .overlay {
                 RoundedRectangle(cornerRadius: 28, style: .continuous)
-                    .stroke(isCurrent ? Color.duskAccent.opacity(0.75) : Color.primary.opacity(0.05), lineWidth: 1)
+                    .stroke(isCurrent ? Color.duskTextPrimary.opacity(0.35) : Color.primary.opacity(0.05), lineWidth: 1)
             }
             .contentShape(RoundedRectangle(cornerRadius: 28, style: .continuous))
         }
@@ -512,7 +510,7 @@ private struct IOSHomeUserPINView: View {
                     openURL(SettingsSupport.plexAccountURL)
                 }
                 .font(.footnote)
-                .foregroundStyle(Color.duskAccent)
+                .foregroundStyle(Color.duskTextSecondary)
                 .disabled(isSubmitting)
             }
             .frame(maxWidth: .infinity)
@@ -561,7 +559,7 @@ private struct TVHomeUserPINView: View {
                 HStack(spacing: 16) {
                     ForEach(0..<4, id: \.self) { index in
                         Circle()
-                            .fill(index < pin.count ? Color.duskAccent : Color.duskSurface)
+                            .fill(index < pin.count ? Color.duskTextPrimary : Color.duskSurface)
                             .frame(width: 25, height: 25)
                             .overlay {
                                 Circle()
@@ -612,7 +610,6 @@ private struct TVHomeUserPINView: View {
                 ZStack {
                     if isSubmitting {
                         ProgressView()
-                            .tint(Color.duskAccent)
                     }
                 }
                 .frame(height: 32)

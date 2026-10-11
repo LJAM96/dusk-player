@@ -97,13 +97,12 @@ struct ServerPrioritySettingsView: View {
                 } label: {
                     HStack {
                         Text("Check Again")
-                            .foregroundStyle(Color.duskAccent)
+                            .foregroundStyle(Color.duskTextPrimary)
 
                         Spacer()
 
                         if viewModel.isRefreshing {
                             ProgressView()
-                                .tint(Color.duskAccent)
                         }
                     }
                 }
@@ -191,7 +190,6 @@ struct ServerPrioritySettingsView: View {
                 ) {
                     TVSettingsActionRow(
                         title: "Check Again",
-                        tint: Color.duskAccent,
                         isLoading: viewModel.isRefreshing
                     ) {
                         Task { await viewModel.refresh() }
@@ -260,7 +258,7 @@ struct ServerPrioritySettingsView: View {
 
 // MARK: - Shared pieces
 
-/// The accent-tinted server glyph, matching the icon containers used by the
+/// The server glyph, matching the icon containers used by the
 /// other settings rows.
 private struct ServerPriorityIcon: View {
     let size: CGFloat
@@ -269,12 +267,12 @@ private struct ServerPriorityIcon: View {
 
     var body: some View {
         RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-            .fill(Color.duskAccent.opacity(0.14))
+            .fill(Color.duskTextSecondary.opacity(0.14))
             .frame(width: size, height: size)
             .overlay {
                 Image(systemName: "server.rack")
                     .font(iconFont)
-                    .foregroundStyle(Color.duskAccent)
+                    .foregroundStyle(Color.duskTextPrimary)
             }
     }
 }
@@ -342,7 +340,6 @@ private struct ServerPriorityRow: View {
                 )
             )
             .labelsHidden()
-            .tint(Color.duskAccent)
         }
         .padding(.vertical, 4)
     }

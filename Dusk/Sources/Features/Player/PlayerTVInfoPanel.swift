@@ -92,7 +92,7 @@ struct PlayerTVInfoPanel: View {
                             Capsule()
                                 .strokeBorder(
                                     focusedRow == Self.tabRowID(tab)
-                                        ? Color.duskAccent.opacity(0.55)
+                                        ? .white.opacity(0.35)
                                         : .white.opacity(0.06),
                                     lineWidth: 1
                                 )
@@ -432,7 +432,7 @@ struct PlayerTVInfoPanel: View {
                 if isSelected {
                     Image(systemName: "checkmark")
                         .font(DuskFont.TV.glyphSmall.weight(.bold))
-                        .foregroundStyle(Color.duskAccent)
+                        .foregroundStyle(Color.duskTextPrimary)
                 }
             }
             .padding(.horizontal, 22)
@@ -445,7 +445,7 @@ struct PlayerTVInfoPanel: View {
             .overlay {
                 RoundedRectangle(cornerRadius: PlayerTVHUDLayout.panelRowCornerRadius, style: .continuous)
                     .strokeBorder(
-                        isFocused ? Color.duskAccent.opacity(0.45) : .white.opacity(0.04),
+                        isFocused ? .white.opacity(0.35) : .white.opacity(0.04),
                         lineWidth: 1
                     )
             }

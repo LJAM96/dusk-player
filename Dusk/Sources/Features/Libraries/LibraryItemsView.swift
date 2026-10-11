@@ -92,7 +92,6 @@ struct LibraryItemsView: View {
 
                     if viewModel.isLoadingMore {
                         ProgressView()
-                            .tint(Color.duskAccent)
                             .frame(maxWidth: .infinity)
                             .padding(.vertical, 20)
                     }
@@ -116,7 +115,6 @@ struct LibraryItemsView: View {
 
                 if viewModel.isLoading && !viewModel.items.isEmpty {
                     ProgressView()
-                        .tint(Color.duskAccent)
                         .padding(.leading, 6)
                 }
             }
@@ -184,7 +182,7 @@ struct LibraryItemsView: View {
         HStack(spacing: 10) {
             Image(systemName: systemImage)
                 .font(DuskFont.glyphMedium(ios: .headline))
-                .foregroundStyle(isActive ? Color.duskAccent : Color.duskTextSecondary)
+                .foregroundStyle(isActive ? Color.duskTextPrimary : Color.duskTextSecondary)
 
             Text(value)
                 .font(DuskFont.buttonLabel(ios: .subheadline.weight(.medium)))
@@ -204,7 +202,7 @@ struct LibraryItemsView: View {
         .overlay {
             RoundedRectangle(cornerRadius: controlCornerRadius, style: .continuous)
                 .stroke(
-                    isActive ? Color.duskAccent.opacity(0.45) : Color.duskTextSecondary.opacity(0.18),
+                    isActive ? Color.duskTextPrimary.opacity(0.35) : Color.duskTextSecondary.opacity(0.18),
                     lineWidth: 1
                 )
         }

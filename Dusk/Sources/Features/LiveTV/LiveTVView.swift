@@ -96,7 +96,7 @@ struct LiveTVRootContent: View {
                             .frame(height: 42)
                             .background(
                                 Calendar.current.isDate(date, inSameDayAs: viewModel.selectedDate)
-                                    ? Color.duskAccent
+                                    ? Color.duskTextPrimary
                                     : Color.duskSurface
                             )
                             .clipShape(Capsule())
@@ -163,9 +163,11 @@ struct LiveTVChannelGuideRow: View {
                         play(current)
                     } label: {
                         Label("Watch", systemImage: "play.fill")
+                            #if !os(tvOS)
+                            .foregroundStyle(Color.duskPrimaryActionLabel)
+                            #endif
                     }
-                    .buttonStyle(.borderedProminent)
-                    .tint(Color.duskAccent)
+                    .detailHeroNativePrimaryButtonStyle()
                 }
             }
 
@@ -275,7 +277,7 @@ struct LiveTVProgramCard: View {
                     Spacer()
                     GeometryReader { proxy in
                         Capsule()
-                            .fill(Color.duskAccent)
+                            .fill(Color.white.opacity(0.92))
                             .frame(width: proxy.size.width * progress, height: 4)
                     }
                     .frame(height: 4)
@@ -368,9 +370,11 @@ private struct LiveTVProgramDetails: View {
                         Button(action: play) {
                             Label("Watch Live", systemImage: "play.fill")
                                 .frame(maxWidth: .infinity)
+                                #if !os(tvOS)
+                                .foregroundStyle(Color.duskPrimaryActionLabel)
+                                #endif
                         }
-                        .buttonStyle(.borderedProminent)
-                        .tint(Color.duskAccent)
+                        .detailHeroNativePrimaryButtonStyle()
                     } else {
                         Text(program.endsAt.map { $0 < .now } == true
                             ? "This program is no longer live."

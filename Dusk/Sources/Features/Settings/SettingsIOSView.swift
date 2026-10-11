@@ -97,7 +97,7 @@ struct SettingsIOSView: View {
                     } label: {
                         HStack {
                             Text("Switch User")
-                                .foregroundStyle(Color.duskAccent)
+                                .foregroundStyle(Color.duskTextPrimary)
                             Spacer()
                             Image(systemName: "chevron.right")
                                 .font(.caption.weight(.semibold))
@@ -108,7 +108,6 @@ struct SettingsIOSView: View {
 
                     Toggle("Automatically Sign In", isOn: automaticHomeSignInBinding)
                         .foregroundStyle(Color.duskTextPrimary)
-                        .tint(Color.duskAccent)
                 } header: {
                     Text("Plex Home")
                         .foregroundStyle(Color.duskTextSecondary)
@@ -194,7 +193,6 @@ struct SettingsIOSView: View {
             Section {
                 Toggle("Show Live TV", isOn: $preferences.showsLiveTVOnHome)
                     .foregroundStyle(Color.duskTextPrimary)
-                    .tint(Color.duskAccent)
             } header: {
                 Text("Home")
                     .foregroundStyle(Color.duskTextSecondary)
@@ -221,7 +219,6 @@ struct SettingsIOSView: View {
 
                 Toggle("Forced Only", isOn: $preferences.subtitleForcedOnly)
                     .foregroundStyle(Color.duskTextPrimary)
-                    .tint(Color.duskAccent)
 
                 Picker("Subtitle Size", selection: $preferences.subtitleFontSize) {
                     ForEach(SubtitleFontSize.allCases) { size in
@@ -262,11 +259,9 @@ struct SettingsIOSView: View {
 
                 Toggle("Auto-Skip Credits", isOn: $preferences.autoSkipCredits)
                     .foregroundStyle(Color.duskTextPrimary)
-                    .tint(Color.duskAccent)
 
                 Toggle("Continuous Play", isOn: $preferences.continuousPlayEnabled)
                     .foregroundStyle(Color.duskTextPrimary)
-                    .tint(Color.duskAccent)
 
                 if preferences.continuousPlayEnabled {
                     Picker("Next Episode Delay", selection: $preferences.continuousPlayCountdown) {
@@ -290,7 +285,6 @@ struct SettingsIOSView: View {
 
                 Toggle("Double-Tap to Seek", isOn: $preferences.playerDoubleTapSeekEnabled)
                     .foregroundStyle(Color.duskTextPrimary)
-                    .tint(Color.duskAccent)
 
                 if preferences.playerDoubleTapSeekEnabled {
                     Picker("Back Jump", selection: $preferences.playerDoubleTapBackwardInterval) {
@@ -326,7 +320,6 @@ struct SettingsIOSView: View {
 
                 Toggle("Wi-Fi Only", isOn: $preferences.downloadsWifiOnly)
                     .foregroundStyle(Color.duskTextPrimary)
-                    .tint(Color.duskAccent)
 
                 Picker("Simultaneous Downloads", selection: $preferences.maximumActiveDownloads) {
                     ForEach(DownloadConcurrency.allCases) { concurrency in
@@ -436,15 +429,12 @@ struct SettingsIOSView: View {
             Section {
                 Toggle("Dolby Atmos & Spatial Audio", isOn: $preferences.spatialAudioRemuxEnabled)
                     .foregroundStyle(Color.duskTextPrimary)
-                    .tint(Color.duskAccent)
 
                 Toggle("Force AVPlayer", isOn: $preferences.forceAVPlayer)
                     .foregroundStyle(Color.duskTextPrimary)
-                    .tint(Color.duskAccent)
 
                 Toggle("Force VLCKit", isOn: $preferences.forceVLCKit)
                     .foregroundStyle(Color.duskTextPrimary)
-                    .tint(Color.duskAccent)
             } header: {
                 Text("Playback Advanced")
                     .foregroundStyle(Color.duskTextSecondary)
@@ -465,7 +455,7 @@ struct SettingsIOSView: View {
                             .foregroundStyle(Color.duskTextSecondary)
                     }
                 }
-                .foregroundStyle(Color.duskAccent)
+                .foregroundStyle(Color.duskTextPrimary)
                 .duskSuppressTVOSButtonChrome()
             } header: {
                 Text("Storage")
@@ -479,7 +469,6 @@ struct SettingsIOSView: View {
             Section {
                 Toggle("Help Improve Dusk", isOn: $preferences.analyticsEnabled)
                     .foregroundStyle(Color.duskTextPrimary)
-                    .tint(Color.duskAccent)
 
                 Link(destination: SettingsSupport.privacyPolicyURL) {
                     SettingsAboutRow(
@@ -559,7 +548,7 @@ struct SettingsIOSView: View {
                         trailingSystemImage: "safari"
                     )
                 }
-                .foregroundStyle(Color.duskAccent)
+                .foregroundStyle(Color.duskTextPrimary)
                 .duskSuppressTVOSButtonChrome()
 
                 Button {
@@ -622,12 +611,12 @@ private struct SettingsAboutRow: View {
         HStack(spacing: 14) {
             ZStack {
                 RoundedRectangle(cornerRadius: 12, style: .continuous)
-                    .fill(Color.duskAccent.opacity(0.14))
+                    .fill(Color.duskTextSecondary.opacity(0.14))
                     .frame(width: 34, height: 34)
 
                 Image(systemName: systemImage)
                     .font(.subheadline.weight(.semibold))
-                    .foregroundStyle(Color.duskAccent)
+                    .foregroundStyle(Color.duskTextPrimary)
             }
 
             VStack(alignment: .leading, spacing: 2) {

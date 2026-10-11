@@ -58,7 +58,7 @@ struct SeerrSeasonDetailView: View {
                             if let showName = viewModel.show?.name {
                                 Text(showName)
                                     .font(DuskFont.metadata(ios: .subheadline.weight(.medium)))
-                                    .foregroundStyle(Color.duskAccent)
+                                    .foregroundStyle(Color.primary.opacity(0.84))
                             }
                             Text("\(season.episodes?.count ?? 0) episodes · \(viewModel.requestState.detailTitle)")
                                 .font(DuskFont.caption(ios: .caption))

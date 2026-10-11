@@ -120,7 +120,7 @@ struct PlayerAirPlayControl: View {
         ZStack {
             Image(systemName: "airplayvideo")
                 .font(symbolFont)
-                .foregroundStyle(isActive ? Color.duskAccent : .white)
+                .foregroundStyle(.white)
                 .accessibilityHidden(true)
 
             PlayerAirPlayRoutePicker(isActive: isActive)
