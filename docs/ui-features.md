@@ -286,29 +286,34 @@ in Dusk. Read this with `docs/codebase-map.md`, `STYLE.md`, and `docs/data-and-p
   intentional and "Show all" (`.hub`) shows the whole merged row rather than the
   primary server's share of it. `PlexHub.isPageable` / `hasMoreOnAnySource` /
   `totalSourceSize` are the merged-row equivalents of `key` / `more` / `size`.
-- `HomeCinematicHero` owns hero rotation, drag navigation on iOS, tvOS remote
-  swipe capture, image preloading, title-logo fallback, pager state, and motion
+- `HomeCinematicHero` owns hero rotation, drag navigation on iOS, tvOS focus-driven
+  paging, image preloading, title-logo fallback, pager state, and motion
   reduction. iOS enables automatic rotation (`autoRotates: true`): the hero advances
   every 7s and the pager pills animate a fill that tracks the timer. The hero pauses
   rotation while `PlaybackCoordinator.showPlayer` is true and restarts it fresh on
   return, so opening the player no longer advances the hero in the background.
   Rotation also respects Reduce Motion, scene phase, and drag interaction.
-  **tvOS keeps `autoRotates: false`** — the focusable play button lives inside the
-  per-item hero slide (keyed by `ratingKey`), so an unattended rotation tears down the
-  view that owns the `.heroPrimaryAction` focus binding. Because the Home tab stays
-  alive behind other tabs, a background rotation leaves that binding detached, and
-  returning to Home and pressing down from the tab bar drops focus into nothing (the
-  cursor vanishes and nothing is selectable). Do not re-enable tvOS rotation without
-  first moving the play button to a stable focusable view outside the sliding slides.
-  Discrete hero moves must mount the incoming slide at its off-screen offset before
-  advancing animation progress. On iOS overlapping moves are queued behind the
-  in-flight slide. On tvOS a remote press never waits: the in-flight slide is finished
-  in place and the new one starts immediately, with a shorter (0.32s) front-loaded
-  ease-out curve instead of iOS's 0.5s `easeInOut`, and backdrops are decoded off the
-  main thread (`byPreparingForDisplay`) during prefetch so the first frame of a slide
-  never stalls on a JPEG decode. Publish prefetched artwork as each request completes;
-  waiting for the entire batch lets one slow image make other slides pop in late.
-  Extend it carefully; it is stateful and timing-sensitive.
+  **tvOS pages natively and keeps `autoRotates: false`.** On tvOS every hero item
+  is a full-width page of one horizontal `ScrollView` (`HomeCinematicHero.tvPages`,
+  a plain `HStack`: the page focus moves to must exist before it is on screen), and
+  every page has its own play button. Left/right is an ordinary focus move to the
+  neighbouring page's button; the focus engine scrolls it into view, and
+  `HomeHeroTVPaging` snaps that reveal-scroll to whole pages (the proposed rect
+  always contains the new button whole and never another page's). Clicks and
+  touch-surface swipes are therefore handled like any row of cards, and the pager
+  pills follow the scroll offset. The end pages do not wrap. This replaced a single
+  slide paged by `onMoveCommand`: with nothing focusable left or right of the only
+  play button, the engine had no horizontal move to make, and the arc of a sideways
+  swipe on a real remote ended as a move down into the shelves, which no gesture
+  threshold fixed. A rotation timer would page the hero out from under the focused
+  button, hence no rotation. On iOS discrete hero moves still use the two-slot slide
+  model: mount the incoming slide at its off-screen offset before advancing
+  animation progress, and queue overlapping moves behind the in-flight slide.
+  Backdrops are decoded off the main thread (`byPreparingForDisplay`) during
+  prefetch so the first frame of a page never stalls on a JPEG decode. Publish
+  prefetched artwork as each request completes; waiting for the entire batch lets
+  one slow image make other pages pop in late. Extend it carefully; it is stateful
+  and timing-sensitive.
 - On iPad (regular width) the home hero uses `HomeCinematicHeroLayout.iPad`: it fills
   the scroll viewport down to the bottom inset (`heroHeightFactor: 1`), so at rest only
   the first shelf's header and poster tops peek in below it — that peek is iPad's
@@ -344,10 +349,18 @@ in Dusk. Read this with `docs/codebase-map.md`, `STYLE.md`, and `docs/data-and-p
     hero **after** the width frame and x-offset so it centres on the true screen, and
     padded 60pt off the bottom. It is decoration: non-focusable, `allowsHitTesting`
     off, `accessibilityHidden`, with a gentle chevron bounce that is skipped under
-    Reduce Motion, faded out (0.25s) whenever focus is not on `.heroPrimaryAction`,
+    Reduce Motion, faded out (0.25s) whenever focus is not on a hero play button,
     and omitted entirely when there is nothing below the hero. Keep it out of
-    `HomeCinematicHero`'s per-item slide — mounting it there would re-create it on
-    every hero change and disturb the focus binding.
+    `HomeCinematicHero`'s pages so it does not scroll away with them.
+  - **Hero focus.** `HomeTVView.FocusTarget.heroPrimaryAction(storageKey)` names a
+    page's play button; `heroFocusKey` remembers the last one focused, which is the
+    page on screen. Neighbouring pages' buttons are `.disabled` unless a play button
+    has focus, so coming in from the shelves or the tab bar lands on the page on
+    screen rather than whichever button is nearest a page away. That is not the
+    fencing warned against below: the hero's focus section always keeps one enabled
+    item. A hero reset (`heroSelectionResetRevision`, new hero items) sends the
+    page to the start, clears `heroFocusKey` and, if a play button had focus, hands
+    it to the first page's.
   - **Hero → shelves: the focus engine's move is overruled, never fenced**
     (`HomeTVView.beginHeroExit`). Measured in the tvOS simulator with a replica of
     this screen (SwiftUI hero + rows of lazy `NavigationLink` cards, driven by
@@ -366,8 +379,8 @@ in Dusk. Read this with `docs/codebase-map.md`, `STYLE.md`, and `docs/data-and-p
     - The engine's pick is geometric (play button over card 3 → card 3), so a
       pick that does not match the layout is a filler re-resolution.
     So the press is left alone and its result replaced:
-    - `beginHeroExit` starts from either the hero's `onMoveCommand` /
-      `TVRemoteSwipeCapture`'s down-click recognizer, or from a shelf card taking focus while
+    - `beginHeroExit` starts from either the hero's `onMoveCommand(.down)`, or
+      from a shelf card taking focus while
       the latch is closed (`CarouselItemFocusedKey`), whichever comes first. It
       scrolls the page to the fold and sets `carouselLeadingItemRequest = .focus`
       on `firstShelfID`'s shelf (`.landing`). That shelf's first item takes focus
@@ -385,48 +398,18 @@ in Dusk. Read this with `docs/codebase-map.md`, `STYLE.md`, and `docs/data-and-p
       to the play button, and Home disappearing go through `cancelHeroExit`, and
       `requestHeroPrimaryFocusIfNeeded` suppresses the card-focus trigger while it
       runs (`isReturningToHero`).
-    - **A down move only leaves the hero when it is deliberate.** The engine
-      moves focus off the play button for a thumb that merely drifts on the
-      touch surface: the travel it needs before focus leaves an item scales with
-      the item's size, and the play button is a fifth of a card's height. Nothing
-      in UIKit raises that threshold for one item (focus guides and UIKit decoy
-      views are never consulted for moves between SwiftUI items — measured in
-      the simulator), so Home measures the gesture itself:
-      - An invisible focusable **catch strip** (`heroDownCatch`, 100pt tall, the
-        display's width, focusable only while the latch is closed) sits directly
-        under the play button inside the hero's focus section, so the engine's down move lands
-        there instead of on a card rows below. `catchHeroDownMove` then asks
-        `HomeTVHeroDownGate` and either hands focus straight back to the play
-        button (a drift: the page never moved, only the focus ring blinks for a
-        frame) or starts the exit. It also hands back anything arriving from
-        below (the engine coming up from the first shelf, if the strip is present).
-      - `HomeTVHeroDownGate` is fed by two never-recognizing recognizers on the
-        **window** (`HeroPressObserver` for Select / Play-Pause / the clickpad's
-        down click, `HeroTouchObserver` for the indirect touch's travel and
-        velocity); recognizers on `TVRemoteSwipeCapture`'s superview never see
-        remote presses (measured in the simulator). Never while Select / Play-Pause
-        is held on the play button or for 300ms after (a thumb rolling on the
-        clickpad as it clicks Play); otherwise a move counts when a down click is
-        in flight or just ended, or the touch has gone more down than sideways
-        since it began **and** has travelled ≥ `deliberateTravel` (160 window pt)
-        down or peaked faster than `deliberateVelocity` (1500 pt/s) while moving
-        more down than sideways — a touch that ended less than 300ms ago is
-        judged by how it ended — or nothing has touched the surface lately. The
-        direction rule comes first: a thumb swiping left/right to page the hero
-        arcs, the engine turns the arc into a down move off the small play
-        button, and before the rule a fast page swipe's downward travel/speed
-        alone passed the limits and dropped focus into the first shelf. A move refused as a
-        drift is retried by Home itself if the same touch then qualifies
-        (`noteRefusedMove` / `onQualifiedAfterRefusal`), so leaving the hero never
-        depends on the engine attempting a second move. The two limits are set by
-        feel; adjust them there.
-      - Every exit trigger (`catchHeroDownMove`, `onMoveCommand`,
-        `CarouselItemFocusedKey`) asks the gate; a move it refuses after the
-        engine already left the play button is answered by
-        `requestHeroPrimaryFocusIfNeeded`, and `HomeTVFoldSnapping` holds the page
-        at the hero meanwhile so it does not dip to the fold and back. There is no
-        down-swipe recognizer: a raw `UISwipeGestureRecognizer` fires alongside a
-        click and below the engine's own threshold.
+    - **Down from the hero is the focus engine's call**, touch-surface moves
+      included; there is no gesture gate. The one exception is
+      `HomeTVHeroPressGuard`: while Select / Play-Pause is held on a play button,
+      or for 300ms after (a thumb rolling on the clickpad as it clicks Play), a
+      down move is refused, focus goes back through
+      `requestHeroPrimaryFocusIfNeeded`, and `HomeTVFoldSnapping` holds the page at
+      the hero meanwhile so it does not dip to the fold and back. The guard is fed
+      by `HeroPressObserver`, a never-recognizing recognizer on the **window**:
+      recognizers next to the play button never see remote presses (measured in
+      the simulator). An earlier catch strip under the play button plus a
+      touch-travel/velocity gate (35c8427, f3b2cea) were removed with the move to
+      native paging: sideways swipes were the moves they misjudged.
     - `shelvesUnlocked` is **latched**: it means "focus has settled below the
       hero". It drops when focus is back on the play button and stays open while
       there is no hero. It drives `settleFold` and the engine-driven trigger

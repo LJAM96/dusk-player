@@ -32,11 +32,14 @@ struct HomeTVView: View {
     let play: (PlexItem) -> Void
 
     private enum FocusTarget: Hashable {
-        case heroPrimaryAction
-        /// The invisible strip under the play button that the focus engine's
-        /// down move lands on first. See `heroDownCatch`.
-        case heroDownCatch
+        /// A hero page's play button, by its item's `storageKey`. Every page
+        /// has its own (`HomeCinematicHero.tvPages`).
+        case heroPrimaryAction(String)
     }
+
+    /// The page whose play button last had focus, i.e. the hero page on
+    /// screen. See `heroPrimaryKey(in:)`.
+    @State private var heroFocusKey: String?
 
     /// Whether the hero still covers at least half the screen. Tells
     /// `HomeTVFoldSnapping` which side of the fold a focus move starts from.
@@ -60,10 +63,9 @@ struct HomeTVView: View {
     /// button. A card that holds focus for a moment in between is not the
     /// focus engine moving down from the hero.
     @State private var isReturningToHero = false
-    /// Whether a down move off the play button is deliberate: fed from UIKit
-    /// with the remote's presses and touch-surface travel, asked whenever a
-    /// move arrives. See `HomeTVHeroDownGate`.
-    @State private var heroDownGate = HomeTVHeroDownGate()
+    /// Whether Select is held on a play button. Fed from UIKit, asked
+    /// whenever a down move arrives. See `HomeTVHeroPressGuard`.
+    @State private var heroPressGuard = HomeTVHeroPressGuard()
 
     /// The hero's down-press. See `beginHeroExit`.
     private enum HeroExitPhase {
@@ -97,6 +99,20 @@ struct HomeTVView: View {
         #endif
     }
 
+    private var isHeroPrimaryFocused: Bool {
+        if case .heroPrimaryAction = focusedTarget { return true }
+        return false
+    }
+
+    /// The play button Home hands focus to: the page last focused while it
+    /// is still in the hero, otherwise the first.
+    private func heroPrimaryKey(in heroItems: [PlexItem]) -> String? {
+        if let heroFocusKey, heroItems.contains(where: { $0.id.storageKey == heroFocusKey }) {
+            return heroFocusKey
+        }
+        return heroItems.first?.id.storageKey
+    }
+
     /// Whether the "More" hint is telling the truth.
     private var hasContentBelowHero: Bool {
         showsLiveTV
@@ -108,6 +124,8 @@ struct HomeTVView: View {
         GeometryReader { geometry in
             let heroItems = viewModel.heroItems()
             let heroItemIDs = heroItems.map(\.id)
+            let currentHeroKey = heroPrimaryKey(in: heroItems)
+            let heroHasFocus = isHeroPrimaryFocused
             let globalFrame = geometry.frame(in: .global)
             let screenWidth = max(fullDisplayWidth(fallback: geometry.size.width), geometry.size.width)
             let leadingContentInset = max(globalFrame.minX, 0)
@@ -139,20 +157,17 @@ struct HomeTVView: View {
                             contentLeadingInset: leadingContentInset,
                             contentTrailingInset: trailingContentInset,
                             layout: .tv,
-                            // Keep tvOS hero rotation OFF. The focusable play button
-                            // lives inside the per-item hero slide (keyed by ratingKey),
-                            // so an unattended rotation tears down the view that owns the
-                            // `.heroPrimaryAction` focus binding. While another tab is on
-                            // screen the Home tab stays alive and keeps rotating, leaving
-                            // the binding detached — so returning to Home and pressing down
-                            // from the tab bar drops focus into nothing (cursor vanishes,
-                            // nothing is selectable). iOS has no focus engine and keeps it on.
+                            // Keep tvOS hero rotation OFF. Its pages are paged by
+                            // moving focus between their play buttons; a rotation
+                            // timer would page the hero out from under the focused
+                            // button. iOS has no focus engine and keeps it on.
                             autoRotates: false,
                             supportsDragNavigation: false,
                             selectionResetRevision: heroSelectionResetRevision,
                             onMoveDown: { beginHeroExit(heroHeight: heroHeight) },
                             primaryAction: { item, callbacks in
-                                AnyView(
+                                let key = item.id.storageKey
+                                return AnyView(
                                     Button {
                                         callbacks.restartRotation()
                                         play(item)
@@ -164,17 +179,14 @@ struct HomeTVView: View {
                                     }
                                     #if os(tvOS)
                                     .homeHeroNativeButtonStyle()
-                                    .focused($focusedTarget, equals: .heroPrimaryAction)
-                                    .prefersDefaultFocus(true, in: homeFocusScope)
-                                    .background(
-                                        TVRemoteSwipeCapture(
-                                            isEnabled: focusedTarget == .heroPrimaryAction,
-                                            downGate: heroDownGate,
-                                            onSwipeLeft: callbacks.showPrevious,
-                                            onSwipeRight: callbacks.showNext,
-                                            onMoveDown: { beginHeroExit(heroHeight: heroHeight) }
-                                        )
-                                    )
+                                    .focused($focusedTarget, equals: .heroPrimaryAction(key))
+                                    .prefersDefaultFocus(key == currentHeroKey, in: homeFocusScope)
+                                    // The other pages' buttons are only reachable
+                                    // from a play button (left/right). Coming in
+                                    // from the shelves or the tab bar, the engine
+                                    // would otherwise pick whichever button is
+                                    // nearest, a page away off screen.
+                                    .disabled(!heroHasFocus && key != currentHeroKey)
                                     #endif
                                     .contextMenu {
                                         HomeItemContextMenu(
@@ -201,15 +213,6 @@ struct HomeTVView: View {
                                         }
                                     }
                                     .accessibilityAddTraits(.isButton)
-                                    #if os(tvOS)
-                                    .overlay(alignment: .bottomLeading) {
-                                        // The guide must sit on the strip itself: a
-                                        // conditional wrapper would swallow it and
-                                        // leave the strip over the button.
-                                        heroDownCatch(width: heroContainerSize.width, isEnabled: !shelvesUnlocked)
-                                            .alignmentGuide(.bottom) { $0[.top] }
-                                    }
-                                    #endif
                                 )
                             }
                         )
@@ -257,9 +260,9 @@ struct HomeTVView: View {
             .scrollTargetBehavior(
                 HomeTVFoldSnapping(
                     foldY: heroItems.isEmpty ? nil : heroHeight,
-                    startsAboveFold: focusedTarget == .heroPrimaryAction || isHeroShowing,
+                    startsAboveFold: heroHasFocus || isHeroShowing,
                     pinsToFold: heroExit != .idle,
-                    downGate: heroDownGate
+                    pressGuard: heroPressGuard
                 )
             )
             .onScrollGeometryChange(for: Bool.self) { scrollGeometry in
@@ -270,7 +273,7 @@ struct HomeTVView: View {
             .onPreferenceChange(CarouselLeadingItemFocusedKey.self) { hasLanded in
                 if hasLanded {
                     finishHeroExit(heroHeight: heroHeight)
-                } else if heroExit == .landing, shelvesUnlocked, focusedTarget != .heroPrimaryAction {
+                } else if heroExit == .landing, shelvesUnlocked, !isHeroPrimaryFocused {
                     // The first item had focus and lost it to a further move
                     // of the same gesture while the landing is still open.
                     // Not to the play button: that is the user going back up,
@@ -283,13 +286,6 @@ struct HomeTVView: View {
             // `onMoveDown`, which may or may not have fired already.
             .onPreferenceChange(CarouselItemFocusedKey.self) { isCardFocused in
                 guard isCardFocused, !heroItems.isEmpty, !shelvesUnlocked, !isReturningToHero else { return }
-                // The thumb drifted on the touch surface, and the engine took
-                // that for a move past the catch strip. Play keeps focus.
-                if !heroDownGate.allowsDownMove {
-                    heroDownGate.noteRefusedMove()
-                    Task { await requestHeroPrimaryFocusIfNeeded(hasHeroItems: true) }
-                    return
-                }
                 beginHeroExit(heroHeight: heroHeight)
             }
             // Only a page with a hero has somewhere to return to: without one
@@ -325,6 +321,9 @@ struct HomeTVView: View {
             }
             #if os(tvOS)
             .focusScope(homeFocusScope)
+            .background {
+                HeroPressObserverAttachment(isArmed: heroHasFocus, pressGuard: heroPressGuard)
+            }
             #endif
             .contentMargins(.zero, for: .scrollContent)
             .contentMargins(.zero, for: .scrollIndicators)
@@ -333,15 +332,10 @@ struct HomeTVView: View {
             .scrollClipDisabled()
             #endif
             .duskTVOSPageBackground()
-            .defaultFocus($focusedTarget, .heroPrimaryAction)
-            .onChange(of: focusedTarget) { previous, target in
-                #if os(tvOS)
-                if target == .heroDownCatch {
-                    catchHeroDownMove(from: previous, heroHeight: heroHeight)
-                    return
-                }
-                #endif
-                if target == .heroPrimaryAction {
+            .defaultFocus($focusedTarget, .heroPrimaryAction(currentHeroKey ?? ""))
+            .onChange(of: focusedTarget) { _, target in
+                if case .heroPrimaryAction(let key) = target {
+                    heroFocusKey = key
                     shelvesUnlocked = false
                     // Focus came back to the play button after the landing
                     // was requested: the user went back up. Withdraw the
@@ -355,7 +349,18 @@ struct HomeTVView: View {
                 scheduleFoldSettle(heroHeight: heroHeight, hasHeroItems: !heroItems.isEmpty)
             }
             .task(id: heroItemIDs) {
+                // The hero starts over on its first page when its items change.
+                heroFocusKey = nil
                 await requestHeroPrimaryFocusIfNeeded(hasHeroItems: !heroItems.isEmpty)
+            }
+            // The hero is back on its first page (Home reselected, the app
+            // reactivated, playback over). A play button that had focus hands
+            // it to the first page's, or focus would sit pages away off screen.
+            .onChange(of: heroSelectionResetRevision) { _, _ in
+                heroFocusKey = nil
+                if isHeroPrimaryFocused, let first = heroItems.first {
+                    focusedTarget = .heroPrimaryAction(first.id.storageKey)
+                }
             }
             // The Siri Remote's Back press while the page is scrolled down.
             // This only moves focus back to the hero: the focus engine's
@@ -512,66 +517,13 @@ struct HomeTVView: View {
     private func scrollHint(isEnabled: Bool) -> some View {
         #if os(tvOS)
         if isEnabled {
-            HomeTVScrollHint(isVisible: focusedTarget == .heroPrimaryAction)
+            HomeTVScrollHint(isVisible: isHeroPrimaryFocused)
                 .padding(.bottom, 60)
         }
         #else
         EmptyView()
         #endif
     }
-
-    #if os(tvOS)
-    /// Height of the catch strip. It fits in the hero's bottom padding under
-    /// the play button (at least 104pt in `HomeCinematicHeroLayout.tv`), so
-    /// the hero's clip never cuts it (a clipped strip still worked in the
-    /// simulator; this just keeps it simple).
-    private let heroDownCatchHeight: CGFloat = 100
-
-    /// The first thing the focus engine finds below the play button: an
-    /// invisible focusable strip the width of the display, inside the hero's
-    /// focus section. It never keeps focus. `catchHeroDownMove` either hands
-    /// focus straight back to the play button (the move was a thumb drifting
-    /// on the touch surface) or starts the hero exit (it was deliberate).
-    ///
-    /// Without it the engine's first stop is a shelf card or a filler item,
-    /// rows below and off screen, and taking a drift back from there costs a
-    /// scroll and a visible card flash. The strip is inside the hero, so the
-    /// page does not move and the only thing that changes for a frame is the
-    /// play button's focus ring.
-    ///
-    /// Only focusable while the latch is closed, so the move back up from the
-    /// first shelf goes straight to the play button.
-    private func heroDownCatch(width: CGFloat, isEnabled: Bool) -> some View {
-        Color.clear
-            .frame(width: width, height: heroDownCatchHeight)
-            .focusable(isEnabled)
-            .focused($focusedTarget, equals: .heroDownCatch)
-            .focusEffectDisabled()
-            .accessibilityHidden(true)
-    }
-
-    /// Focus arrived on the catch strip.
-    ///
-    /// Only a deliberate down move from the play button leaves the hero
-    /// (`heroDownGate`). Anything else, including the engine arriving from
-    /// below on its way up, goes to the play button.
-    private func catchHeroDownMove(from previous: FocusTarget?, heroHeight: CGFloat) {
-        guard previous == .heroPrimaryAction, !shelvesUnlocked, !isReturningToHero,
-              heroDownGate.allowsDownMove else {
-            if previous == .heroPrimaryAction, !shelvesUnlocked {
-                heroDownGate.noteRefusedMove()
-            }
-            focusedTarget = .heroPrimaryAction
-            return
-        }
-
-        beginHeroExit(heroHeight: heroHeight)
-        if heroExit == .idle {
-            // Nothing to land on (no shelf renders anything yet).
-            focusedTarget = .heroPrimaryAction
-        }
-    }
-    #endif
 
     /// The hero's down-press. Whatever the focus engine does with it, the
     /// landing ends on the first item of the first shelf.
@@ -585,15 +537,12 @@ struct HomeTVView: View {
     /// Measured in the simulator with a replica of this screen; see
     /// `docs/ui-features.md`.
     ///
-    /// So the press is left alone and overruled instead. It reaches here three
-    /// ways, in any order, and the first one wins:
-    /// - the catch strip under the play button taking focus
-    ///   (`catchHeroDownMove`), which is where the engine's move lands;
-    /// - the hero's `onMoveCommand(.down)` (which fires whether or not the
-    ///   engine moved focus) and the down-click recognizer behind the play
-    ///   button;
+    /// So the press is left alone and overruled instead. It reaches here two
+    /// ways, in either order, and the first one wins:
+    /// - the hero's `onMoveCommand(.down)`, which fires whether or not the
+    ///   engine moved focus;
     /// - a shelf card taking focus while `shelvesUnlocked` is closed, i.e.
-    ///   the engine moved down past the strip by itself.
+    ///   the engine moved down from the play button.
     ///
     /// 1. Scroll the page to the fold. `HomeTVFoldSnapping` pins every
     ///    scroll the engine makes meanwhile to the fold as well.
@@ -606,15 +555,18 @@ struct HomeTVView: View {
     ///
     /// If the item never answers, the timeout returns focus to the hero.
     ///
-    /// Only a deliberate move counts (`heroDownGate`): a thumb drifting on
-    /// the touch surface, or rolling on the clickpad as it presses Play, must
-    /// not carry focus to a card. If the engine already moved focus off the
-    /// play button for it, focus goes straight back.
+    /// Not while Select is held on the play button (`heroPressGuard`): a
+    /// thumb rolling on the clickpad as it presses Play must not carry focus
+    /// to a card. If the engine already moved focus off the play button for
+    /// it, focus goes straight back.
+    ///
+    /// Everything else is the focus engine's call, touch-surface moves
+    /// included. Left/right on the hero are ordinary focus moves between its
+    /// pages' play buttons, so a sideways swipe never reaches here.
     private func beginHeroExit(heroHeight: CGFloat) {
         guard heroExit == .idle, !shelvesUnlocked, let landingShelf = firstShelfID else { return }
-        if !heroDownGate.allowsDownMove {
-            heroDownGate.noteRefusedMove()
-            if focusedTarget != .heroPrimaryAction, !isReturningToHero {
+        if heroPressGuard.isHolding {
+            if !isHeroPrimaryFocused, !isReturningToHero {
                 Task { await requestHeroPrimaryFocusIfNeeded(hasHeroItems: true) }
             }
             return
@@ -665,7 +617,7 @@ struct HomeTVView: View {
     /// place both focus and page are known to agree is the hero.
     private func endHeroExit(heroHeight: CGFloat) {
         heroExit = .idle
-        if focusedTarget == .heroPrimaryAction {
+        if isHeroPrimaryFocused {
             scheduleFoldSettle(heroHeight: heroHeight, hasHeroItems: true)
         } else {
             Task { await requestHeroPrimaryFocusIfNeeded(hasHeroItems: true) }
@@ -739,7 +691,7 @@ struct HomeTVView: View {
         #if os(tvOS)
         resetFocus(in: homeFocusScope)
         #endif
-        focusedTarget = .heroPrimaryAction
+        focusedTarget = heroPrimaryKey(in: viewModel.heroItems()).map(FocusTarget.heroPrimaryAction)
     }
 
     private func fullDisplayWidth(fallback: CGFloat) -> CGFloat {
@@ -828,8 +780,8 @@ private struct HomeTVFoldSnapping: ScrollTargetBehavior {
     /// when the first card takes focus.
     var pinsToFold = false
     /// Read live, not from the last render: the move it blocks arrives
-    /// mid-gesture, before any re-render.
-    var downGate: HomeTVHeroDownGate?
+    /// mid-press, before any re-render.
+    var pressGuard: HomeTVHeroPressGuard?
 
     func updateTarget(_ target: inout ScrollTarget, context: TargetContext) {
         // Only the vertical page scroll, never the shelves' own carousels.
@@ -841,10 +793,10 @@ private struct HomeTVFoldSnapping: ScrollTargetBehavior {
             return
         }
 
-        if startsAboveFold, downGate?.allowsDownMove == false {
-            // A move the engine made out of a drift or a press on the play
-            // button. `HomeTVView` hands focus straight back, so the page
-            // stays on the hero rather than dipping to the fold and back.
+        if startsAboveFold, pressGuard?.isHolding == true {
+            // A move the engine made out of a press on the play button.
+            // `HomeTVView` hands focus straight back, so the page stays on the
+            // hero rather than dipping to the fold and back.
             target.rect.origin.y = 0
             return
         }
@@ -941,170 +893,41 @@ private struct HomeTVScrollMetrics: Equatable {
     }
 }
 
-/// Whether a down move off the hero's play button is deliberate.
+/// Whether Select or Play/Pause is held on a hero play button, or was let go
+/// less than `releaseGrace` ago.
 ///
-/// The focus engine moves focus down from the play button for a thumb that
-/// merely drifts on the Siri Remote's touch surface: how far the thumb has to
-/// travel before focus leaves an item depends on the item's size, and the
-/// play button is small (a card is five times taller). Nothing in UIKit lets
-/// Home raise that threshold for one item, so Home measures the gesture
-/// itself and decides whether the move it produced counts.
-///
-/// A move never counts while Select or Play/Pause is held on the play button,
-/// or for `releaseGrace` after: a thumb rolling on the clickpad as it clicks
-/// must not carry the press to a card. Otherwise it counts when
-/// - a click on the clickpad's bottom edge is in flight or just ended (the
-///   click can be over before Home gets to ask), or
-/// - the touch has gone more down than sideways since it began, and has
-///   travelled `deliberateTravel` down or moved down faster than
-///   `deliberateVelocity` at some point (while moving more down than
-///   sideways); a touch that ended less than `touchGrace` ago is judged by
-///   how it ended, since the engine's move can reach Home a render after the
-///   finger lifted, or
-/// - nothing has touched the surface lately (so the move is not a drift).
-///
-/// A move Home refused is retried by Home itself if the same touch then goes
-/// on to qualify (`noteRefusedMove`, `onQualifiedAfterRefusal`): leaving the
-/// hero must not depend on the engine attempting a second move.
-///
-/// The direction comes first. A thumb swiping left or right to page the hero
-/// arcs on its way across the surface, and the focus engine turns that arc
-/// into a down move off the small play button. Measured on its own, the arc's
-/// downward travel and speed look like a swipe down, and a fast page swipe
-/// went straight to the shelves. A touch that went further sideways than down
-/// is a page swipe, whatever its speed.
-///
-/// Travel and velocity are in the window's points, as UIKit reports indirect
-/// touches: the touch starts at the centre of the display and moves from
-/// there. The two limits are set by feel, between a drift (a few points,
-/// slow) and the shortest swipe that moves focus a full card row.
+/// A thumb rolling on the clickpad as it clicks Play is enough for the focus
+/// engine to move focus down off the small button, and the press then lands
+/// on a card. No down move leaves the hero meanwhile
+/// (`HomeTVView.beginHeroExit`).
 ///
 /// Nothing reads it to draw, so it is a plain reference rather than state:
-/// `SwipeCaptureView` writes it from UIKit and `HomeTVView` asks it when a
+/// `HeroPressObserver` writes it from UIKit and `HomeTVView` asks it when a
 /// move arrives.
-private final class HomeTVHeroDownGate {
-    /// Window points of downward travel that make a touch a swipe.
-    static let deliberateTravel: CGFloat = 160
-    /// Window points per second of downward motion that make a touch a flick,
-    /// however short.
-    static let deliberateVelocity: CGFloat = 1500
-
+private final class HomeTVHeroPressGuard {
     /// Long enough to cover a thumb rolling off the clickpad after the click,
-    /// short enough that a deliberate swipe straight after never notices.
+    /// short enough that a deliberate move straight after never notices.
     private let releaseGrace: CFTimeInterval = 0.3
     /// A press is never held this long: a missed release must not lock the
     /// hero in for good. A long press opens the context menu well before.
     private let maximumHold: CFTimeInterval = 2
-    private var selectPressedAt: CFTimeInterval?
-    private var selectReleasedAt: CFTimeInterval = -.infinity
-    /// A click is over before Home asks about the move it caused: the engine
-    /// moves focus on press-down, Home hears of it a render later.
-    private let downPressGrace: CFTimeInterval = 0.5
-    private var downPressedAt: CFTimeInterval?
-    private var downReleasedAt: CFTimeInterval = -.infinity
+    private var pressedAt: CFTimeInterval?
+    private var releasedAt: CFTimeInterval = -.infinity
 
-    /// Same for a touch: the finger can lift between the engine's move and
-    /// Home's question about it.
-    private let touchGrace: CFTimeInterval = 0.3
-    private(set) var isTouching = false
-    private var touchEndedAt: CFTimeInterval = -.infinity
-    /// Translation since the touch began, window points, y down.
-    private var touchTravel = CGPoint.zero
-    /// Points per second, y down, lightly smoothed, and the peak downward
-    /// speed so far among the moments the touch moved more down than
-    /// sideways: a flick is judged by its fastest moment, not by how it
-    /// ended, and the fast middle of a sideways swipe never counts.
-    private var touchVelocity = CGPoint.zero
-    private var touchPeakVelocityY: CGFloat = 0
-    /// Home refused a move during the current touch. If the touch then
-    /// qualifies, `onQualifiedAfterRefusal` runs once.
-    private var hasRefusedMove = false
-    /// Set by `SwipeCaptureView`: Home's own hero exit.
-    var onQualifiedAfterRefusal: (() -> Void)?
-
-    var isHoldingSelect: Bool {
+    var isHolding: Bool {
         let now = CACurrentMediaTime()
-        if let selectPressedAt, now - selectPressedAt < maximumHold { return true }
-        return now - selectReleasedAt < releaseGrace
+        if let pressedAt, now - pressedAt < maximumHold { return true }
+        return now - releasedAt < releaseGrace
     }
 
-    var isDownPressActive: Bool {
-        let now = CACurrentMediaTime()
-        if let downPressedAt, now - downPressedAt < maximumHold { return true }
-        return now - downReleasedAt < downPressGrace
+    func pressBegan() {
+        pressedAt = CACurrentMediaTime()
     }
 
-    var allowsDownMove: Bool {
-        if isHoldingSelect { return false }
-        if isDownPressActive { return true }
-        if isTouching || CACurrentMediaTime() - touchEndedAt < touchGrace {
-            return isTouchDeliberate
-        }
-        return true
-    }
-
-    private var isTouchDeliberate: Bool {
-        guard touchTravel.y > abs(touchTravel.x) else { return false }
-        return touchTravel.y >= Self.deliberateTravel || touchPeakVelocityY >= Self.deliberateVelocity
-    }
-
-    /// Home turned a move down. Called where focus is handed back.
-    func noteRefusedMove() {
-        guard isTouching else { return }
-        hasRefusedMove = true
-    }
-
-    func selectBegan() {
-        selectPressedAt = CACurrentMediaTime()
-    }
-
-    func selectEnded() {
-        guard selectPressedAt != nil else { return }
-        selectPressedAt = nil
-        selectReleasedAt = CACurrentMediaTime()
-    }
-
-    func downPressBegan() {
-        downPressedAt = CACurrentMediaTime()
-    }
-
-    func downPressEnded() {
-        guard downPressedAt != nil else { return }
-        downPressedAt = nil
-        downReleasedAt = CACurrentMediaTime()
-    }
-
-    func touchBegan() {
-        isTouching = true
-        touchTravel = .zero
-        touchVelocity = .zero
-        touchPeakVelocityY = 0
-        hasRefusedMove = false
-    }
-
-    func touchMoved(translation: CGPoint, velocity: CGPoint) {
-        guard isTouching else { return }
-        touchTravel = translation
-        touchVelocity = CGPoint(
-            x: touchVelocity.x * 0.5 + velocity.x * 0.5,
-            y: touchVelocity.y * 0.5 + velocity.y * 0.5
-        )
-        if touchVelocity.y > abs(touchVelocity.x) {
-            touchPeakVelocityY = max(touchPeakVelocityY, touchVelocity.y)
-        }
-        if hasRefusedMove, !isHoldingSelect, isTouchDeliberate {
-            hasRefusedMove = false
-            onQualifiedAfterRefusal?()
-        }
-    }
-
-    func touchEnded() {
-        guard isTouching else { return }
-        isTouching = false
-        touchEndedAt = CACurrentMediaTime()
-        hasRefusedMove = false
-        // Travel and peak velocity stay for `touchGrace`; the next touch
-        // resets them.
+    func pressEnded() {
+        guard pressedAt != nil else { return }
+        pressedAt = nil
+        releasedAt = CACurrentMediaTime()
     }
 }
 
@@ -1123,9 +946,8 @@ private final class HomeTVFoldSettle {
 ///
 /// It is decoration only: never focusable, never hit-testable, and hidden from
 /// accessibility (VoiceOver users navigate by focus, and the shelves announce
-/// themselves). It must stay **outside** `HomeCinematicHero`'s per-item slide —
-/// mounting it there would tear it down on every hero change and disturb the
-/// `.heroPrimaryAction` focus binding.
+/// themselves). It stays **outside** `HomeCinematicHero`'s pages, so it does
+/// not scroll away with them.
 private struct HomeTVScrollHint: View {
     @Environment(\.accessibilityReduceMotion) private var accessibilityReduceMotion
 
@@ -1166,27 +988,25 @@ private struct HomeTVScrollHint: View {
     }
 }
 
-/// Feeds `HomeTVHeroDownGate` with the remote's presses: Select and
-/// Play/Pause (the hold), and the click on the clickpad's bottom edge. Never
-/// recognizes and cancels nothing, so the play button gets its press exactly
-/// as before.
+/// Feeds `HomeTVHeroPressGuard` with the remote's Select and Play/Pause
+/// presses. Never recognizes and cancels nothing, so the play button gets its
+/// press exactly as before.
 ///
-/// It sits on the window, not next to the play button: remote presses only
-/// reach recognizers on the focused item's own view chain, and the SwiftUI
-/// button's focus item is not a superview of this capture view (measured in
-/// the simulator: a recognizer there never saw a Select or down press).
+/// It sits on the window: remote presses only reach recognizers on the
+/// focused item's own view chain, and a SwiftUI button's focus item has no
+/// view of its own (measured in the simulator: a recognizer next to the play
+/// button never saw a press).
 private final class HeroPressObserver: UIGestureRecognizer {
-    weak var downGate: HomeTVHeroDownGate?
-    /// Focus is on the play button. Presses that start anywhere else are
-    /// none of the gate's business.
+    weak var pressGuard: HomeTVHeroPressGuard?
+    /// A play button has focus. Presses anywhere else are none of the
+    /// guard's business.
     var isArmed = false
 
     override init(target: Any?, action: Selector?) {
         super.init(target: target, action: action)
         allowedPressTypes = [
             NSNumber(value: UIPress.PressType.select.rawValue),
-            NSNumber(value: UIPress.PressType.playPause.rawValue),
-            NSNumber(value: UIPress.PressType.downArrow.rawValue)
+            NSNumber(value: UIPress.PressType.playPause.rawValue)
         ]
         allowedTouchTypes = []
         cancelsTouchesInView = false
@@ -1198,238 +1018,69 @@ private final class HeroPressObserver: UIGestureRecognizer {
             state = .failed
             return
         }
-        for press in presses {
-            switch press.type {
-            case .downArrow: downGate?.downPressBegan()
-            case .select, .playPause: downGate?.selectBegan()
-            default: break
-            }
-        }
+        pressGuard?.pressBegan()
     }
 
     override func pressesEnded(_ presses: Set<UIPress>, with event: UIPressesEvent) {
-        end(presses)
+        pressGuard?.pressEnded()
+        state = .failed
     }
 
     override func pressesCancelled(_ presses: Set<UIPress>, with event: UIPressesEvent) {
-        end(presses)
-    }
-
-    override func reset() {
-        super.reset()
-        downGate?.selectEnded()
-        downGate?.downPressEnded()
-    }
-
-    private func end(_ presses: Set<UIPress>) {
-        for press in presses {
-            switch press.type {
-            case .downArrow: downGate?.downPressEnded()
-            case .select, .playPause: downGate?.selectEnded()
-            default: break
-            }
-        }
-        state = .failed
-    }
-}
-
-/// Feeds `HomeTVHeroDownGate` with the touch on the remote's touch surface:
-/// how far it has travelled since it began and how fast it is moving. Never
-/// recognizes and cancels nothing. On the window, like `HeroPressObserver`,
-/// so it keeps seeing the touch whichever item the focus engine moves to
-/// mid-gesture.
-private final class HeroTouchObserver: UIGestureRecognizer {
-    weak var downGate: HomeTVHeroDownGate?
-    var isArmed = false
-
-    private var startLocation = CGPoint.zero
-    private var lastLocation = CGPoint.zero
-    private var lastTimestamp: TimeInterval = 0
-
-    override init(target: Any?, action: Selector?) {
-        super.init(target: target, action: action)
-        allowedTouchTypes = [NSNumber(value: UITouch.TouchType.indirect.rawValue)]
-        allowedPressTypes = []
-        cancelsTouchesInView = false
-        delaysTouchesBegan = false
-        delaysTouchesEnded = false
-    }
-
-    override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent) {
-        guard isArmed, let touch = touches.first else {
-            state = .failed
-            return
-        }
-        startLocation = touch.location(in: nil)
-        lastLocation = startLocation
-        lastTimestamp = touch.timestamp
-        downGate?.touchBegan()
-    }
-
-    override func touchesMoved(_ touches: Set<UITouch>, with event: UIEvent) {
-        guard let touch = touches.first else { return }
-        let location = touch.location(in: nil)
-        let dt = touch.timestamp - lastTimestamp
-        let velocity = dt > 0
-            ? CGPoint(x: (location.x - lastLocation.x) / dt, y: (location.y - lastLocation.y) / dt)
-            : .zero
-        lastLocation = location
-        lastTimestamp = touch.timestamp
-        downGate?.touchMoved(
-            translation: CGPoint(x: location.x - startLocation.x, y: location.y - startLocation.y),
-            velocity: velocity
-        )
-    }
-
-    override func touchesEnded(_ touches: Set<UITouch>, with event: UIEvent) {
-        downGate?.touchEnded()
-        state = .failed
-    }
-
-    override func touchesCancelled(_ touches: Set<UITouch>, with event: UIEvent) {
-        downGate?.touchEnded()
+        pressGuard?.pressEnded()
         state = .failed
     }
 
     override func reset() {
         super.reset()
-        downGate?.touchEnded()
+        pressGuard?.pressEnded()
     }
 }
 
-private struct TVRemoteSwipeCapture: UIViewRepresentable {
-    let isEnabled: Bool
-    let downGate: HomeTVHeroDownGate
-    let onSwipeLeft: () -> Void
-    let onSwipeRight: () -> Void
-    /// A click on the bottom edge of the clickpad, or a touch qualifying as a
-    /// swipe after a move of it was refused. Belt and braces next to the
-    /// hero's `onMoveCommand`: any one starting the hero exit is enough.
-    ///
-    /// There is deliberately no down *swipe* recognizer. A raw
-    /// `UISwipeGestureRecognizer` has a far lower threshold than the focus
-    /// engine and recognizes alongside a click. Touch-surface moves down are
-    /// the focus engine's and reach Home through the catch strip,
-    /// `onMoveCommand`, or a card taking focus, each asking
-    /// `HomeTVHeroDownGate` whether the touch was deliberate.
-    let onMoveDown: () -> Void
+/// Keeps a `HeroPressObserver` on the window while Home is on screen.
+private struct HeroPressObserverAttachment: UIViewRepresentable {
+    let isArmed: Bool
+    let pressGuard: HomeTVHeroPressGuard
 
-    func makeUIView(context: Context) -> SwipeCaptureView {
-        let view = SwipeCaptureView()
-        view.backgroundColor = .clear
-        view.update(
-            isEnabled: isEnabled,
-            downGate: downGate,
-            onSwipeLeft: onSwipeLeft,
-            onSwipeRight: onSwipeRight,
-            onMoveDown: onMoveDown
-        )
+    func makeUIView(context: Context) -> PressObserverHostView {
+        let view = PressObserverHostView()
+        view.isUserInteractionEnabled = false
+        view.update(isArmed: isArmed, pressGuard: pressGuard)
         return view
     }
 
-    func updateUIView(_ uiView: SwipeCaptureView, context: Context) {
-        uiView.update(
-            isEnabled: isEnabled,
-            downGate: downGate,
-            onSwipeLeft: onSwipeLeft,
-            onSwipeRight: onSwipeRight,
-            onMoveDown: onMoveDown
-        )
+    func updateUIView(_ uiView: PressObserverHostView, context: Context) {
+        uiView.update(isArmed: isArmed, pressGuard: pressGuard)
     }
 }
 
-private final class SwipeCaptureView: UIView, UIGestureRecognizerDelegate {
-    private weak var attachedView: UIView?
-    private lazy var swipeLeftRecognizer: UISwipeGestureRecognizer = {
-        let recognizer = UISwipeGestureRecognizer(target: self, action: #selector(handleSwipe(_:)))
-        recognizer.direction = .left
-        recognizer.delegate = self
-        return recognizer
-    }()
-    private lazy var swipeRightRecognizer: UISwipeGestureRecognizer = {
-        let recognizer = UISwipeGestureRecognizer(target: self, action: #selector(handleSwipe(_:)))
-        recognizer.direction = .right
-        recognizer.delegate = self
-        return recognizer
-    }()
-    /// The click on the bottom edge of the remote's clickpad. Presses only:
-    /// with touches allowed it would also fire for a tap on the touch surface.
-    private lazy var pressDownRecognizer: UITapGestureRecognizer = {
-        let recognizer = UITapGestureRecognizer(target: self, action: #selector(handlePressDown))
-        recognizer.allowedPressTypes = [NSNumber(value: UIPress.PressType.downArrow.rawValue)]
-        recognizer.allowedTouchTypes = []
-        recognizer.delegate = self
-        return recognizer
-    }()
-    private lazy var pressObserver: HeroPressObserver = {
+private final class PressObserverHostView: UIView, UIGestureRecognizerDelegate {
+    private lazy var observer: HeroPressObserver = {
         let recognizer = HeroPressObserver(target: nil, action: nil)
         recognizer.delegate = self
         return recognizer
     }()
-    private lazy var touchObserver: HeroTouchObserver = {
-        let recognizer = HeroTouchObserver(target: nil, action: nil)
-        recognizer.delegate = self
-        return recognizer
-    }()
-    private var windowObservers: [UIGestureRecognizer] { [pressObserver, touchObserver] }
-
-    private var recognizers: [UIGestureRecognizer] {
-        [swipeLeftRecognizer, swipeRightRecognizer, pressDownRecognizer]
-    }
     private weak var observedWindow: UIWindow?
 
-    private var isSwipeCaptureEnabled = false
-    private var onSwipeLeft: () -> Void = {}
-    private var onSwipeRight: () -> Void = {}
-    private var onMoveDown: () -> Void = {}
-
-    override func didMoveToSuperview() {
-        super.didMoveToSuperview()
-        attachRecognizersIfNeeded()
+    func update(isArmed: Bool, pressGuard: HomeTVHeroPressGuard) {
+        observer.pressGuard = pressGuard
+        observer.isArmed = isArmed
     }
 
     override func didMoveToWindow() {
         super.didMoveToWindow()
-        attachRecognizersIfNeeded()
-        attachWindowObserversIfNeeded()
+        guard let window, observedWindow !== window else { return }
+        observedWindow?.removeGestureRecognizer(observer)
+        window.addGestureRecognizer(observer)
+        observedWindow = window
     }
 
     override func willMove(toWindow newWindow: UIWindow?) {
         if newWindow == nil {
-            detachWindowObservers()
+            observedWindow?.removeGestureRecognizer(observer)
+            observedWindow = nil
         }
-
         super.willMove(toWindow: newWindow)
-    }
-
-    override func willMove(toSuperview newSuperview: UIView?) {
-        if newSuperview == nil {
-            detachRecognizers()
-        }
-
-        super.willMove(toSuperview: newSuperview)
-    }
-
-    func update(
-        isEnabled: Bool,
-        downGate: HomeTVHeroDownGate,
-        onSwipeLeft: @escaping () -> Void,
-        onSwipeRight: @escaping () -> Void,
-        onMoveDown: @escaping () -> Void
-    ) {
-        isSwipeCaptureEnabled = isEnabled
-        pressDownRecognizer.isEnabled = isEnabled
-        pressObserver.downGate = downGate
-        pressObserver.isArmed = isEnabled
-        touchObserver.downGate = downGate
-        touchObserver.isArmed = isEnabled
-        // A move refused as a drift, then the same touch going on to qualify:
-        // Home's own exit, since the engine may not try again.
-        downGate.onQualifiedAfterRefusal = isEnabled ? onMoveDown : nil
-        self.onSwipeLeft = onSwipeLeft
-        self.onSwipeRight = onSwipeRight
-        self.onMoveDown = onMoveDown
-        attachRecognizersIfNeeded()
     }
 
     func gestureRecognizer(
@@ -1437,62 +1088,6 @@ private final class SwipeCaptureView: UIView, UIGestureRecognizerDelegate {
         shouldRecognizeSimultaneouslyWith otherGestureRecognizer: UIGestureRecognizer
     ) -> Bool {
         true
-    }
-
-    @objc
-    private func handleSwipe(_ recognizer: UISwipeGestureRecognizer) {
-        guard isSwipeCaptureEnabled else { return }
-
-        switch recognizer.direction {
-        case .left:
-            onSwipeLeft()
-        case .right:
-            onSwipeRight()
-        default:
-            break
-        }
-    }
-
-    @objc
-    private func handlePressDown() {
-        guard isSwipeCaptureEnabled else { return }
-        onMoveDown()
-    }
-
-    private func attachRecognizersIfNeeded() {
-        guard let targetView = superview else { return }
-        guard attachedView !== targetView else { return }
-
-        detachRecognizers()
-        recognizers.forEach(targetView.addGestureRecognizer)
-        attachedView = targetView
-    }
-
-    private func attachWindowObserversIfNeeded() {
-        guard let window, observedWindow !== window else { return }
-
-        detachWindowObservers()
-        windowObservers.forEach(window.addGestureRecognizer)
-        observedWindow = window
-    }
-
-    private func detachWindowObservers() {
-        if let observedWindow {
-            windowObservers.forEach(observedWindow.removeGestureRecognizer)
-        }
-        observedWindow = nil
-        // Nothing is cleared here on purpose: while the hero pages, the
-        // outgoing and incoming slides each hold a capture view on the same
-        // gate, and the outgoing one must not end a gesture the incoming one
-        // is still tracking. A gesture cut off for good heals by itself: the
-        // next touch resets the touch record and presses time out.
-    }
-
-    private func detachRecognizers() {
-        if let attachedView {
-            recognizers.forEach(attachedView.removeGestureRecognizer)
-        }
-        attachedView = nil
     }
 }
 #endif

@@ -157,6 +157,10 @@ struct HomeCinematicHero: View {
     @State private var heroDragTargetIndex: Int?
     @State private var heroDragRevision = 0
     @State private var isHeroDragging = false
+    #if os(tvOS)
+    /// The horizontal page scroll of the tvOS hero. See `tvPages`.
+    @State private var tvPagePosition = ScrollPosition()
+    #endif
     #if canImport(UIKit)
     @State private var preloadedHeroBackdropImages: [String: UIImage] = [:]
     @State private var preloadedHeroTitleImages: [String: UIImage] = [:]
@@ -199,36 +203,14 @@ struct HomeCinematicHero: View {
         let titleLogoHeight = Int(layout.titleLogoMaxHeight.rounded(.up))
 
         let baseHero = ZStack(alignment: .bottomLeading) {
-            ZStack(alignment: .bottomLeading) {
-                if let backgroundHeroIndex,
-                   items.indices.contains(backgroundHeroIndex) {
-                    heroSlide(
-                        item: items[backgroundHeroIndex],
-                        heroHeight: heroHeight,
-                        backdropWidth: backdropWidth,
-                        backdropHeight: backdropHeight,
-                        contentWidth: contentWidth,
-                        reservesPagerSpace: items.count > 1
-                    )
-                    .offset(x: backgroundHeroOffset(width: heroWidth))
-                    .id("background-\(items[backgroundHeroIndex].id.storageKey)")
-                    .zIndex(0)
-                }
-
-                if items.indices.contains(resolvedIndex) {
-                    heroSlide(
-                        item: items[resolvedIndex],
-                        heroHeight: heroHeight,
-                        backdropWidth: backdropWidth,
-                        backdropHeight: backdropHeight,
-                        contentWidth: contentWidth,
-                        reservesPagerSpace: items.count > 1
-                    )
-                    .offset(x: foregroundHeroOffset(width: heroWidth))
-                    .id("foreground-\(items[resolvedIndex].id.storageKey)")
-                    .zIndex(1)
-                }
-            }
+            heroSlides(
+                resolvedIndex: resolvedIndex,
+                heroWidth: heroWidth,
+                heroHeight: heroHeight,
+                backdropWidth: backdropWidth,
+                backdropHeight: backdropHeight,
+                contentWidth: contentWidth
+            )
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .clipped()
 
@@ -318,6 +300,112 @@ struct HomeCinematicHero: View {
         }
         #endif
     }
+
+    @ViewBuilder
+    private func heroSlides(
+        resolvedIndex: Int,
+        heroWidth: CGFloat,
+        heroHeight: CGFloat,
+        backdropWidth: Int,
+        backdropHeight: Int,
+        contentWidth: CGFloat
+    ) -> some View {
+        #if os(tvOS)
+        tvPages(
+            heroWidth: heroWidth,
+            heroHeight: heroHeight,
+            backdropWidth: backdropWidth,
+            backdropHeight: backdropHeight,
+            contentWidth: contentWidth
+        )
+        #else
+        ZStack(alignment: .bottomLeading) {
+            if let backgroundHeroIndex,
+               items.indices.contains(backgroundHeroIndex) {
+                heroSlide(
+                    item: items[backgroundHeroIndex],
+                    heroHeight: heroHeight,
+                    backdropWidth: backdropWidth,
+                    backdropHeight: backdropHeight,
+                    contentWidth: contentWidth,
+                    reservesPagerSpace: items.count > 1
+                )
+                .offset(x: backgroundHeroOffset(width: heroWidth))
+                .id("background-\(items[backgroundHeroIndex].id.storageKey)")
+                .zIndex(0)
+            }
+
+            if items.indices.contains(resolvedIndex) {
+                heroSlide(
+                    item: items[resolvedIndex],
+                    heroHeight: heroHeight,
+                    backdropWidth: backdropWidth,
+                    backdropHeight: backdropHeight,
+                    contentWidth: contentWidth,
+                    reservesPagerSpace: items.count > 1
+                )
+                .offset(x: foregroundHeroOffset(width: heroWidth))
+                .id("foreground-\(items[resolvedIndex].id.storageKey)")
+                .zIndex(1)
+            }
+        }
+        #endif
+    }
+
+    #if os(tvOS)
+    /// tvOS: every hero item is a full-width page of one horizontal scroll
+    /// view, and each page carries its own play button.
+    ///
+    /// Paging is therefore an ordinary focus move: left/right from one play
+    /// button goes to its neighbour a page away, and the focus engine scrolls
+    /// it into view (snapped to whole pages by `HomeHeroTVPaging`). Clicks and
+    /// touch-surface swipes are the engine's own, exactly as in any row of
+    /// cards. The hero used to be a single slide with the only focusable item
+    /// on screen, paged by `onMoveCommand`; with nothing to the left or right
+    /// the engine had no horizontal move to make, and the arc of a sideways
+    /// swipe ended as a move down into the shelves.
+    ///
+    /// Not lazy: a page the engine is to move to must exist before it is on
+    /// screen, and the hero holds at most `heroItemLimit` items.
+    private func tvPages(
+        heroWidth: CGFloat,
+        heroHeight: CGFloat,
+        backdropWidth: Int,
+        backdropHeight: Int,
+        contentWidth: CGFloat
+    ) -> some View {
+        ScrollView(.horizontal) {
+            HStack(spacing: 0) {
+                ForEach(items, id: \.id) { item in
+                    heroSlide(
+                        item: item,
+                        heroHeight: heroHeight,
+                        backdropWidth: backdropWidth,
+                        backdropHeight: backdropHeight,
+                        contentWidth: contentWidth,
+                        reservesPagerSpace: items.count > 1
+                    )
+                    .frame(width: heroWidth, height: heroHeight)
+                }
+            }
+        }
+        .scrollIndicators(.hidden)
+        .contentMargins(.zero, for: .scrollContent)
+        .scrollPosition($tvPagePosition)
+        .scrollTargetBehavior(
+            HomeHeroTVPaging(
+                pageWidth: heroWidth,
+                actionLeadingInset: contentLeadingInset + layout.contentHorizontalPadding
+            )
+        )
+        .onScrollGeometryChange(for: Int.self) { geometry in
+            guard heroWidth > 0 else { return 0 }
+            return Int(((geometry.contentOffset.x + geometry.contentInsets.leading) / heroWidth).rounded())
+        } action: { _, page in
+            currentHeroIndex = min(max(page, 0), max(items.count - 1, 0))
+        }
+    }
+    #endif
 
     private var actionCallbacks: HomeCinematicHeroCallbacks {
         HomeCinematicHeroCallbacks(
@@ -754,16 +842,11 @@ struct HomeCinematicHero: View {
     #if os(tvOS)
     private func handleHeroMoveCommand(_ direction: MoveCommandDirection) {
         switch direction {
-        case .left:
-            guard heroItemIDs.count > 1 else { return }
-            showPreviousHero()
-        case .right:
-            guard heroItemIDs.count > 1 else { return }
-            showNextHero()
         case .down:
             onMoveDown?()
-        case .up:
-            // Belongs to the focus engine (the tab bar).
+        case .left, .right, .up:
+            // The focus engine's: left/right move to the neighbouring page's
+            // play button (`tvPages`), up goes to the tab bar.
             break
         @unknown default:
             break
@@ -829,6 +912,9 @@ struct HomeCinematicHero: View {
         resetHeroSlideState()
         resetHeroDragState()
         currentHeroIndex = 0
+        #if os(tvOS)
+        tvPagePosition.scrollTo(edge: .leading)
+        #endif
 
         if restartRotation {
             restartHeroRotation()
@@ -1368,6 +1454,30 @@ private struct HeroIndirectScrollNavigation: UIViewRepresentable {
         ) -> Bool {
             true
         }
+    }
+}
+#endif
+
+#if os(tvOS)
+/// Snaps the tvOS hero's page scroll (`HomeCinematicHero.tvPages`) to whole
+/// pages.
+///
+/// The scroll that matters is the focus engine's: moving focus to the next
+/// page's play button proposes the smallest scroll that reveals that button,
+/// which on its own would leave the page half on screen. The proposed visible
+/// rect always contains the newly focused button and, being one page wide,
+/// never contains another page's button whole, so the page is the first one
+/// whose button starts at or after the rect's leading edge.
+private struct HomeHeroTVPaging: ScrollTargetBehavior {
+    var pageWidth: CGFloat
+    /// Leading edge of a page's play button, measured from the page's own.
+    var actionLeadingInset: CGFloat
+
+    func updateTarget(_ target: inout ScrollTarget, context: TargetContext) {
+        guard pageWidth > 0, context.axes.contains(.horizontal) else { return }
+        let pageCount = max(Int((context.contentSize.width / pageWidth).rounded()), 1)
+        let page = Int(((target.rect.minX - actionLeadingInset) / pageWidth).rounded(.up))
+        target.rect.origin.x = CGFloat(min(max(page, 0), pageCount - 1)) * pageWidth
     }
 }
 #endif
