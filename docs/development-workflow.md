@@ -218,6 +218,9 @@ For docs-only changes, a build is normally unnecessary. Verify the file and `git
 ## Common Traps
 
 - Forgetting `xcodegen generate` after Swift file adds/removes/renames.
+- An app extension's hand-written `Info.plist` must list `arm64` under
+  `UIRequiredDeviceCapabilities`, or the TestFlight upload is rejected as an invalid bundle
+  (`DuskTopShelf/Info.plist`).
 - Building iOS simulator without `ARCHS=arm64 ONLY_ACTIVE_ARCH=YES`.
 - Treating `Dusk.xcodeproj` as hand-authored.
 - Adding view-level networking instead of using view models and `PlexService`.
