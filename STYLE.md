@@ -1,12 +1,33 @@
 # Dusk Design System (v1.0)
 
-## 1. Design Philosophy
+## 1. Design Philosophy: native vibes, not orange
 
-Dusk is a **content-first** player. The UI should "recede" to let movie posters and cinematic backdrops lead the experience.
+Dusk is a **content-first** player. The UI recedes so posters and backdrops lead,
+and it should feel like an Apple app, not a themed one.
 
-* **Modern Minimal:** Use thin strokes (1pt), large corner radii, and generous whitespace.
-* **Glassmorphism:** Use system materials (`ultraThinMaterial`) and native **Liquid Glass** button styles for overlays, navigation bars, and actions.
-* **Vibrant Accents:** Use a single brand color (**Sunset Coral**) for accents — progress, ratings, active states, and inline links. Do **not** use it as a primary action button fill (see §3.3); primary actions use neutral, contrasting Liquid Glass.
+**The rules (read these even if you read nothing else):**
+
+1. **System first.** Use system controls and styles as they ship: Liquid Glass
+   (`.glass` / `.glassProminent`), standard tvOS focus, `Toggle`, `Picker`,
+   `ProgressView`, `List`, toolbar and navigation buttons. Don't restyle them.
+2. **Neutral palette.** Colour comes from the Dusk tokens below and semantic
+   colours (`.primary`, `.secondary`, `Color.duskTextPrimary/Secondary`). Use
+   system colours only where they already carry meaning: red for destructive or
+   errors, yellow for the star rating, green for the system switch.
+3. **No accent colour for UI state.** Selection, focus, progress, active
+   filters, checkmarks, links, loading and badges are shown with weight, opacity,
+   fill (`TextPrimary` on `Background`), or the system's own treatment, never a
+   brand colour.
+4. **No app-wide tint.** The global `AccentColor` asset is the label colour, and
+   nothing sets a root `.tint`. Never add `.tint(Color.duskAccent)` or any other
+   colour tint to make something "pop".
+5. **Coral is the brand, not the UI.** Sunset Coral (`Color.duskAccent`,
+   `#FF6B4A`) appears only in the app logo/icon, the Supporter page and the
+   App Icon picker. Anywhere else it is a bug.
+
+* **Modern Minimal:** thin strokes (1pt), large corner radii, generous whitespace.
+* **Glass:** system materials (`ultraThinMaterial`) and native Liquid Glass for
+  overlays, navigation and actions.
 
 ---
 
@@ -14,15 +35,14 @@ Dusk is a **content-first** player. The UI should "recede" to let movie posters 
 
 ### 2.1 Dark Mode (Dusk)
 
-The default experience. Focuses on deep, cool-toned blacks to make OLED screens shine.
+The default experience. Deep, cool-toned blacks so OLED screens shine.
 
 | Token | Hex | Usage |
 | --- | --- | --- |
 | **AppBackground** | `#090A0F` | Main window background. Deep twilight. |
 | **AppSurface** | `#161824` | Cards, modals, and secondary backgrounds. |
-| **AppAccent** | `#FF6B4A` | **Sunset Coral.** Play buttons, active states, progress. |
-| **TextPrimary** | `#F2F2F7` | Titles and primary labels. |
-| **TextSecondary** | `#8E95A8` | Metadata, captions, and disabled states. |
+| **TextPrimary** | `#F2F2F7` | Titles, primary labels, selected/active state. |
+| **TextSecondary** | `#8E95A8` | Metadata, captions, icons, disabled states. |
 
 ### 2.2 Light Mode (Dawn)
 
@@ -32,9 +52,14 @@ A crisp, high-clarity alternative. Avoids "pure" white to reduce eye strain.
 | --- | --- | --- |
 | **AppBackground** | `#F5F7FA` | Main window background. Soft morning fog. |
 | **AppSurface** | `#FFFFFF` | Cards and elevated surfaces. |
-| **AppAccent** | `#FF6B4A` | **Sunset Coral.** Remains consistent for brand identity. |
-| **TextPrimary** | `#1C1C1E` | Titles and primary labels. |
-| **TextSecondary** | `#636366` | Metadata and secondary descriptions. |
+| **TextPrimary** | `#1C1C1E` | Titles, primary labels, selected/active state. |
+| **TextSecondary** | `#636366` | Metadata, secondary descriptions, icons. |
+
+### 2.3 Brand (not a UI colour)
+
+| Token | Hex | Usage |
+| --- | --- | --- |
+| **Brand / Sunset Coral** | `#FF6B4A` | App logo/icon, Supporter page, App Icon picker. Nothing else. |
 
 ---
 
@@ -106,9 +131,7 @@ iOS conventions that predate the tokens and still hold:
 ### 3.3 Detail Hero Actions & Layout
 
 The movie / show / season / episode detail heroes are **backdrop-led with no
-poster** on every platform. Action buttons use the **native Liquid Glass** styles;
-never fill one with the Sunset Coral accent — coral is reserved for progress,
-ratings, active states, and inline links.
+poster** on every platform. Action buttons use the **native Liquid Glass** styles.
 
 **Hero layout.**
 
@@ -124,10 +147,11 @@ ratings, active states, and inline links.
 
 * **Style:** prominent Liquid Glass on iOS — `.buttonStyle(.glassProminent)`
   (fallback `.borderedProminent` below iOS 26). **tvOS** uses the plain system
-  `.glass` with `.tint(nil)`, like the TV app: a dark platter that lifts to white
-  with a dark label on focus. Never give a tvOS system button an explicit tint —
-  the root coral fills the focused platter, and any colour (even `.primary`)
-  recolours the label so the focused state goes white-on-white.
+  `.glass` with **no tint**, like the TV app: a dark platter that lifts to white
+  with a dark label on focus. Never give a tvOS system button an explicit tint:
+  any colour (even `.primary`) recolours the label, so the focused state goes
+  white-on-white. The tvOS tab shell clears its bar tint off the tab content
+  (`MainTabTVShell`), so buttons need no `.tint(nil)` of their own.
 * **Color (iOS):** `.tint(Color.duskPrimaryButtonTint)` — a *translucent* `primary` so the
   button keeps a **dark** (Light mode) / **light** (Dark mode) lean for contrast
   while still reading as liquid glass, not a solid black/white fill. Label/icon use
@@ -146,17 +170,16 @@ ratings, active states, and inline links.
 * **Icon-only everywhere** — use `DetailHeroSecondaryIconLabel` (SF Symbol only)
   plus an `.accessibilityLabel`; no text crowds the row.
 * **Style:** neutral Liquid Glass — `.buttonStyle(.glass)` (fallback `.bordered`),
-  `.tint(Color.primary)` on iOS / `.tint(nil)` on tvOS, `.controlSize(.regular)`. **Shape:** `.capsule` pills on
+  `.tint(Color.primary)` on iOS / no tint on tvOS, `.controlSize(.regular)`. **Shape:** `.capsule` pills on
   iOS, **`.circle`** on tvOS (there is no shared width to match there).
 * **Placement:** a compact row **below** the primary on iOS (centered on iPhone,
   leading on iPad); **to the right** of the primary on tvOS. Movie, Show, Season,
   and Episode all expose a watched toggle; Show/Season mark the whole show/season.
 
-**Show / season / episode pages carry no coral.** Watched state is quiet: a small
-checkmark in the card's subtitle colour (no filled badge), a neutral white
-progress bar (`PosterArtwork(progressStyle: .neutral)`) for partially watched
-episodes, nothing for unwatched. "Show More" is a `.glass` button on tvOS and
-plain `primary` text on iOS.
+**Watched state is quiet everywhere.** A small checkmark in the card's subtitle
+colour (no filled badge), the neutral white-on-dark progress bar of
+`PosterArtwork` for partially watched items, nothing for unwatched. "Show More"
+is a `.glass` button on tvOS and plain `primary` text on iOS.
 
 **Home cinematic hero button.**
 
@@ -174,42 +197,48 @@ screens); `homeHeroNativeButtonStyle()` + `HomeHeroActionButtonLabel(fillsWidth:
 
 ## 4. Interaction States
 
-* **Hover/Focus (tvOS):** Scale the element to `1.05x` and add a subtle, tight neutral white outer glow.
-* **Loading:** Use a custom `ProgressView` tinted with `AppAccent`.
-* **Empty States:** Use SF Symbols with a "Dusk Gray" (`#8E95A8`) tint and centered `TextSecondary`.
+* **Focus (tvOS):** the system focus effect for system controls. Custom cards
+  scale slightly with a subtle neutral glow; custom rows lift with a
+  `TextPrimary`-at-low-opacity band. No coloured outlines.
+* **Selected / active:** bold or full-opacity `TextPrimary` against dimmer
+  siblings, or an inverted `TextPrimary` fill with a `Background` label (Live TV
+  date pill). Never a brand colour.
+* **Progress:** white on a dark track over artwork (`PosterArtwork`); elsewhere
+  `TextPrimary` on a `TextSecondary` track (`CircularProgressView`).
+* **Loading:** plain `ProgressView()`, no tint.
+* **Toggles:** plain `Toggle`, no tint (system green).
+* **Empty / error states:** SF Symbol and text in `TextSecondary`; the single
+  action is `FeaturePrimaryButton` (the same neutral glass as Play).
 
 ---
 
-### Implementation Tip for Swift
+## 5. Implementation
 
-Current SwiftUI implementation keeps the theme tokens in `Dusk/Sources/App/DuskApp.swift`. The app uses dynamic `Color` values backed by `UIColor { traitCollection in ... }` for light/dark switching, while `AccentColor` remains the existing asset-backed global accent.
+Theme tokens live in `Dusk/Sources/App/DuskApp.swift` as dynamic `Color`s backed
+by `UIColor { traitCollection in ... }`.
 
-#### Asset names currently in use
+* `Color.duskBackground`: root screen backgrounds.
+* `Color.duskSurface`: list rows, cards, sheets, elevated surfaces.
+* `Color.duskTextPrimary`: titles, high-emphasis labels, selected state.
+* `Color.duskTextSecondary`: metadata, captions, icons, placeholders.
+* `Color.duskPrimaryButtonTint` / `Color.duskPrimaryActionLabel`: the iOS
+  prominent-glass primary action and its label.
+* `Color.duskAccent`: **brand only** (Supporter page, App Icon picker).
 
-* `AccentColor` for the `AppAccent` design token. This stays named `AccentColor` so Xcode can use it as the global app tint on iOS.
-* `AccentColorTV` is the tvOS target's global accent (`ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME`). It is the tab bar's label-color tint (`TextPrimary` in Dark mode, black in Light mode), not a brand token: the global accent is the UIKit window tint, and the tvOS tab bar must never inherit coral from it. SwiftUI content on tvOS still gets `AppAccent` from the root `.tint(Color.duskAccent)`.
+**Tint.** `AccentColor` is the global accent for both targets
+(`ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME`) and is the label colour:
+black in Light mode, `TextPrimary` in Dark mode. It is the UIKit window tint, so
+alerts, navigation buttons, pickers and the text cursor are neutral without any
+code. There is no root SwiftUI `.tint`. The tvOS tab bar is additionally pinned to
+the same colour (`Color.duskTVTabBarTint`) because SwiftUI's `TabView` tint is not
+sticky there.
 
-#### Swift color API currently in use
+**Guardrails.**
 
-* `Color.duskBackground`
-* `Color.duskSurface`
-* `Color.duskTextPrimary`
-* `Color.duskTextSecondary`
-* `Color.duskAccent`
-
-#### Current application rules
-
-* Apply `Color.duskAccent` as the app-wide `.tint(...)`.
-* Keep iOS/iPadOS tab bar selection monochrome by tinting the `TabView` with the native `.primary` color role. Do not hardcode selected tab colors; the floating iPad tab bar must adapt to both artwork and light content backgrounds.
-* Use `Color.duskBackground` for root screen backgrounds.
-* Use `Color.duskSurface` for list rows, cards, sheets, and elevated surfaces.
-* Use `Color.duskTextPrimary` for titles and high-emphasis labels.
-* Use `Color.duskTextSecondary` for metadata, captions, placeholders, and empty states.
-* Tint `ProgressView` with `Color.duskAccent`.
-
-#### Guardrails
-
-* Do not introduce ad-hoc hardcoded brand colors like `.orange`, `.blue`, `.green`, or `.purple` for primary UI.
-* New UI should consume these tokens first and only add new tokens when `STYLE.md` is updated intentionally.
-
-> **Pro-tip:** For the "Dawn" (Light) mode, the **Sunset Coral** actually pops even more against the light blue-gray background. It keeps the app feeling like the same product even when the brightness is cranked up.
+* No `Color.duskAccent`, `.orange`, `.blue`, `.purple` or other hues for UI
+  outside the brand spots above. A new colour needs a deliberate `STYLE.md`
+  change first.
+* No colour tint on system controls. If a control looks wrong, fix it with the
+  system style (`.glass`, `.glassProminent`, `.bordered`), not a tint.
+* Verify UI changes with a screenshot in both appearances; "monochrome now" in
+  code is not proof.

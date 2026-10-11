@@ -6,7 +6,7 @@ If `AGENTS.local.md` exists, read it immediately after this file. It contains ch
 
 `docs/codebase-map.md` is the quick map of the current source structure. Read it before doing discovery-heavy work.
 
-`STYLE.md` is the visual source of truth and must be followed at all times for colors, materials, spacing, and overall UI styling.
+`STYLE.md` is the visual source of truth and must be followed at all times for colors, materials, spacing, and overall UI styling. The short version: **native vibes, not orange.** System controls and Liquid Glass as they ship, a neutral palette, no accent colour or tint for UI state. Sunset Coral (`Color.duskAccent`) is the brand and only appears in the logo/icon, the Supporter page and the App Icon picker.
 
 `docs/` is the agent-facing implementation guide. Read `docs/README.md` and the relevant topic doc before deep changes, especially when touching Plex data flow, playback, downloads/offline behavior, reusable UI, or project setup.
 

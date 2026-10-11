@@ -8,10 +8,10 @@ in Dusk. Read this with `docs/codebase-map.md`, `STYLE.md`, and `docs/data-and-p
 - `DuskApp` creates the long-lived app services and injects them into the SwiftUI
   environment: `PlexService`, `PlaybackCoordinator`, `DownloadManager`,
   `OfflinePlaybackSyncManager`, `SeerrService`, and `UserPreferences`.
-- App-wide color scheme comes from `UserPreferences.appearanceMode`; app tint is
-  `Color.duskAccent`, except iOS/iPadOS tab bar selection stays monochrome with
-  the native `.primary` color role so the floating iPad tab bar can adapt over both
-  artwork and light content backgrounds.
+- App-wide color scheme comes from `UserPreferences.appearanceMode`. There is no
+  root `.tint`: the global `AccentColor` asset is the label colour, so system
+  controls, navigation buttons and the tab bar selection are neutral and adapt
+  over both artwork and light content backgrounds.
 - `ContentView` is the account-bootstrap root gate: unauthenticated users see
   `SignInView`; signed-in Plex Home accounts are checked and, when needed, show
   `HomeUserPickerView`; an active Home identity enters `MainTabView`. **There is
@@ -63,12 +63,11 @@ in Dusk. Read this with `docs/codebase-map.md`, `STYLE.md`, and `docs/data-and-p
   proxy and again from the shell on every update (`DuskTVTabBarTintPin`), and a
   zero-size sentinel subview inside the bar re-pins on every `tintColorDidChange`
   UIKit reports. SwiftUI's `.tint` on a tvOS `TabView` is not sticky: a bar that
-  falls back to the inherited window tint picks up the global accent color and
-  draws the selected tab item coral after returning from a detail screen or the
-  player. The tvOS target therefore also uses a label-color global accent asset
-  (`AccentColorTV`, matching `Color.duskTVTabBarTint`) so the window tint has no
-  coral to hand down; SwiftUI content keeps Sunset Coral through the root
-  `.tint(Color.duskAccent)` in `DuskApp`.
+  falls back to the inherited window tint picks up the global accent color
+  after returning from a detail screen or the player. That accent
+  (`AccentColor`) is the same label colour, so a fallback looks identical. The
+  shell clears the bar's tint off the tab content (`.tint(nil)`): an inherited
+  explicit tint makes tvOS system glass buttons go white-on-white on focus.
 - tvOS Back (Siri Remote Menu) at a tab root goes to Home, and on Home
   scrolled down it returns focus to the hero; only Home at its top leaves the
   app. `MainTabView.rootBackAction` decides, `DuskTVRootBackInterceptor` (a
@@ -104,12 +103,11 @@ in Dusk. Read this with `docs/codebase-map.md`, `STYLE.md`, and `docs/data-and-p
   `PosterNavigationCard`, and `PosterActionCard`.
 - Fully watched items (e.g. fully watched seasons) pass `isWatched` to the poster
   card to add a small checkmark to the subtitle line, in the subtitle's own colour
-  (never the accent — a fully watched row must not become a wall of badges);
+  (never a colour — a fully watched row must not become a wall of badges);
   suppress the progress bar in that case (pass `progress: nil`) so completion
   reads as the checkmark, not a full bar. Partial progress still renders the bar
-  (`DuskPosterMetrics.posterProgressBarHeight`); shelves keep the accent fill,
-  the show/season/episode pages pass `progressStyle: .neutral` (white on a dark
-  track, like the TV app).
+  (`DuskPosterMetrics.posterProgressBarHeight`), white on a dark track like the
+  TV app, everywhere.
 - Use `PlexItemPosterCarouselSection` for horizontal shelves and
   `PlexItemPosterGrid` for grids. They already handle image sizing, context menus,
   progress, and route creation. Both take `imageAspectRatio` (default 2:3); pass
@@ -455,7 +453,7 @@ in Dusk. Read this with `docs/codebase-map.md`, `STYLE.md`, and `docs/data-and-p
   `Color.primary`-tinted Liquid Glass that contrasts the artwork) with
   `HomeHeroActionButtonLabel(fillsWidth: true)`, sized as a wide, short pill
   (≈240pt iPhone / ≈300pt iPad). Keep it consistent with the detail primary button
-  (`STYLE.md` §3.3); do not fill it with the coral accent.
+  (`STYLE.md` §3.3); never a coloured fill.
 - `HomeIOSView` and `HomeTVView` should stay composition shells. Keep Plex data rules in
   `HomeViewModel`, not in platform views.
 - Use `HomeItemContextMenu` for hero context actions. It already exposes mark watched,
@@ -612,7 +610,7 @@ in Dusk. Read this with `docs/codebase-map.md`, `STYLE.md`, and `docs/data-and-p
   the action block in `detailHeroActionStackFrame(isCompactPhone:)` (iPhone ≈60%
   centered, iPad fills the hero's left column); tvOS lays the icons out to the right
   of the primary. Movie/Show/Season/Episode all expose a watched toggle; Show/Season
-  toggle the whole show/season. Do not fill primary actions with `Color.duskAccent`.
+  toggle the whole show/season. Never fill or tint primary actions with a colour.
 - On tvOS, keep focusable detail rows in separate `.focusSection()` groups. Hero
   actions, expandable summaries, season/episode grids, and cast shelves should move
   vertically to the next visible row instead of letting the focus engine skip to a
@@ -640,8 +638,8 @@ in Dusk. Read this with `docs/codebase-map.md`, `STYLE.md`, and `docs/data-and-p
   header so the row never jumps. Season pills sit above the horizontal episode row
   (only when there are 2+ seasons); picking one loads that season and swaps it in
   only once loaded (the row dims meanwhile), so the page never blanks. A Seerr-only
-  season pill opens its request page. The page carries no coral: hero buttons
-  and season pills are system `.glass` with `.tint(nil)` (the selected season is
+  season pill opens its request page. Hero buttons and season pills are system
+  `.glass` with no tint (the selected season is
   bold and full-opacity, the rest dimmed, so it never looks focused), and
   progress bars are neutral. Each episode card shows the title with a
   "Season X · Episode N" subtitle plus a quiet watched checkmark
@@ -842,13 +840,14 @@ in Dusk. Read this with `docs/codebase-map.md`, `STYLE.md`, and `docs/data-and-p
 
 ## Design And Style Rules
 
-- `STYLE.md` is authoritative. Use `Color.duskBackground`, `duskSurface`,
-  `duskTextPrimary`, `duskTextSecondary`, and `duskAccent`.
+- `STYLE.md` is authoritative: native vibes, not orange. Use `Color.duskBackground`,
+  `duskSurface`, `duskTextPrimary`, and `duskTextSecondary`; `duskAccent` is brand
+  only (Supporter page, App Icon picker).
 - Root feature screens should paint `Color.duskBackground.ignoresSafeArea()`.
 - Elevated rows/cards use `Color.duskSurface` and subtle 1pt strokes.
 - Primary action buttons use neutral contrasting Liquid Glass (`Color.primary`-tinted
-  prominent glass), not the coral accent. Reserve `Color.duskAccent` for progress,
-  ratings, active states, and inline links. Do not introduce ad-hoc brand colors.
+  prominent glass on iOS, untinted `.glass` on tvOS). Progress, ratings, active
+  states, selection, links and loading are neutral too. Do not introduce ad-hoc colors.
 - Posters use 16pt corners. Sheets/cards use the larger rounded style already present in
   settings and library rows.
 - Prefer system materials for overlays and hero controls where existing UI does.

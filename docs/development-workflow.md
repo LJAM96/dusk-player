@@ -75,8 +75,9 @@ Prefer existing files and same-type extension patterns for small additions. Add 
 
 ## Style Guardrails
 
-- Use `Color.duskBackground`, `Color.duskSurface`, `Color.duskTextPrimary`, `Color.duskTextSecondary`, and `Color.duskAccent`.
-- Do not introduce ad-hoc primary UI colors such as `.orange`, `.blue`, `.green`, or `.purple`.
+- Native vibes, not orange: system controls and Liquid Glass first, no colour tint on them.
+- Use `Color.duskBackground`, `Color.duskSurface`, `Color.duskTextPrimary`, and `Color.duskTextSecondary`. `Color.duskAccent` (Sunset Coral) is brand only: Supporter page and App Icon picker.
+- Do not introduce ad-hoc UI colors such as `.orange`, `.blue`, `.green`, or `.purple`.
 - Use system materials where `STYLE.md` calls for glass overlays/navigation.
 - Follow `STYLE.md` for radii, borders, typography, and tvOS focus treatment.
 

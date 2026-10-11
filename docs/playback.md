@@ -1554,9 +1554,8 @@ so the whole live HUD is derived from one instant.
 - The overlay's forward action is a labeled capsule ("Play Now" while a countdown
   is running, "Keep Watching" otherwise), not an icon over the still: white glass
   with a dark label on iOS, because the screen is near-black whatever the app's
-  appearance mode is. tvOS uses the system `.glass` with the tint cleared
-  (`.tint(nil)`), like the detail hero buttons: the root coral tint would fill
-  the focused platter, and an explicit tint goes white-on-white.
+  appearance mode is. tvOS uses the system `.glass` with no tint, like the
+  detail hero buttons: an explicit tint goes white-on-white on focus.
 - Up Next poster (replaces the old Skip Credits button): when the credits marker
   is reached, `PlayerViewModel.reachedCreditsMarker` changes and the player calls
   `presentUpNextPosterIfPossible`, which resolves the next episode and raises the
