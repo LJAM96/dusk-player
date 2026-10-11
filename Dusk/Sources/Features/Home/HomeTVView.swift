@@ -75,10 +75,10 @@ struct HomeTVView: View {
         /// the same gesture delivers.
         case landing
     }
-    /// `beginHeroExit` scrolls through this (the hero's down-press), and
-    /// `settleFold` once the page is still. The move back up to the hero is
-    /// the focus engine's own scroll; see `HomeTVFoldSnapping` for why
-    /// nothing else may scroll alongside that one.
+    /// Only `settleFold` scrolls through this, once the page is still. Both
+    /// moves between the hero and the shelves are the focus engine's own
+    /// scroll; see `HomeTVFoldSnapping` for why nothing else may scroll
+    /// alongside one.
     @State private var scrollPosition = ScrollPosition(idType: Int.self)
     @State private var foldSettle = HomeTVFoldSettle()
 
@@ -102,6 +102,12 @@ struct HomeTVView: View {
     private var isHeroPrimaryFocused: Bool {
         if case .heroPrimaryAction = focusedTarget { return true }
         return false
+    }
+
+    /// The page whose play button has focus, `nil` while focus is elsewhere.
+    private var focusedHeroKey: String? {
+        if case .heroPrimaryAction(let key) = focusedTarget { return key }
+        return nil
     }
 
     /// The play button Home hands focus to: the page last focused while it
@@ -157,14 +163,18 @@ struct HomeTVView: View {
                             contentLeadingInset: leadingContentInset,
                             contentTrailingInset: trailingContentInset,
                             layout: .tv,
-                            // Keep tvOS hero rotation OFF. Its pages are paged by
-                            // moving focus between their play buttons; a rotation
-                            // timer would page the hero out from under the focused
-                            // button. iOS has no focus engine and keeps it on.
-                            autoRotates: false,
+                            // Rotation pages by moving focus to the next page's
+                            // play button, and only while a play button has
+                            // focus (`focusedItemKey`), so it never pages the
+                            // hero out from under focus or behind another tab.
+                            autoRotates: true,
                             supportsDragNavigation: false,
                             selectionResetRevision: heroSelectionResetRevision,
                             onMoveDown: { beginHeroExit(heroHeight: heroHeight) },
+                            focusedItemKey: focusedHeroKey,
+                            onFocusItem: { item in
+                                focusedTarget = .heroPrimaryAction(item.id.storageKey)
+                            },
                             primaryAction: { item, callbacks in
                                 let key = item.id.storageKey
                                 return AnyView(
@@ -544,16 +554,24 @@ struct HomeTVView: View {
     /// - a shelf card taking focus while `shelvesUnlocked` is closed, i.e.
     ///   the engine moved down from the play button.
     ///
-    /// 1. Scroll the page to the fold. `HomeTVFoldSnapping` pins every
-    ///    scroll the engine makes meanwhile to the fold as well.
-    /// 2. Ask the first shelf's first item to take focus. It answers as soon
-    ///    as it exists (the rows are lazy; the fold brings it on screen).
+    /// 1. Pin the page to the fold: `HomeTVFoldSnapping` sends every scroll
+    ///    the focus engine makes meanwhile there.
+    /// 2. Ask the first shelf's first item to take focus. Usually it already
+    ///    has it (the engine's pick is geometric, and the play button sits
+    ///    over the first card). Otherwise taking it is a focus change of its
+    ///    own, which the engine scrolls to, pinned to the fold as well.
     /// 3. Once it holds focus, open the latch. The landing stays open 250 ms
     ///    more, and any further move of the same gesture that pulls focus
     ///    off the item in that time is answered by asking it again
     ///    (`heroExitFocusGeneration`).
     ///
     /// If the item never answers, the timeout returns focus to the hero.
+    ///
+    /// Nothing here scrolls. The page's one scroll is the focus engine's,
+    /// for whichever focus change comes first. A `scrollTo` used to start the
+    /// exit as well: it stacked on the engine's scroll that was already under
+    /// way, which bent the move or, when `onMoveCommand` came first, cut from
+    /// the hero to the shelves in a single frame (measured in the simulator).
     ///
     /// Not while Select is held on the play button (`heroPressGuard`): a
     /// thumb rolling on the clickpad as it presses Play must not carry focus
@@ -574,9 +592,6 @@ struct HomeTVView: View {
 
         heroExitShelf = landingShelf
         heroExit = .landing
-        withAnimation(.easeInOut(duration: foldSettleAnimationDuration)) {
-            scrollPosition.scrollTo(y: heroHeight)
-        }
 
         heroExitTimeout?.cancel()
         heroExitTimeout = Task { @MainActor in
@@ -762,7 +777,8 @@ struct HomeTVView: View {
 ///
 /// Never pair it with a programmatic `scrollTo` on the same focus change: the
 /// two scrolls stack. That stacking is what used to throw a down-press from
-/// the hero several rows past the first shelf.
+/// the hero several rows past the first shelf, and later made the hero exit
+/// jump to the shelves in one frame.
 ///
 /// Offsets are plain content y values. That only holds because the scroll view
 /// has no top content inset while there is a hero (`HomeTVView` ignores the
@@ -802,8 +818,8 @@ private struct HomeTVFoldSnapping: ScrollTargetBehavior {
         }
 
         if startsAboveFold {
-            // The play button is the only thing on the hero that takes focus,
-            // and it is fully on screen at rest. So any real scroll from up
+            // The page's play button is the only thing on the hero that takes
+            // focus, and it is fully on screen at rest. So any real scroll from up
             // here is focus leaving for the shelves: land the first shelf at
             // the top. Only small nudges (the play button, re-focused or eased
             // off the bottom edge) keep the hero pinned. The threshold stays

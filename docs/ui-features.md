@@ -291,7 +291,7 @@ in Dusk. Read this with `docs/codebase-map.md`, `STYLE.md`, and `docs/data-and-p
   rotation while `PlaybackCoordinator.showPlayer` is true and restarts it fresh on
   return, so opening the player no longer advances the hero in the background.
   Rotation also respects Reduce Motion, scene phase, and drag interaction.
-  **tvOS pages natively and keeps `autoRotates: false`.** On tvOS every hero item
+  **tvOS pages natively, through focus.** On tvOS every hero item
   is a full-width page of one horizontal `ScrollView` (`HomeCinematicHero.tvPages`,
   a plain `HStack`: the page focus moves to must exist before it is on screen), and
   every page has its own play button. Left/right is an ordinary focus move to the
@@ -299,12 +299,24 @@ in Dusk. Read this with `docs/codebase-map.md`, `STYLE.md`, and `docs/data-and-p
   `HomeHeroTVPaging` snaps that reveal-scroll to whole pages (the proposed rect
   always contains the new button whole and never another page's). Clicks and
   touch-surface swipes are therefore handled like any row of cards, and the pager
-  pills follow the scroll offset. The end pages do not wrap. This replaced a single
+  pills follow the scroll offset. Past either end page the engine has no move, so
+  the hero's `onMoveCommand` wraps around to the other end by moving focus there
+  (`onFocusItem`). That command fires for every move, also after the engine has
+  moved focus, and `focusedItemKey` may or may not have caught up yet (both seen
+  in the simulator); only a move on an end page that is also at rest on screen
+  (`currentHeroIndex`, which follows the scroll) wraps. Rotation is on
+  (`autoRotates: true`, the same 7s as iOS) and advances the same way, by moving
+  focus to the next page's button, so it is always the engine's own move and
+  scroll. It only runs while a play button has focus (`focusedItemKey`): focus in
+  the shelves, on the tab bar, in another tab or in the player holds it, and focus
+  coming back to a play button, or any left/right move, starts a fresh interval.
+  Playback, scene phase, Reduce Motion and the context menu pause it as on iOS.
+  This replaced a single
   slide paged by `onMoveCommand`: with nothing focusable left or right of the only
   play button, the engine had no horizontal move to make, and the arc of a sideways
   swipe on a real remote ended as a move down into the shelves, which no gesture
-  threshold fixed. A rotation timer would page the hero out from under the focused
-  button, hence no rotation. On iOS discrete hero moves still use the two-slot slide
+  threshold fixed. Rotation was off on tvOS from 2026-05 to 2026-10 because the
+  old single slide tore down the focused button on every advance. On iOS discrete hero moves still use the two-slot slide
   model: mount the incoming slide at its off-screen offset before advancing
   animation progress, and queue overlapping moves behind the in-flight slide.
   Backdrops are decoded off the main thread (`byPreparingForDisplay`) during
@@ -379,8 +391,9 @@ in Dusk. Read this with `docs/codebase-map.md`, `STYLE.md`, and `docs/data-and-p
     So the press is left alone and its result replaced:
     - `beginHeroExit` starts from either the hero's `onMoveCommand(.down)`, or
       from a shelf card taking focus while
-      the latch is closed (`CarouselItemFocusedKey`), whichever comes first. It
-      scrolls the page to the fold and sets `carouselLeadingItemRequest = .focus`
+      the latch is closed (`CarouselItemFocusedKey`), whichever comes first (the
+      simulator shows both orders). It pins the page to the fold (`pinsToFold`)
+      and sets `carouselLeadingItemRequest = .focus`
       on `firstShelfID`'s shelf (`.landing`). That shelf's first item takes focus
       through its own `@FocusState` (`carouselLeadingFocusTarget()`), after the
       row is rewound so the lazy stack has it. It reports through
@@ -432,9 +445,13 @@ in Dusk. Read this with `docs/codebase-map.md`, `STYLE.md`, and `docs/data-and-p
     During a hero exit every target is pinned to the fold (`pinsToFold`).
   - **Never add a programmatic scroll on a focus change the engine made.** It
     stacks on top of the engine's reveal scroll instead of replacing it; that threw
-    the page several rows past the first shelf. The one exception is the hero
-    exit's scroll to the fold: every scroll in flight during it, the engine's
-    included, is pinned to the same target, so there is nothing to stack with.
+    the page several rows past the first shelf. The hero exit used to start with a
+    `scrollTo` of its own, on the theory that pinning both to the fold left nothing
+    to stack with. Measured per frame in the simulator, it did stack: when the card
+    took focus first the curve bent mid-way, and when `onMoveCommand` came first
+    the page cut from the hero to the shelves in a single frame (the "jumpy" exit
+    on device). The exit now scrolls nothing; the engine's reveal of whichever
+    card takes focus is the one scroll, both ways.
   - `settleFold` runs 200ms after the page stops moving, never during a hero exit.
     Latch closed → the page rests on the full hero; open → at or past the fold,
     never on a sliver of hero. Normally it does nothing.
@@ -444,8 +461,7 @@ in Dusk. Read this with `docs/codebase-map.md`, `STYLE.md`, and `docs/data-and-p
     `shelfTopPadding` is derived from the measured top safe area because it is what
     keeps the first shelf header clear of the floating tab bar at the fold.
   - Unchanged and still load-bearing: both `.focusSection()`s, the focus
-    scope / `defaultFocus` / `requestHeroPrimaryFocusIfNeeded` dance, and
-    `autoRotates: false`.
+    scope / `defaultFocus` / `requestHeroPrimaryFocusIfNeeded` dance.
   - `HomeViewModel.heroItems()` caps the rotation at 10 items **on tvOS only**, since
     every backdrop is now decoded at 1920×1080 and the whole set is prefetched
     eagerly. iOS keeps the unbounded list.

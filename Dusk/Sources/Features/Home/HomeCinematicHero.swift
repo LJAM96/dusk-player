@@ -139,6 +139,13 @@ struct HomeCinematicHero: View {
     /// from the play button, whether or not the focus engine moved focus for
     /// it; `HomeTVView` decides what the move amounts to.
     var onMoveDown: (() -> Void)? = nil
+    /// tvOS: the `storageKey` of the page whose play button has focus, `nil`
+    /// while focus is anywhere else. Rotation only runs while it is set.
+    var focusedItemKey: String? = nil
+    /// tvOS: moves focus to that page's play button. Rotation and the
+    /// wrap-around at either end page through it, so a page change is always
+    /// the focus engine's own move and scroll.
+    var onFocusItem: ((PlexItem) -> Void)? = nil
     let primaryAction: (PlexItem, HomeCinematicHeroCallbacks) -> AnyView
     var secondaryAction: ((PlexItem, HomeCinematicHeroCallbacks) -> AnyView)? = nil
     var detailsAction: ((PlexItem) -> Void)? = nil
@@ -262,6 +269,16 @@ struct HomeCinematicHero: View {
         return baseHero
             .duskTVOSStandardImageDynamicRange()
             .onMoveCommand(perform: handleHeroMoveCommand)
+            // Focus arriving on a play button (Home on screen, back from the
+            // shelves or the tab bar, a page change) starts a fresh interval;
+            // focus going anywhere else holds the rotation where it is.
+            .onChange(of: focusedItemKey) { _, key in
+                if key == nil {
+                    pauseHeroRotation()
+                } else {
+                    restartHeroRotation()
+                }
+            }
         #else
         if supportsDragNavigation {
             return AnyView(
@@ -444,7 +461,20 @@ struct HomeCinematicHero: View {
             String(isHeroRotationPaused),
             String(autoRotates),
             String(isHeroDragging),
+            String(isRotationSuspended),
         ].joined(separator: "::")
+    }
+
+    /// tvOS: rotation pages by moving focus between the pages' play buttons,
+    /// so it only runs while one of them has focus. That also holds it while
+    /// Home is behind another tab or the player, and keeps it from paging a
+    /// hero the user is not looking at.
+    private var isRotationSuspended: Bool {
+        #if os(tvOS)
+        focusedItemKey == nil
+        #else
+        false
+        #endif
     }
 
     private var backgroundHeroIndex: Int? {
@@ -695,7 +725,8 @@ struct HomeCinematicHero: View {
               heroItemIDs.count > 1,
               !accessibilityReduceMotion,
               scenePhase == .active,
-              !isHeroRotationPaused else {
+              !isHeroRotationPaused,
+              !isRotationSuspended else {
             return
         }
 
@@ -710,13 +741,19 @@ struct HomeCinematicHero: View {
         await MainActor.run {
             guard autoRotates,
                   heroItemIDs.count > 1,
-                  !isHeroRotationPaused else { return }
+                  !isHeroRotationPaused,
+                  !isRotationSuspended else { return }
 
+            #if os(tvOS)
+            let index = focusedItemKey.flatMap { heroItemIDs.firstIndex(of: $0) } ?? currentHeroIndex
+            onFocusItem?(items[(index + 1) % items.count])
+            #else
             moveHero(
                 to: (currentHeroIndex + 1) % heroItemIDs.count,
                 direction: .forward,
                 duration: 0.42
             )
+            #endif
             restartHeroRotation()
         }
     }
@@ -741,8 +778,9 @@ struct HomeCinematicHero: View {
 
     private func restartHeroRotation() {
         guard autoRotates else { return }
-        isHeroRotationPaused = false
-        pausedHeroRotationProgress = nil
+        // Suspended, a fresh interval waits at the start until focus is back.
+        isHeroRotationPaused = isRotationSuspended
+        pausedHeroRotationProgress = isRotationSuspended ? 0 : nil
         heroRotationStartedAt = Date()
         heroRotationRevision += 1
     }
@@ -844,9 +882,28 @@ struct HomeCinematicHero: View {
         switch direction {
         case .down:
             onMoveDown?()
-        case .left, .right, .up:
-            // The focus engine's: left/right move to the neighbouring page's
-            // play button (`tvPages`), up goes to the tab bar.
+        case .left, .right:
+            // Moving to the neighbouring page's play button is the focus
+            // engine's (`tvPages`). Past either end page it has nothing to
+            // move to, so the move wraps around to the other end here.
+            //
+            // It fires for every move, also after the engine has moved focus
+            // for it, and `focusedItemKey` may or may not have caught up with
+            // that move yet (both measured). The page on screen has not: the
+            // scroll to a new page has only just started. So only a move on
+            // an end page that is also at rest on screen wraps.
+            restartHeroRotation()
+            guard items.count > 1,
+                  let focusedItemKey,
+                  let focusedIndex = heroItemIDs.firstIndex(of: focusedItemKey) else { return }
+            let lastIndex = items.count - 1
+            if direction == .right, focusedIndex == lastIndex, currentHeroIndex == lastIndex {
+                onFocusItem?(items[0])
+            } else if direction == .left, focusedIndex == 0, currentHeroIndex == 0 {
+                onFocusItem?(items[lastIndex])
+            }
+        case .up:
+            // The focus engine's: the tab bar.
             break
         @unknown default:
             break
