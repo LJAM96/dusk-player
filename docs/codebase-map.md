@@ -235,7 +235,7 @@ Supporter:
   `SupporterPromptPresenter` gates the iOS/iPadOS three-prompt ladder from
   `MainTabView`, while tvOS support remains available explicitly in Settings.
 - `DuskAppIcon` + `AppIconPickerView` own the alternate icons (iOS-only);
-  Eclipse/Velvet are Director's Cut exclusives.
+  Velvet/Emerald/Gilded are Director's Cut exclusives.
 - Details and traps: `docs/supporter.md`.
 
 ## Where New Code Goes

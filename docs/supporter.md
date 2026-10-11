@@ -159,7 +159,7 @@ exist to catch bugs this feature is prone to:
 
 ## Alternate App Icons (iOS/iPadOS only)
 
-- Icon Composer bundles `Dusk/Resources/DuskIcon{Dawn,Midnight,Neon,Mono,Aurora,GoldenHour,Eclipse,Velvet}.icon`,
+- Icon Composer bundles `Dusk/Resources/DuskIcon{Dawn,Midnight,Neon,Mono,Aurora,GoldenHour,Velvet,Emerald,Gilded}.icon`,
   registered via `ASSETCATALOG_COMPILER_ALTERNATE_APPICON_NAMES` in
   `project.yml` (iOS target) and excluded from the tvOS target (tvOS alternates
   would need layered image stacks — out of scope; the Apple TV app only
@@ -168,9 +168,10 @@ exist to catch bugs this feature is prone to:
   primary mark's alpha, recolored), with the shared `icon.json`. Previews are
   flattened 512px `IconPreview*` imagesets in `Assets.xcassets`, shared with tvOS.
 - Access (`DuskAppIcon.isUnlocked`): the primary "Dusk" icon is free; the six
-  classic alternates belong to every supporter forever; **Eclipse** (black sun
-  with a glowing corona) and **Velvet** (cinema red with a touch of gold) only
-  while Director's Cut is active (`requiresDirectorsCut`).
+  classic alternates belong to every supporter forever; three jewel-tone icons
+  with a gold accent only while Director's Cut is active (`requiresDirectorsCut`):
+  **Velvet** (cinema red, gold tip), **Emerald** (deep green, gold tip) and
+  **Gilded** (polished gold on black lacquer).
 - **Lapse:** when Director's Cut is no longer active and one of its icons is
   set, `SupporterStore` switches back to the primary icon after an entitlement
   read — no in-app UI (iOS itself shows its standard one-line "icon changed"
@@ -181,7 +182,7 @@ exist to catch bugs this feature is prone to:
   history read overrides the cache so refunds revert immediately.
   `setAlternateIconName` fails while the app is inactive; the next activation
   retries.
-- Eclipse/Velvet were generated with `scripts/generate_directors_cut_icons.py`
+- Velvet/Emerald/Gilded were generated with `scripts/generate_directors_cut_icons.py`
   (Pillow + NumPy; `python3 scripts/generate_directors_cut_icons.py Dusk/Resources <out>`),
   which reuses the primary mark's alpha so they match the other alternates.
 - Adding a variant: new `.icon` bundle + preview imageset + `DuskAppIcon` case
@@ -251,9 +252,9 @@ App Store Connect text); DE "Laufende Unterstützung, jederzeit kündbar."
 | Price (USD) | $4.99 | $39.99 |
 | Reference name | Director's Cut Monthly | Director's Cut Yearly |
 | Display name EN | Director's Cut Monthly | Director's Cut Yearly |
-| Description EN | Top-tier support + 2 exclusive app icons. | Top-tier support + 2 exclusive app icons. |
+| Description EN | Top-tier support + 3 exclusive app icons. | Top-tier support + 3 exclusive app icons. |
 | Display name DE | Director's Cut monatlich | Director's Cut jährlich |
-| Description DE | Größte Unterstützung + 2 exklusive Icons. | Größte Unterstützung + 2 exklusive Icons. |
+| Description DE | Größte Unterstützung + 3 exklusive Icons. | Größte Unterstützung + 3 exklusive Icons. |
 | Family Sharing | **On** | **On** |
 | Introductory / promotional offers | None | None |
 
@@ -268,9 +269,9 @@ be switched off again once enabled for a product.
 
 > Dusk is a free Plex client; all features stay free. Subscriptions are an
 > optional way to support development. "Director's Cut" is the higher level of
-> the existing "Dusk Supporter" group (above "Front Row"). It unlocks two
-> additional, exclusive alternate app icons (Eclipse and Velvet) on iPhone and
-> iPad while active; every purchase also permanently unlocks the six standard
+> the existing "Dusk Supporter" group (above "Front Row"). It unlocks three
+> additional, exclusive alternate app icons (Velvet, Emerald and Gilded) on
+> iPhone and iPad while active; every purchase also permanently unlocks the six standard
 > alternate icons. To review: Settings → "Support Dusk" (top row) opens the
 > supporter sheet; Settings → Appearance → App Icon shows the icons. No Plex
 > account is needed to view the purchase sheet after signing in with the demo

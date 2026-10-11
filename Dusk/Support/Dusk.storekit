@@ -150,12 +150,12 @@
           "introductoryOffer" : null,
           "localizations" : [
             {
-              "description" : "Top-tier support + 2 exclusive app icons.",
+              "description" : "Top-tier support + 3 exclusive app icons.",
               "displayName" : "Director's Cut Monthly",
               "locale" : "en_US"
             },
             {
-              "description" : "Größte Unterstützung + 2 exklusive Icons.",
+              "description" : "Größte Unterstützung + 3 exklusive Icons.",
               "displayName" : "Director's Cut monatlich",
               "locale" : "de"
             }
@@ -180,12 +180,12 @@
           "introductoryOffer" : null,
           "localizations" : [
             {
-              "description" : "Top-tier support + 2 exclusive app icons.",
+              "description" : "Top-tier support + 3 exclusive app icons.",
               "displayName" : "Director's Cut Yearly",
               "locale" : "en_US"
             },
             {
-              "description" : "Größte Unterstützung + 2 exklusive Icons.",
+              "description" : "Größte Unterstützung + 3 exklusive Icons.",
               "displayName" : "Director's Cut jährlich",
               "locale" : "de"
             }

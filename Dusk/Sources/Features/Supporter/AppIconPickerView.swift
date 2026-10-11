@@ -33,7 +33,7 @@ struct AppIconPickerView: View {
                             icons: DuskAppIcon.directorsCutIcons,
                             footnote: store.hasDirectorsCut
                                 ? "Included with your Director's Cut subscription. If it ends, Dusk switches back to the default icon."
-                                : "Eclipse and Velvet unlock while a Director's Cut subscription is active."
+                                : "Velvet, Emerald and Gilded unlock while a Director's Cut subscription is active."
                         )
                     }
                     .padding(20)

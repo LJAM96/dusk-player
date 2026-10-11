@@ -90,7 +90,7 @@ final class SupporterStoreKitTests {
         await store.purchase(try product(.directorsCutMonthly, in: store))
         #expect(await refresh(store) { $0.activeTier == .directorsCut })
         #expect(store.activeProductID == "directorscut.monthly")
-        #expect(store.isUnlocked(.eclipse))
+        #expect(store.isUnlocked(.gilded))
 
         // Downgrade: scheduled for the next renewal, Director's Cut stays.
         await store.purchase(try product(.monthly, in: store))
@@ -114,7 +114,7 @@ final class SupporterStoreKitTests {
         try lapse("directorscut.yearly")
         #expect(await refresh(store) { $0.activeTier == nil })
         #expect(store.isSupporter)
-        #expect(!store.isUnlocked(.eclipse))
+        #expect(!store.isUnlocked(.gilded))
         #expect(store.isUnlocked(.aurora))
         #expect(store.shouldRevertExclusiveIcon())
     }

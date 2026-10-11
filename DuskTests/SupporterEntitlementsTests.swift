@@ -182,7 +182,7 @@ struct SupporterEntitlementsTests {
             #expect(icon.isUnlocked(isSupporter: true, hasDirectorsCut: false) == !icon.requiresDirectorsCut)
             #expect(icon.isUnlocked(isSupporter: true, hasDirectorsCut: true))
         }
-        #expect(DuskAppIcon.directorsCutIcons == [.eclipse, .velvet])
+        #expect(DuskAppIcon.directorsCutIcons == [.velvet, .emerald, .gilded])
         #expect(DuskAppIcon.supporterIcons.count == 7)
         #expect(DuskAppIcon.supporterIcons.first == .dusk)
     }
@@ -191,7 +191,8 @@ struct SupporterEntitlementsTests {
         let alternates = DuskAppIcon.allCases.compactMap(\.alternateIconName)
         #expect(Set(alternates).count == DuskAppIcon.allCases.count - 1)
         #expect(Set(DuskAppIcon.allCases.map(\.previewImageName)).count == DuskAppIcon.allCases.count)
-        #expect(DuskAppIcon.eclipse.alternateIconName == "DuskIconEclipse")
+        #expect(DuskAppIcon.emerald.alternateIconName == "DuskIconEmerald")
+        #expect(DuskAppIcon.gilded.alternateIconName == "DuskIconGilded")
         #expect(DuskAppIcon.velvet.alternateIconName == "DuskIconVelvet")
     }
 }
@@ -272,7 +273,7 @@ struct SupporterStoreCacheTests {
         #expect(!store.hasDirectorsCut)
         #expect(store.shouldRevertExclusiveIcon(now: now))
         #expect(store.isUnlocked(.goldenHour))
-        #expect(!store.isUnlocked(.eclipse))
+        #expect(!store.isUnlocked(.gilded))
     }
 
     @Test func refundReadOverridesCachedPeriod() {

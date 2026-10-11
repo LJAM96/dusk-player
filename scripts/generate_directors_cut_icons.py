@@ -1,12 +1,12 @@
-"""Generates the Director's Cut icons (Eclipse, Velvet) in the same layer
+"""Generates the Director's Cut icons (Velvet, Emerald, Gilded) in the same layer
 layout as the other alternates: background.png (opaque gradient) + mark.png
 (the Dusk mark's alpha, recolored), plus a 512px flattened preview.
 
 Usage (needs Pillow + NumPy):
     python3 scripts/generate_directors_cut_icons.py Dusk/Resources <out-dir>
 
-Writes <out-dir>/DuskIcon{Eclipse,Velvet}.icon/Assets/{background,mark}.png
-and <out-dir>/IconPreview{Eclipse,Velvet}.png. Copy them into the .icon
+Writes <out-dir>/DuskIcon{Velvet,Emerald,Gilded}.icon/Assets/{background,mark}.png
+and <out-dir>/IconPreview{Velvet,Emerald,Gilded}.png. Copy them into the .icon
 bundles (icon.json is shared with the other alternates) and the
 IconPreview* imagesets."""
 import sys, os
@@ -69,34 +69,40 @@ def preview(bg, mark_rgb, mark_a, path):
     b.alpha_composite(m)
     b.convert("RGB").resize((512, 512), Image.LANCZOS).save(path, optimize=True)
 
-# ---------------------------------------------------------------- Eclipse
-# A black sun: near-black field, a glowing corona ring centred on the mark,
-# and the mark itself as the dark occluding disc with a thin warm rim light.
-cx, cy = 548, 513
-r = np.hypot(xx - cx, yy - cy)
-R = 426
-ring = np.exp(-((r - R) / 16) ** 2)
-halo = np.exp(-((r - R) / 70) ** 2) * (r > R - 30)
-outer = np.exp(-np.maximum(r - R, 0) / 150) * (r > R)
-# Slightly uneven corona (stronger toward the top-right, like a diamond-ring moment).
-ang = np.arctan2(yy - cy, xx - cx)
-flare = 1 + 0.35 * np.exp(-((ang + 0.9) / 0.5) ** 2)
-glow_w = (1.0 * ring + 0.55 * halo + 0.28 * outer) * flare
-core_col = hexc("#FFF4E0")
-mid_col = hexc("#FFB45C")
-far_col = hexc("#C2542E")
-bg = vertical(hexc("#0B0A10"), hexc("#060509"), hexc("#020204"))
-corona = (core_col * ring[..., None] + mid_col * (0.55 * halo)[..., None] + far_col * (0.28 * outer)[..., None]) * flare[..., None]
-bg_e = 1 - (1 - bg) * (1 - np.clip(corona, 0, 1))  # screen
-save_dir = f"{OUT}/DuskIconEclipse.icon/Assets"; os.makedirs(save_dir, exist_ok=True)
-save_rgb(bg_e, f"{save_dir}/background.png")
-# Mark: near-black with a warm inner rim where it faces the corona.
-inner = alpha - blur(alpha, 5)
-rim = np.clip(inner * 2.4, 0, 1) * 0.7
-mark_e = ramp([(0, hexc("#3A2F2A")), (1, hexc("#1C1715"))], t) * shade[..., None]
-mark_e = mark_e * (1 - rim[..., None]) + hexc("#FFC98A")[None, None] * rim[..., None] * 0.85 + mark_e * rim[..., None] * 0.15
-save_rgba(mark_e, alpha, f"{save_dir}/mark.png")
-preview(bg_e, mark_e, alpha, f"{OUT}/IconPreviewEclipse.png")
+# ---------------------------------------------------------------- Emerald
+# Velvet's jewel-tone sibling: a deep emerald field lit by a soft overhead
+# spotlight; the mark runs from bright emerald to the same gold tip.
+spot = np.exp(-(((xx - 512) / 620) ** 2 + ((yy - 300) / 520) ** 2))
+bg_m = vertical(hexc("#0B4430"), hexc("#06291C"), hexc("#02110B"))
+bg_m = bg_m * (0.80 + 0.38 * spot[..., None])
+save_dir = f"{OUT}/DuskIconEmerald.icon/Assets"; os.makedirs(save_dir, exist_ok=True)
+save_rgb(bg_m, f"{save_dir}/background.png")
+mark_m = ramp([
+    (0.00, hexc("#4FE6A4")),
+    (0.55, hexc("#0FA36C")),
+    (0.80, hexc("#0B8758")),
+    (1.00, hexc("#F2C25E")),
+], t) * shade[..., None]
+save_rgba(mark_m, alpha, f"{save_dir}/mark.png")
+preview(bg_m, mark_m, alpha, f"{OUT}/IconPreviewEmerald.png")
+
+# ---------------------------------------------------------------- Gilded
+# Polished gold on black lacquer: alternating light/deep bands across the
+# mark read as metal, a faint warm glow sits behind it.
+glow = np.exp(-(((xx - 540) / 420) ** 2 + ((yy - 512) / 420) ** 2))
+bg_g = vertical(hexc("#17130D"), hexc("#0B0907"), hexc("#040303"))
+bg_g = bg_g + hexc("#3A2A10")[None, None] * (0.45 * glow)[..., None]
+save_dir = f"{OUT}/DuskIconGilded.icon/Assets"; os.makedirs(save_dir, exist_ok=True)
+save_rgb(bg_g, f"{save_dir}/background.png")
+mark_g = ramp([
+    (0.00, hexc("#FFF0BE")),
+    (0.22, hexc("#F0C45A")),
+    (0.45, hexc("#B9842A")),
+    (0.68, hexc("#F7D57E")),
+    (1.00, hexc("#A8721F")),
+], t) * shade[..., None]
+save_rgba(mark_g, alpha, f"{save_dir}/mark.png")
+preview(bg_g, mark_g, alpha, f"{OUT}/IconPreviewGilded.png")
 
 # ---------------------------------------------------------------- Velvet
 # Deep cinema-red curtain field with soft vertical folds; the mark runs from

@@ -627,7 +627,7 @@ struct SupporterView: View {
         case .frontRow:
             "Six alternate app icons on iPhone and iPad, and supporter status for good — even if you cancel."
         case .directorsCut:
-            "Everything in Front Row, plus the exclusive Eclipse and Velvet icons on iPhone and iPad while it's active — and the biggest boost for Dusk's development."
+            "Everything in Front Row, plus the exclusive Velvet, Emerald and Gilded icons on iPhone and iPad while it's active — and the biggest boost for Dusk's development."
         }
     }
     #endif
@@ -916,7 +916,7 @@ private struct SupporterTierCard<Rows: View>: View {
                 .font(.caption.weight(.bold))
                 .foregroundStyle(Color.duskAccent)
 
-            Text("Exclusive Eclipse & Velvet icons")
+            Text("Three exclusive icons")
                 .font(.footnote)
                 .foregroundStyle(Color.duskTextPrimary)
 
@@ -1165,7 +1165,7 @@ struct SupporterIconShowcase: View {
     }
 
     private var captionText: String {
-        let exclusives = "Eclipse and Velvet are Director's Cut exclusives"
+        let exclusives = "Velvet, Emerald and Gilded are Director's Cut exclusives"
         #if os(tvOS)
         if store.hasDirectorsCut {
             return "App icons are applied on iPhone and iPad — the Director's Cut exclusives included."

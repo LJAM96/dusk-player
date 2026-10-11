@@ -10,7 +10,7 @@ import SwiftUI
 /// the supporter UI there only showcases the variants.
 ///
 /// Access comes in three steps: the primary icon is free, the classic
-/// alternates belong to every supporter forever, and Eclipse/Velvet only
+/// alternates belong to every supporter forever, and Velvet/Emerald/Gilded only
 /// while Director's Cut is active (`SupporterStore` reverts them on lapse).
 enum DuskAppIcon: String, CaseIterable, Identifiable {
     case dusk
@@ -20,8 +20,9 @@ enum DuskAppIcon: String, CaseIterable, Identifiable {
     case mono
     case aurora
     case goldenHour
-    case eclipse
     case velvet
+    case emerald
+    case gilded
 
     var id: String { rawValue }
 
@@ -34,8 +35,9 @@ enum DuskAppIcon: String, CaseIterable, Identifiable {
         case .mono: "Mono"
         case .aurora: "Aurora"
         case .goldenHour: "Golden Hour"
-        case .eclipse: "Eclipse"
         case .velvet: "Velvet"
+        case .emerald: "Emerald"
+        case .gilded: "Gilded"
         }
     }
 
@@ -49,8 +51,9 @@ enum DuskAppIcon: String, CaseIterable, Identifiable {
         case .mono: "DuskIconMono"
         case .aurora: "DuskIconAurora"
         case .goldenHour: "DuskIconGoldenHour"
-        case .eclipse: "DuskIconEclipse"
         case .velvet: "DuskIconVelvet"
+        case .emerald: "DuskIconEmerald"
+        case .gilded: "DuskIconGilded"
         }
     }
 
@@ -65,8 +68,9 @@ enum DuskAppIcon: String, CaseIterable, Identifiable {
         case .mono: "IconPreviewMono"
         case .aurora: "IconPreviewAurora"
         case .goldenHour: "IconPreviewGoldenHour"
-        case .eclipse: "IconPreviewEclipse"
         case .velvet: "IconPreviewVelvet"
+        case .emerald: "IconPreviewEmerald"
+        case .gilded: "IconPreviewGilded"
         }
     }
 
@@ -74,7 +78,12 @@ enum DuskAppIcon: String, CaseIterable, Identifiable {
     var requiresSupporter: Bool { self != .dusk }
 
     /// Exclusive to an active Director's Cut subscription.
-    var requiresDirectorsCut: Bool { self == .eclipse || self == .velvet }
+    var requiresDirectorsCut: Bool {
+        switch self {
+        case .velvet, .emerald, .gilded: true
+        default: false
+        }
+    }
 
     /// Icons every supporter keeps forever, primary first.
     static var supporterIcons: [DuskAppIcon] { allCases.filter { !$0.requiresDirectorsCut } }
