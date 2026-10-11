@@ -80,12 +80,10 @@ targets:
         DEVELOPMENT_TEAM: ""
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIconTV
         ASSETCATALOG_COMPILER_LAUNCHIMAGE_NAME: ""
-        # The global accent is the UIKit window tint. On tvOS it must match the
-        # tab bar's label-color tint (see Color.duskTVTabBarTint): any UIKit view
-        # that falls back to the window tint, the tab bar included, would
-        # otherwise pick up Sunset Coral. SwiftUI content still gets the coral accent from
-        # the root `.tint(Color.duskAccent)` in DuskApp.
-        ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColorTV
+        # The global accent is the app's only tint (label color, never coral).
+        # On tvOS it also matches the tab bar's tint (Color.duskTVTabBarTint), so
+        # a bar that falls back to the window tint looks the same.
+        ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
         FRAMEWORK_SEARCH_PATHS: "$(inherited) $(PROJECT_DIR)/Frameworks"
         HEADER_SEARCH_PATHS: "$(inherited) $(PROJECT_DIR)/Dusk/Sources/Playback $(PROJECT_DIR)/Frameworks/TVVLCKit.xcframework/tvos-arm64/TVVLCKit.framework/Headers $(PROJECT_DIR)/Frameworks/TVVLCKit.xcframework/tvos-arm64-simulator/TVVLCKit.framework/Headers"
         LD_RUNPATH_SEARCH_PATHS: "$(inherited) @executable_path/Frameworks"

@@ -86,7 +86,6 @@
 		2B12F7FA01E3FB58F4EDE20C /* PlatformPosterCard.swift in Sources */ = {isa = PBXBuildFile; fileRef = 191C2E24B88A2F60782E9E21 /* PlatformPosterCard.swift */; };
 		2B35B5C6A17F253D7D669E89 /* DuskTypography.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5E6530866DC2A28714731AF8 /* DuskTypography.swift */; };
 		2C6279FE901D8DBCC741597A /* LiveTVHomeShelf.swift in Sources */ = {isa = PBXBuildFile; fileRef = 00E873624B104DE44EC8453F /* LiveTVHomeShelf.swift */; };
-		2DF2D6CC1B72CB1A6EF55F60 /* EpisodeRowView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2264D3998C09B3EF242902BC /* EpisodeRowView.swift */; };
 		2E32384DFEBA1BFB653E6DE7 /* DuskTypography.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5E6530866DC2A28714731AF8 /* DuskTypography.swift */; };
 		2E427621A1E0CFA4BA5D52FC /* HomeTVView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 40A953137995A3B7C019749D /* HomeTVView.swift */; };
 		2F103421F3B2EE65A4373AEE /* PlexContentKey.swift in Sources */ = {isa = PBXBuildFile; fileRef = 169B86334B8F76208C2A9CBD /* PlexContentKey.swift */; };
@@ -437,7 +436,6 @@
 		EE680F4DB2079F84605C5D6D /* PlexService+ServerIdentity.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4CBF2B2AB76824659AF99807 /* PlexService+ServerIdentity.swift */; };
 		F158568A108A779172325924 /* SupporterEntitlements.swift in Sources */ = {isa = PBXBuildFile; fileRef = 917F628A9F09F5E0A1FB4D2C /* SupporterEntitlements.swift */; };
 		F1594FC7CAE49B73C8621432 /* PlayerUpNextOverlayView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 79F09C85294EBFDDC944AE87 /* PlayerUpNextOverlayView.swift */; };
-		F1951FADAA3E90CC284F1449 /* EpisodeRowView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2264D3998C09B3EF242902BC /* EpisodeRowView.swift */; };
 		F2730A8DB481BF0F43DC1AC3 /* VideoDetailView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E8CADE80B1EC56237BC37F40 /* VideoDetailView.swift */; };
 		F2ADBEE19743F543DA12C476 /* ServerConnectionCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 46FC23599DFC642C5B1C521C /* ServerConnectionCoordinator.swift */; };
 		F2F3E22F061AD1964A5EA00E /* DuskAsyncImage.swift in Sources */ = {isa = PBXBuildFile; fileRef = 034B25104A3543F57DAB4AFF /* DuskAsyncImage.swift */; };
@@ -549,7 +547,6 @@
 		215D686AF085421BB487A99B /* PlaybackCoordinator+Timeline.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "PlaybackCoordinator+Timeline.swift"; sourceTree = "<group>"; };
 		2175C9C1AA10B3A52BDABCEE /* DuskTests-tvOS.xctest */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.cfbundle; path = "DuskTests-tvOS.xctest"; sourceTree = BUILT_PRODUCTS_DIR; };
 		2193D7CDE9B3DBA573562F21 /* OfflinePlaybackSyncManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OfflinePlaybackSyncManager.swift; sourceTree = "<group>"; };
-		2264D3998C09B3EF242902BC /* EpisodeRowView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EpisodeRowView.swift; sourceTree = "<group>"; };
 		226D59962B5623C3D0ABD9E0 /* DuskIconGoldenHour.icon */ = {isa = PBXFileReference; lastKnownFileType = wrapper.icon; path = DuskIconGoldenHour.icon; sourceTree = "<group>"; };
 		238280C774F925B268518B6D /* ContinueWatchingMerge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContinueWatchingMerge.swift; sourceTree = "<group>"; };
 		25FE8C06EE0E6E21DD598B7C /* SearchView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SearchView.swift; sourceTree = "<group>"; };
@@ -1170,7 +1167,6 @@
 				348F1B5EF3D8AD8AE52485B2 /* DetailSharedViews.swift */,
 				88BFBF304D2D64AA6A7F75FF /* EpisodeDetailView.swift */,
 				CCFB62797314A3D853B52051 /* EpisodeDetailViewModel.swift */,
-				2264D3998C09B3EF242902BC /* EpisodeRowView.swift */,
 				390DED2ED4295016D527E610 /* MediaDetailDestinationView.swift */,
 				ADD418AFDBF7E708D7555CFD /* MovieDetailView.swift */,
 				B58A13BD2862BF9B3DDC398E /* MovieDetailViewModel.swift */,
@@ -1490,7 +1486,6 @@
 				E21006ECB09BC8D0DA73C4A5 /* DuskWatchTogetherActivity.swift in Sources */,
 				223B486CF59BCB7953A40BC0 /* EpisodeDetailView.swift in Sources */,
 				43EE97E3C774ADB658885B66 /* EpisodeDetailViewModel.swift in Sources */,
-				F1951FADAA3E90CC284F1449 /* EpisodeRowView.swift in Sources */,
 				0D1CBCAA2894AA2EC7755C0F /* FeatureStateViews.swift in Sources */,
 				500B48872BB5111F6CA1C797 /* HomeCinematicHero.swift in Sources */,
 				58393DB56B848BBA3E6D2F25 /* HomeFirstPaintGate.swift in Sources */,
@@ -1715,7 +1710,6 @@
 				9931B5FE19F2DDB005AD3A5A /* DuskWatchTogetherActivity.swift in Sources */,
 				CA4DC7DF0B8BE1B46453A237 /* EpisodeDetailView.swift in Sources */,
 				42154E1A4748F9B0A9E7AD10 /* EpisodeDetailViewModel.swift in Sources */,
-				2DF2D6CC1B72CB1A6EF55F60 /* EpisodeRowView.swift in Sources */,
 				7DA2645AECB04893905F78AC /* FeatureStateViews.swift in Sources */,
 				7E95BF407D15DF43720CF805 /* HomeCinematicHero.swift in Sources */,
 				28A8DE2025B33E48E7F14F11 /* HomeFirstPaintGate.swift in Sources */,
@@ -2159,7 +2153,7 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIconTV;
-				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColorTV;
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				ASSETCATALOG_COMPILER_LAUNCHIMAGE_NAME = "";
 				CODE_SIGN_ENTITLEMENTS = Dusk/Support/Dusk.entitlements;
 				DEVELOPMENT_TEAM = "";
@@ -2202,7 +2196,7 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIconTV;
-				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColorTV;
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				ASSETCATALOG_COMPILER_LAUNCHIMAGE_NAME = "";
 				CODE_SIGN_ENTITLEMENTS = Dusk/Support/Dusk.entitlements;
 				DEVELOPMENT_TEAM = "";

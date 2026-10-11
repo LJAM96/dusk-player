@@ -455,7 +455,6 @@ private struct SeasonEpisodePosterArtwork: View {
         PosterArtwork(
             imageURL: imageURL,
             progress: progress,
-            progressStyle: .neutral,
             width: artworkWidth,
             imageAspectRatio: 16.0 / 9.0,
             showsPlayOverlay: showsPlayOverlay

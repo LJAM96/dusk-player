@@ -271,8 +271,6 @@ struct PlayerUpNextOverlayView: View {
         }
         .buttonStyle(.glass)
         .buttonBorderShape(.circle)
-        // See `upNextPrimaryButtonStyle`: no tint, or the app's coral leaks in.
-        .tint(nil)
         .accessibilityLabel("Close Player")
         #else
         Button(action: onDismiss) {
@@ -421,17 +419,14 @@ private extension View {
     @ViewBuilder
     func upNextPrimaryButtonStyle() -> some View {
         #if os(tvOS)
-        // System Liquid Glass with the tint cleared, the same as the Close
-        // circle: dark glass with a white label at rest, light glass with a
-        // dark label when focused. The tint must be `nil`, not a colour — the
-        // root `.tint(Color.duskAccent)` filled `.bordered` with coral on focus,
-        // and any explicit tint (even `.primary`) recolours the label, which is
-        // white-on-white on the focused glass. `.glassProminent` has the same
+        // System Liquid Glass with no tint, the same as the Close circle: dark
+        // glass with a white label at rest, light glass with a dark label when
+        // focused. Any explicit tint (even `.primary`) recolours the label, which
+        // is white-on-white on the focused glass. `.glassProminent` has the same
         // white-on-white focus problem.
         self
             .buttonStyle(.glass)
             .buttonBorderShape(.capsule)
-            .tint(nil)
         #else
         if #available(iOS 26.0, *) {
             self

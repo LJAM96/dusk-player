@@ -642,14 +642,12 @@ extension View {
     func detailHeroNativePrimaryButtonStyle() -> some View {
         #if os(tvOS)
         // Plain system glass, like the TV app: a dark platter that lifts to white
-        // with a dark label on focus. The tint is cleared because the app-wide
-        // coral `.tint` otherwise fills the focused platter; an explicit colour
-        // (even `.primary`) recolours the label too and goes white-on-white.
+        // with a dark label on focus. No tint: any explicit colour (even
+        // `.primary`) recolours the label too and goes white-on-white on focus.
         self
             .buttonStyle(.glass)
             .controlSize(.regular)
             .buttonBorderShape(.capsule)
-            .tint(nil)
         #elseif os(iOS)
         // Prominent glass tinted with a *translucent* `primary`: a contrasting lean
         // (dark in Light mode, light in Dark) that still reads as liquid glass rather
@@ -676,13 +674,11 @@ extension View {
     func detailHeroNativeSecondaryButtonStyle() -> some View {
         #if os(tvOS)
         // tvOS secondaries are icon-only and sit beside the primary, so make them
-        // round — there is no width to match. Tint cleared for the same reason as
-        // the primary.
+        // round — there is no width to match. No tint, same as the primary.
         self
             .buttonStyle(.glass)
             .controlSize(.regular)
             .buttonBorderShape(.circle)
-            .tint(nil)
         #elseif os(iOS)
         if #available(iOS 26.0, *) {
             self
@@ -943,7 +939,6 @@ struct ExpandableSummaryText: View {
                 #if os(tvOS)
                 .buttonStyle(.glass)
                 .buttonBorderShape(.capsule)
-                .tint(nil)
                 #else
                 .foregroundStyle(Color.primary)
                 .buttonStyle(.plain)

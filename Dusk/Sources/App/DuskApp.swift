@@ -130,7 +130,6 @@ struct DuskApp: App {
                 .environment(supporterStore)
                 .environment(analytics)
                 .preferredColorScheme(userPreferences.appearanceMode.preferredColorScheme)
-                .tint(Color.duskAccent)
                 .task {
                     analytics.recordAppOpenedIfNeeded()
                 }
@@ -250,10 +249,9 @@ private extension DuskApp {
 private extension DuskApp {
     /// Gives every tvOS tab bar an explicit tint at creation.
     ///
-    /// Without it the bar inherits the window tint, which is the global accent
-    /// color (Sunset Coral), and the selected tab item is drawn coral. The tab
-    /// shell pins the same color on the live bar; this covers the bar before the
-    /// shell's first update. See `MainTabTVShell`.
+    /// Without it the bar inherits the window tint (the global accent color).
+    /// The tab shell pins the same color on the live bar; this covers the bar
+    /// before the shell's first update. See `MainTabTVShell`.
     static func configureTabBarTint() {
         UITabBar.appearance().tintColor = .duskTVTabBarTint
     }
@@ -277,6 +275,9 @@ extension Color {
         }
     )
 
+    /// Sunset Coral, the brand color. Reserved for brand moments (the Supporter
+    /// page and the app icon picker); never a UI tint, state or progress color.
+    /// See STYLE.md.
     static let duskAccent = Color(uiColor: .duskAccent)
 
     static let duskTextPrimary = Color(

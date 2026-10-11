@@ -10,7 +10,7 @@ struct CircularProgressView: View {
 
             Circle()
                 .trim(from: 0, to: progress)
-                .stroke(Color.duskAccent, style: StrokeStyle(lineWidth: 2, lineCap: .round))
+                .stroke(Color.duskTextPrimary, style: StrokeStyle(lineWidth: 2, lineCap: .round))
                 .rotationEffect(.degrees(-90))
         }
     }

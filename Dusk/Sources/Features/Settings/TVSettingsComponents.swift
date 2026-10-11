@@ -135,7 +135,6 @@ struct TVSettingsToggleRow: View {
             Toggle("", isOn: $isOn)
                 .labelsHidden()
                 .toggleStyle(SwitchToggleStyle())
-                .tint(Color.duskAccent)
                 .focused($isFocused)
         }
         .frame(minHeight: TVSettingsMetrics.rowMinHeight)
@@ -155,7 +154,7 @@ struct TVSettingsActionRow: View {
 
     init(
         title: String,
-        tint: Color,
+        tint: Color = Color.duskTextPrimary,
         role: ButtonRole? = nil,
         showsChevron: Bool = false,
         isLoading: Bool = false,
@@ -195,7 +194,6 @@ struct TVSettingsActionRow: View {
 
             if isLoading {
                 ProgressView()
-                    .tint(Color.duskAccent)
             } else if let detail {
                 Text(detail)
                     .duskFont(tvOnly: DuskFont.TV.rowValue)

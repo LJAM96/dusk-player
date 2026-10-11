@@ -65,11 +65,9 @@ struct MainTabIOSShell<Content: View>: View {
                     value: tab
                 ) {
                     content(tab)
-                        .tint(Color.duskAccent)
                 }
             }
         }
-        .tint(.primary)
     }
 }
 
@@ -85,6 +83,10 @@ struct MainTabTVShell<Content: View>: View {
         TabView(selection: selection) {
             ForEach(tabs) { tab in
                 content(tab)
+                    // The bar's tint below would otherwise reach every tab's
+                    // content, and an explicit tint makes system glass buttons
+                    // go white-on-white on focus. Content gets no tint at all.
+                    .tint(nil)
                     .background {
                         DuskTVTabBarTintPin()
                             .frame(width: 0, height: 0)
@@ -210,18 +212,17 @@ private final class DuskTVRootBackController: UIViewController, UIGestureRecogni
 /// Zero-size helper that keeps the tvOS tab bar tinted with
 /// `Color.duskTVTabBarTint`.
 ///
-/// The app's global accent color (Sunset Coral) is the window tint, so every
-/// UIKit view that inherits its tint gets coral. SwiftUI's `.tint` on the tvOS
-/// `TabView` is not sticky: returning from a pushed detail screen or from the
-/// full-screen player can leave the real `UITabBar` back on the inherited
-/// window tint, which paints the selected tab item coral instead of the label
-/// color. Pinning the bar's own `tintColor` makes it explicit, so it no
-/// longer inherits, and re-pinning on every shell update repairs it if SwiftUI
-/// overwrites it again. A zero-size sentinel view inside the bar catches every
-/// later tint change UIKit reports and re-pins, so the repair does not depend
-/// on SwiftUI scheduling another shell update. The tvOS window tint itself is
-/// the same label color (`AccentColorTV` in the asset catalog), so even a bar
-/// that does inherit no longer has coral to inherit.
+/// SwiftUI's `.tint` on the tvOS `TabView` is not sticky: returning from a
+/// pushed detail screen or from the full-screen player can leave the real
+/// `UITabBar` back on the inherited window tint. When the global accent was
+/// still Sunset Coral that painted the selected tab item coral. Pinning the
+/// bar's own `tintColor` makes it explicit, so it no longer inherits, and
+/// re-pinning on every shell update repairs it if SwiftUI overwrites it again.
+/// A zero-size sentinel view inside the bar catches every later tint change
+/// UIKit reports and re-pins, so the repair does not depend on SwiftUI
+/// scheduling another shell update. The window tint itself is now the same
+/// label color (`AccentColor` in the asset catalog), so even a bar that does
+/// inherit has no coral to inherit.
 private struct DuskTVTabBarTintPin: UIViewControllerRepresentable {
     func makeUIViewController(context: Context) -> DuskTVTabBarTintController {
         DuskTVTabBarTintController()

@@ -1,19 +1,10 @@
 import SwiftUI
 
-/// How a poster's resume-progress bar is drawn. Shelves keep the brand accent;
-/// the show/season/episode pages use the neutral TV-app look (white on a dark
-/// track) so a row of half-watched episodes doesn't turn the page coral.
-enum PosterProgressStyle {
-    case accent
-    case neutral
-}
-
 struct PosterArtwork: View {
     static let cornerRadius: CGFloat = 16
 
     let imageURL: URL?
     var progress: Double?
-    var progressStyle: PosterProgressStyle = .accent
     var width: CGFloat = 130
     var imageAspectRatio: CGFloat = 2.0 / 3.0
     var cornerRadius: CGFloat = Self.cornerRadius
@@ -130,36 +121,23 @@ struct PosterArtwork: View {
         return width / imageAspectRatio
     }
 
+    /// Resume progress in the neutral TV-app look: white on a dark track.
     private func progressBar(progress: Double) -> some View {
         let clampedProgress = max(0, min(progress, 1.0))
         let height = DuskPosterMetrics.posterProgressBarHeight
 
         return ZStack(alignment: .leading) {
             Capsule()
-                .fill(progressTrackColor)
+                .fill(Color.black.opacity(0.42))
                 .frame(height: height)
             GeometryReader { geo in
                 Capsule()
-                    .fill(progressFillColor)
+                    .fill(Color.white.opacity(0.92))
                     .frame(width: geo.size.width * clampedProgress, height: height, alignment: .leading)
             }
         }
         .frame(height: height)
         .shadow(color: .black.opacity(0.28), radius: 2, y: 1)
-    }
-
-    private var progressFillColor: Color {
-        switch progressStyle {
-        case .accent: Color.duskAccent
-        case .neutral: Color.white.opacity(0.92)
-        }
-    }
-
-    private var progressTrackColor: Color {
-        switch progressStyle {
-        case .accent: Color.white.opacity(0.35)
-        case .neutral: Color.black.opacity(0.42)
-        }
     }
 }
 

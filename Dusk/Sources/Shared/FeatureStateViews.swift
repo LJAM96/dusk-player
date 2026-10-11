@@ -3,7 +3,6 @@ import SwiftUI
 struct FeatureLoadingView: View {
     var body: some View {
         ProgressView()
-            .tint(Color.duskAccent)
     }
 }
 
@@ -65,21 +64,33 @@ struct FeatureErrorView: View {
                 .multilineTextAlignment(.center)
                 .padding(.horizontal, 40)
 
-            Button(requiresSignIn ? "Sign In" : retryTitle) {
+            FeaturePrimaryButton(title: requiresSignIn ? "Sign In" : retryTitle) {
                 if requiresSignIn {
                     AuthenticationFailure.beginReauthentication(plexService: plexService)
                 } else {
                     retryAction()
                 }
             }
-            .font(DuskFont.buttonLabel(ios: .headline))
-            .foregroundStyle(.white)
-            .padding(.horizontal, 32)
-            .padding(.vertical, 12)
-            .background(Color.duskAccent, in: Capsule())
-            .duskSuppressTVOSButtonChrome()
-            .duskTVOSFocusEffectShape(Capsule())
         }
+    }
+}
+
+/// The single action of an error or empty state, such as Retry or Sign In.
+/// Same neutral glass as the detail pages' Play button.
+struct FeaturePrimaryButton: View {
+    let title: String
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            Text(title)
+                .font(DuskFont.buttonLabel(ios: .headline))
+                .padding(.horizontal, 12)
+                #if !os(tvOS)
+                .foregroundStyle(Color.duskPrimaryActionLabel)
+                #endif
+        }
+        .detailHeroNativePrimaryButtonStyle()
     }
 }
 

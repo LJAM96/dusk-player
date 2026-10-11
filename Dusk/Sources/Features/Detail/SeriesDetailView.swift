@@ -679,8 +679,6 @@ private extension View {
         self
             .buttonStyle(.glass)
             .buttonBorderShape(.capsule)
-            // The app-wide coral tint would otherwise fill the focused pill.
-            .tint(nil)
     }
 }
 
@@ -716,7 +714,6 @@ private struct SeriesEpisodeCard: View {
                 PosterArtwork(
                     imageURL: imageURL,
                     progress: progress,
-                    progressStyle: .neutral,
                     width: artworkWidth,
                     imageAspectRatio: 16.0 / 9.0,
                     showsPlayOverlay: false
