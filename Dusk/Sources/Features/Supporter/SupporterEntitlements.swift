@@ -51,6 +51,8 @@ struct SupporterEntitlements: Equatable {
     var tipCount = 0
     /// A tip from Generous up exists in the history (`SupporterProduct.isIconTip`).
     var hasIconTip = false
+    /// Most recent unrevoked tip purchase (snoozes the supporter prompt).
+    var latestTipPurchase: Date?
     /// Latest expiration among unrevoked subscription transactions of either
     /// level in the history. Nil when the history has none.
     var latestSubscriptionExpiration: Date?
@@ -100,6 +102,9 @@ struct SupporterEntitlements: Equatable {
             result.earliestPurchase = min(result.earliestPurchase ?? purchaseDate, purchaseDate)
             if product.tier == nil {
                 result.tipCount += max(record.purchasedQuantity, 1)
+                // Every consumable purchase is its own transaction, so the
+                // original purchase date is that tip's date.
+                result.latestTipPurchase = max(result.latestTipPurchase ?? purchaseDate, purchaseDate)
             }
             if product.isIconTip {
                 result.hasIconTip = true

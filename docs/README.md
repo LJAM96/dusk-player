@@ -42,7 +42,7 @@ that owns the behavior you are changing.
 - `ui-features.md`: app shell, shared SwiftUI primitives, home, libraries, detail,
   search, settings, and platform UI rules.
 - `supporter.md`: supporter tier — StoreKit products and status rules, the
-  prompt-ladder gating, and alternate app icons.
+  prompt scheduling, and alternate app icons.
 - `analytics.md`: the self-hosted anonymous event reporting — the hard rules
   that keep the privacy policy accurate, the event list, and how to add one.
   MANDATORY reading before adding or changing any reported event.

@@ -1,92 +1,81 @@
 import SwiftUI
 
-/// Gating rules for supporter prompts. The initial ladder is deliberately
-/// conservative, followed by at most one prompt per year for people who keep
-/// using Dusk. Existing users have no recorded install date, so their clock
-/// starts with the first launch of the release that ships this feature.
-enum SupporterPromptGate {
-    struct Milestone {
-        /// Days since first launch before this prompt may fire.
-        let minDaysSinceFirstLaunch: Int
-        /// Distinct usage days before this prompt may fire.
-        let minUsageDays: Int
-        /// Days since the previous prompt, so a user whose usage catches up
-        /// to several milestones at once still sees them well spaced.
-        let minDaysSincePreviousPrompt: Int
+/// When the supporter prompt may show. Never pushy, but it keeps giving a
+/// chance: a first ask once someone actually uses Dusk, then growing gaps
+/// while they keep dismissing it. A tip snoozes it for a year; an active
+/// subscription (either level, incl. Family Sharing) keeps it away entirely,
+/// and after a lapse it waits a while before resuming the same schedule.
+/// All intervals live here.
+enum SupporterPromptSchedule {
+    /// The first prompt: days since first launch and distinct usage days.
+    static let firstPromptMinDays = 7
+    static let firstPromptMinUsageDays = 3
+    /// Gap after the 1st, 2nd, 3rd prompt …; the last value repeats.
+    static let dismissalGapDays = [60, 120, 180]
+    /// Distinct usage days since the previous prompt, so someone who barely
+    /// opens the app isn't asked again just because time passed.
+    static let minUsageDaysSincePreviousPrompt = 5
+    /// Snooze after any tip, counted from that purchase.
+    static let tipSnoozeDays = 365
+    /// Earliest prompt after a subscription ends, counted from its expiry.
+    static let lapseGraceDays = 30
+
+    struct State: Equatable {
+        var firstLaunchDate: Date
+        var usageDayCount: Int
+        var promptCount: Int
+        var lastPromptDate: Date?
+        var lastPromptUsageDayCount: Int
+        var hasActiveSubscription: Bool
+        /// Last known end of a subscription period (cached, so it also covers
+        /// launch before StoreKit has answered).
+        var lastSubscriptionExpiration: Date?
+        var lastTipDate: Date?
     }
 
-    static let initialMilestones: [Milestone] = [
-        Milestone(minDaysSinceFirstLaunch: 7, minUsageDays: 3, minDaysSincePreviousPrompt: 0),
-        Milestone(minDaysSinceFirstLaunch: 30, minUsageDays: 10, minDaysSincePreviousPrompt: 14),
-        Milestone(minDaysSinceFirstLaunch: 90, minUsageDays: 25, minDaysSincePreviousPrompt: 30),
-    ]
+    /// Gap required after the given number of prompts already shown.
+    static func gapDays(afterPromptCount count: Int) -> Int {
+        guard count > 0 else { return 0 }
+        return dismissalGapDays[min(count, dismissalGapDays.count) - 1]
+    }
 
-    private static let annualStartDays = 365
-    private static let firstAnnualPromptGapDays = 180
-    private static let annualPromptGapDays = 365
-    private static let annualUsageDaysSincePreviousPrompt = 12
-
-    @MainActor
-    static func shouldShow(
-        preferences: UserPreferences,
-        store: SupporterStore,
-        now: Date = .now
-    ) -> Bool {
-        // Checked against StoreKit history, which syncs across devices on the
-        // same Apple ID — a supporter's other devices never prompt.
-        guard !store.isSupporter else { return false }
-
-        let daysSinceFirstLaunch = Calendar.current.dateComponents(
-            [.day],
-            from: preferences.firstLaunchDate,
-            to: now
-        ).day ?? 0
-
-        if preferences.supporterPromptCount >= initialMilestones.count {
-            return shouldShowAnnualPrompt(
-                preferences: preferences,
-                daysSinceFirstLaunch: daysSinceFirstLaunch,
-                now: now
-            )
+    static func shouldShow(_ state: State, now: Date = .now, calendar: Calendar = .current) -> Bool {
+        func days(since date: Date) -> Int {
+            calendar.dateComponents([.day], from: date, to: now).day ?? 0
         }
 
-        let milestone = initialMilestones[preferences.supporterPromptCount]
-        guard daysSinceFirstLaunch >= milestone.minDaysSinceFirstLaunch else { return false }
-        guard preferences.usageDayCount >= milestone.minUsageDays else { return false }
-
-        if let lastPrompt = preferences.supporterLastPromptDate {
-            let daysSinceLastPrompt = Calendar.current.dateComponents(
-                [.day],
-                from: lastPrompt,
-                to: now
-            ).day ?? 0
-            guard daysSinceLastPrompt >= milestone.minDaysSincePreviousPrompt else { return false }
+        guard !state.hasActiveSubscription else { return false }
+        if let expiration = state.lastSubscriptionExpiration,
+           expiration > now || days(since: expiration) < lapseGraceDays {
+            return false
+        }
+        if let tip = state.lastTipDate, days(since: tip) < tipSnoozeDays {
+            return false
         }
 
-        return true
+        guard days(since: state.firstLaunchDate) >= firstPromptMinDays,
+              state.usageDayCount >= firstPromptMinUsageDays else { return false }
+
+        guard let lastPrompt = state.lastPromptDate else { return true }
+        guard days(since: lastPrompt) >= gapDays(afterPromptCount: max(state.promptCount, 1)) else { return false }
+        return state.usageDayCount - state.lastPromptUsageDayCount >= minUsageDaysSincePreviousPrompt
     }
 
     @MainActor
-    private static func shouldShowAnnualPrompt(
-        preferences: UserPreferences,
-        daysSinceFirstLaunch: Int,
-        now: Date
-    ) -> Bool {
-        guard daysSinceFirstLaunch >= annualStartDays else { return false }
-        guard let lastPrompt = preferences.supporterLastPromptDate else { return false }
-
-        let daysSinceLastPrompt = Calendar.current.dateComponents(
-            [.day],
-            from: lastPrompt,
-            to: now
-        ).day ?? 0
-        let isFirstAnnualPrompt = preferences.supporterPromptCount == initialMilestones.count
-        let requiredGap = isFirstAnnualPrompt ? firstAnnualPromptGapDays : annualPromptGapDays
-        guard daysSinceLastPrompt >= requiredGap else { return false }
-
-        let usageDaysSinceLastPrompt =
-            preferences.usageDayCount - preferences.supporterLastPromptUsageDayCount
-        return usageDaysSinceLastPrompt >= annualUsageDaysSincePreviousPrompt
+    static func shouldShow(preferences: UserPreferences, store: SupporterStore, now: Date = .now) -> Bool {
+        shouldShow(
+            State(
+                firstLaunchDate: preferences.firstLaunchDate,
+                usageDayCount: preferences.usageDayCount,
+                promptCount: preferences.supporterPromptCount,
+                lastPromptDate: preferences.supporterLastPromptDate,
+                lastPromptUsageDayCount: preferences.supporterLastPromptUsageDayCount,
+                hasActiveSubscription: store.hasActiveSubscription,
+                lastSubscriptionExpiration: store.lastKnownSubscriptionExpiration,
+                lastTipDate: store.lastTipDate
+            ),
+            now: now
+        )
     }
 }
 
@@ -125,9 +114,10 @@ struct SupporterPromptPresenter: ViewModifier {
         try? await Task.sleep(for: .seconds(2))
         guard !Task.isCancelled else { return }
         guard !showsPrompt, !playback.showPlayer else { return }
-        guard SupporterPromptGate.shouldShow(preferences: preferences, store: supporterStore) else { return }
+        guard SupporterPromptSchedule.shouldShow(preferences: preferences, store: supporterStore) else { return }
 
-        // Advance the ladder the moment it actually presents.
+        // Stamp the prompt the moment it actually presents; the schedule's
+        // gap (weeks at least) also keeps it to one per session.
         preferences.registerSupporterPrompt()
         promptNumber = preferences.supporterPromptCount
         // Reported before presentation, so this can be compared against

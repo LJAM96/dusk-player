@@ -275,7 +275,7 @@ final class UserPreferences {
 
     /// First launch on this device — or, for users who installed before this
     /// key existed, the first launch after updating. The supporter prompt's
-    /// 7-day clock counts from here.
+    /// first-ask clock counts from here (`SupporterPromptSchedule`).
     private(set) var firstLaunchDate: Date
 
     /// Number of distinct calendar days the app has been used, fed by
@@ -295,13 +295,13 @@ final class UserPreferences {
         didSet { UserDefaults.standard.set(supporterPromptCount, forKey: Keys.supporterPromptCount) }
     }
 
-    /// When the most recent supporter prompt was shown; spaces the ladder out
-    /// for users whose usage catches up to several milestones at once.
+    /// When the most recent supporter prompt was shown; the schedule's
+    /// growing gaps count from here.
     private(set) var supporterLastPromptDate: Date? {
         didSet { UserDefaults.standard.set(supporterLastPromptDate, forKey: Keys.supporterLastPromptDate) }
     }
 
-    /// Usage-day count when the most recent supporter prompt was shown. Annual
+    /// Usage-day count when the most recent supporter prompt was shown. Later
     /// prompts use the delta to avoid asking people who barely use the app.
     private(set) var supporterLastPromptUsageDayCount: Int {
         didSet {

@@ -82,6 +82,7 @@ final class SupporterStore {
         static let supporterSince = "supporterSince"
         static let tipCount = "supporterTipCount"
         static let hasIconTip = "supporterHasIconTip"
+        static let lastTipDate = "supporterLastTipDate"
         static let subscriptionExpiration = "supporterSubscriptionExpiration"
         static let directorsCutExpiration = "supporterDirectorsCutExpiration"
     }
@@ -98,6 +99,8 @@ final class SupporterStore {
     private(set) var tipCount: Int
     /// A tip from Generous up was ever bought (monotonic, like `tipCount`).
     private(set) var hasIconTip: Bool
+    /// Most recent tip, cached; snoozes the supporter prompt for a year.
+    private(set) var lastTipDate: Date?
     /// Highest subscription level currently in force; nil when none is.
     private(set) var activeTier: SupporterTier?
     private(set) var activeProductID: String?
@@ -138,6 +141,7 @@ final class SupporterStore {
         supporterSince = defaults.object(forKey: Keys.supporterSince) as? Date
         tipCount = defaults.integer(forKey: Keys.tipCount)
         hasIconTip = defaults.bool(forKey: Keys.hasIconTip)
+        lastTipDate = defaults.object(forKey: Keys.lastTipDate) as? Date
         lastKnownSubscriptionExpiration = defaults.object(forKey: Keys.subscriptionExpiration) as? Date
         lastKnownDirectorsCutExpiration = defaults.object(forKey: Keys.directorsCutExpiration) as? Date
     }
@@ -284,6 +288,9 @@ final class SupporterStore {
         }
         tipCount = max(tipCount, entitlements.tipCount)
         hasIconTip = hasIconTip || entitlements.hasIconTip
+        if let latestTip = entitlements.latestTipPurchase {
+            lastTipDate = max(lastTipDate ?? latestTip, latestTip)
+        }
 
         // A non-empty history is authoritative for the subscription periods
         // (it reflects refunds); an empty one keeps the cached values.
@@ -346,6 +353,7 @@ final class SupporterStore {
         defaults.set(supporterSince, forKey: Keys.supporterSince)
         defaults.set(tipCount, forKey: Keys.tipCount)
         defaults.set(hasIconTip, forKey: Keys.hasIconTip)
+        defaults.set(lastTipDate, forKey: Keys.lastTipDate)
         defaults.set(lastKnownSubscriptionExpiration, forKey: Keys.subscriptionExpiration)
         defaults.set(lastKnownDirectorsCutExpiration, forKey: Keys.directorsCutExpiration)
     }

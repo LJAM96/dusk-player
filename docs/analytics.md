@@ -101,8 +101,8 @@ Every event also carries `app_version`, `platform` (`ios`/`ipados`/`tvos`) and
 ### The two questions this set was built to answer
 
 1. **Is the supporter prompt reaching anyone?** `supporter_prompt_triggered` vs
-   `supporter_sheet_shown` with `source=prompt`. A gap means the ladder is
-   burning milestones without the sheet ever appearing.
+   `supporter_sheet_shown` with `source=prompt`. A gap means the schedule is
+   burning prompts without the sheet ever appearing.
 2. **Can people actually buy?** `supporter_products_unavailable` against
    `supporter_sheet_shown`. A steady stream means the App Store products are
    not resolving in production — which local Xcode runs cannot catch, because

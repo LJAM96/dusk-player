@@ -831,7 +831,7 @@ in Dusk. Read this with `docs/codebase-map.md`, `STYLE.md`, and `docs/data-and-p
   Account stay lower on the page. AI Upscaling is a normal Playback Default;
   Playback Advanced is reserved for forced engine selection. The iOS Appearance
   section has an App Icon row opening `AppIconPickerView`. The supporter tier
-  itself (StoreKit products, status rules, the iOS/iPadOS prompt ladder, alternate
+  itself (StoreKit products, status rules, the iOS/iPadOS prompt schedule, alternate
   icons) is documented in `supporter.md`; tvOS only exposes supporter purchases
   through Settings.
 - Player Quality lives in the in-player gear menu, not global Settings. It is a

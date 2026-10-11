@@ -56,7 +56,7 @@ struct SupporterView: View {
     // MARK: - Reporting
 
     /// Every event from this sheet carries where it was opened from, so the
-    /// prompt ladder and the Settings entry point can be told apart.
+    /// prompt schedule and the Settings entry point can be told apart.
     private var reportingProperties: [String: AnalyticsValue] {
         var properties: [String: AnalyticsValue] = [
             "source": .string(context.isPrompt ? "prompt" : "settings")

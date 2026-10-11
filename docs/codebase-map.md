@@ -234,7 +234,7 @@ Supporter:
   not: they follow the live entitlement read (tips keep the classic icons).
   The pure rules live in `SupporterEntitlements.swift` and are covered by `DuskTests/` (incl. StoreKitTest flows against `Dusk.storekit`).
 - `SupporterView` is the single pitch/thank-you/prompt sheet;
-  `SupporterPromptPresenter` gates the iOS/iPadOS three-prompt ladder from
+  `SupporterPromptPresenter` gates the iOS/iPadOS supporter prompt schedule from
   `MainTabView`, while tvOS support remains available explicitly in Settings.
 - `DuskAppIcon` + `AppIconPickerView` own the alternate icons (iOS-only);
   Velvet/Emerald/Gilded are Director's Cut exclusives.

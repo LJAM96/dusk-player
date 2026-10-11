@@ -13,7 +13,7 @@ enum AnalyticsEventName: String, CaseIterable, Sendable {
     /// device per calendar day, so the daily count is an active-device count.
     case appOpened = "app_opened"
 
-    /// The prompt ladder passed its gate and asked for the sheet to be
+    /// The prompt schedule passed its gate and asked for the sheet to be
     /// presented. Compare against `supporter_sheet_shown` with `source=prompt`:
     /// a gap means presentation is failing, not that the gate is wrong.
     case supporterPromptTriggered = "supporter_prompt_triggered"

@@ -43,7 +43,7 @@ StoreKit display name.
 other services) owns all state:
 
 - **Supporter status vs. perks.** `isSupporter` (the "You're a Supporter"
-  title, no more supporter prompts) is monotonic: any verified purchase sets
+  title) is monotonic: any verified purchase sets
   it, `refreshEntitlements()` only ever upgrades it, and the UserDefaults cache
   is never downgraded by an empty/transient history read. **Perks are not:**
   everything a subscription unlocks is only available while that subscription
@@ -121,36 +121,41 @@ credentials — only call it from an explicit user action.
   exclusives as a second labeled row. `AppIconPickerView` groups the same way ("Supporter Icons" /
   "Director's Cut Exclusives"); locked tiles open the supporter sheet.
 
-## Prompt Ladder
+## Prompt Schedule
 
-`SupporterPromptGate` + `SupporterPromptPresenter`
+`SupporterPromptSchedule` + `SupporterPromptPresenter`
 (`Features/Supporter/SupporterPrompt.swift`), applied in `MainTabView` on iOS
 and iPadOS so it only runs for signed-in sessions. Apple TV does not apply the
-presenter. The initial phase has three prompts:
+presenter. All intervals are constants at the top of `SupporterPromptSchedule`:
 
-| Prompt | Min days since first launch | Min usage days | Min days since previous |
-| ------ | --------------------------- | -------------- | ----------------------- |
-| 1      | 7                           | 3              | —                       |
-| 2      | 30                          | 10             | 14                      |
-| 3      | 90                          | 25             | 30                      |
+| Rule | Value |
+| ---- | ----- |
+| First prompt | ≥ 7 days since first launch and ≥ 3 distinct usage days |
+| Gap after prompt 1 / 2 / 3+ (dismissed, nothing bought) | 60 / 120 / 180 days, then every 180 days |
+| Usage between prompts | ≥ 5 distinct usage days since the previous prompt |
+| After any tip (Coffee included) | snoozed 365 days from that purchase |
+| Active subscription (either level, incl. Family Sharing) | never |
+| After a subscription ends | earliest 30 days after its expiry, then the normal gaps |
 
+- The pure rule is `SupporterPromptSchedule.shouldShow(_ State:now:)`
+  (`SupporterPromptScheduleTests`). Its subscription and tip inputs are the
+  store's cached `lastKnownSubscriptionExpiration` and `lastTipDate`, so an
+  active subscriber isn't prompted in the seconds before StoreKit answers at
+  launch (an expiry in the future counts as active). StoreKit history syncs per
+  Apple ID, so purchases on another device count once entitlements refresh.
+- Supporter status (`isSupporter`) no longer silences prompts: a lapsed
+  subscriber or a past tipper gets the schedule again once the snooze / grace
+  period is over.
 - Usage days are distinct calendar days (`UserPreferences.registerUsageDay()`).
-  The escalating thresholds mean light users stop qualifying instead of being
-  re-asked; the gap column keeps a returning heavy user from seeing several
-  prompts in quick succession.
-- After the initial phase, an annual prompt becomes eligible beginning 365 days
-  after first launch. The first annual prompt also requires 180 days since the
-  third initial prompt; subsequent annual prompts require 365 days since the
-  previous prompt. Every annual prompt requires at least 12 distinct usage days
-  since the previous prompt.
-- Never for supporters (StoreKit history syncs per Apple ID, so a supporter's
-  other devices never prompt); never while the player is up; 2s grace delay
-  after activation.
-- `UserPreferences.firstLaunchDate` is set on first run — for pre-existing
+  `UserPreferences.firstLaunchDate` is set on first run — for pre-existing
   installs that is the first run after the update, intentionally.
 - `UserPreferences.registerSupporterPrompt()` advances `supporterPromptCount`
   and stamps `supporterLastPromptDate` plus the current usage-day count the
-  moment a prompt presents; declining ("Maybe Later") does not reset anything.
+  moment a prompt presents; "Maybe Later" (or swiping away) is simply a
+  dismissal. Counters from the old three-step ladder carry over unchanged.
+- At most one prompt per session falls out of the gaps (weeks at least between
+  prompts); calm moments only: never while the player is up, 2s grace delay
+  after activation.
 - Prompt 2 onward uses the neutral "Still enjoying Dusk?" headline. The sheet
   does not describe the cadence or promise that a prompt is the final ask.
 
