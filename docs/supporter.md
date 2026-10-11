@@ -42,11 +42,16 @@ StoreKit display name.
 `SupporterStore` (`@MainActor @Observable`, injected in `DuskApp` alongside the
 other services) owns all state:
 
-- **Any verified purchase ever ⇒ supporter forever.** Status is monotonic:
-  `refreshEntitlements()` only ever upgrades, and the UserDefaults cache is
-  never downgraded by an empty/transient history read. This holds for both
-  levels: a lapsed Director's Cut or Front Row subscriber stays a supporter and
-  keeps the six classic icons.
+- **Supporter status vs. perks.** `isSupporter` (the "You're a Supporter"
+  title, no more supporter prompts) is monotonic: any verified purchase sets
+  it, `refreshEntitlements()` only ever upgrades it, and the UserDefaults cache
+  is never downgraded by an empty/transient history read. **Perks are not:**
+  everything a subscription unlocks is only available while that subscription
+  is active — the six classic icons with either level, the three exclusives
+  with Director's Cut. Tips are one-time purchases and unlock the classic icons
+  without an end (`tipCount > 0`). Never write "forever", "for good" or "keep
+  after cancelling" for subscription perks anywhere (sheet, picker, StoreKit /
+  App Store Connect texts, review notes).
 - The **active level** (`activeTier`, `activeProductID`) is *not* monotonic:
   it comes from `Transaction.currentEntitlements` on every read. The pure
   resolution is `SupporterEntitlements.resolve` (`SupporterEntitlements.swift`):
@@ -59,9 +64,10 @@ other services) owns all state:
   `Transaction.all`.
 - **Family Sharing** is on for Director's Cut only. Family members see the
   shared transaction (`ownershipType == .familyShared`) in both reads, so they
-  get Director's Cut (incl. the exclusive icons) while it is shared and — like
-  any verified transaction — become supporters for good. Leaving the family
-  revokes the transaction (`revocationDate`), which drops the level.
+  get Director's Cut (incl. all its icons) while it is shared and — like any
+  verified transaction — get the monotonic supporter status. Leaving the
+  family revokes the transaction (`revocationDate`), which drops the level and
+  its icons.
 - Entitlements are re-read on every transaction update, after purchases and
   restores, when the app becomes active (`sceneDidBecomeActive()` from
   `DuskApp`), and one second after the active period's expiration date if the
@@ -168,18 +174,21 @@ exist to catch bugs this feature is prone to:
   primary mark's alpha, recolored), with the shared `icon.json`. Previews are
   flattened 512px `IconPreview*` imagesets in `Assets.xcassets`, shared with tvOS.
 - Access (`DuskAppIcon.isUnlocked`): the primary "Dusk" icon is free; the six
-  classic alternates belong to every supporter forever; three jewel-tone icons
-  with a gold accent only while Director's Cut is active (`requiresDirectorsCut`):
+  classic alternates need a tip or an active subscription of either level
+  (`SupporterStore.hasIconAccess`); three jewel-tone icons with a gold accent
+  only while Director's Cut is active (`requiresDirectorsCut`):
   **Velvet** (cinema red, gold tip), **Emerald** (deep green, gold tip) and
   **Gilded** (polished gold on black lacquer).
-- **Lapse:** when Director's Cut is no longer active and one of its icons is
-  set, `SupporterStore` switches back to the primary icon after an entitlement
-  read — no in-app UI (iOS itself shows its standard one-line "icon changed"
-  alert; no public API suppresses it). Guard against transient empty reads:
-  the store caches the last known Director's Cut expiration
-  (`supporterDirectorsCutExpiration`) and only reverts once that date has
-  passed (`SupporterEntitlements.shouldRevertExclusiveIcon`); a non-empty
-  history read overrides the cache so refunds revert immediately.
+- **Lapse:** when the subscription that covers the current icon is no longer
+  active (Director's Cut for the exclusives; any level — and no tip — for the
+  classic alternates), `SupporterStore` switches back to the primary icon after
+  an entitlement read — no in-app UI (iOS itself shows its standard one-line
+  "icon changed" alert; no public API suppresses it). Guard against transient
+  empty reads: the store caches the last known subscription and Director's Cut
+  expirations (`supporterSubscriptionExpiration`,
+  `supporterDirectorsCutExpiration`) and only reverts once that date has
+  passed (`SupporterEntitlements.shouldRevertIcon`); a non-empty history read
+  overrides the cache so refunds revert immediately.
   `setAlternateIconName` fails while the app is inactive; the next activation
   retries.
 - Velvet/Emerald/Gilded were generated with `scripts/generate_directors_cut_icons.py`
@@ -195,13 +204,14 @@ exist to catch bugs this feature is prone to:
   into the `Dusk` / `Dusk-tvOS` schemes' Test action):
   - `SupporterEntitlementsTests` — pure rules: level resolution (active,
     upgrade with `isUpgraded`, pending downgrade, renewal into Front Row,
-    lapse, refund, tips), the exclusive-icon revert rule, icon access, and the
-    store's monotonic cache.
+    lapse, refund, tips), the icon revert rule (exclusives, classic icons,
+    tips), icon access, and the store's cache.
   - `SupporterStoreKitTests` — StoreKitTest (`SKTestSession` with
     `Dusk.storekit`, copied into the test bundle): catalog/levels/Family
     Sharing, buy → upgrade → scheduled downgrade → forced renewal into Front
     Row, Director's Cut lapse (auto-renew off + expire; expiring alone leaves
-    an auto-renewing test subscription in force), restore on a fresh install,
+    an auto-renewing test subscription in force), Front Row lapse then a tip,
+    restore on a fresh install,
     refund. Serialized: the StoreKit test
     environment is shared state. Trap: the first run right after the app
     is (re)installed on a simulator can still hit the real sandbox (App Store
@@ -271,8 +281,9 @@ be switched off again once enabled for a product.
 > optional way to support development. "Director's Cut" is the higher level of
 > the existing "Dusk Supporter" group (above "Front Row"). It unlocks three
 > additional, exclusive alternate app icons (Velvet, Emerald and Gilded) on
-> iPhone and iPad while active; every purchase also permanently unlocks the six standard
-> alternate icons. To review: Settings → "Support Dusk" (top row) opens the
+> iPhone and iPad while active. Both levels unlock the six standard alternate
+> icons while the subscription is active; when it ends, the app switches back
+> to the default icon. To review: Settings → "Support Dusk" (top row) opens the
 > supporter sheet; Settings → Appearance → App Icon shows the icons. No Plex
 > account is needed to view the purchase sheet after signing in with the demo
 > account provided in the app review information. On Apple TV the same sheet

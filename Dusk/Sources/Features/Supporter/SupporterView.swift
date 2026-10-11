@@ -606,7 +606,7 @@ struct SupporterView: View {
 
     #if os(tvOS)
     private var tvManageFooter: String {
-        "Everything in Dusk stays free either way. \(Self.renewalDisclosure) Upgrades start right away; switching down takes effect at the next renewal. Manage or cancel subscriptions in Settings → Users & Accounts → Subscriptions. Privacy Policy: getdusk.app/privacy · Terms of Use (EULA): apple.com/legal/internet-services/itunes/dev/stdeula"
+        "Everything in Dusk stays free either way. \(Self.renewalDisclosure) Upgrades start right away; switching down takes effect at the next renewal. \(Self.subscriptionPerksNote) Manage or cancel subscriptions in Settings → Users & Accounts → Subscriptions. Privacy Policy: getdusk.app/privacy · Terms of Use (EULA): apple.com/legal/internet-services/itunes/dev/stdeula"
     }
 
     /// Plain-text equivalent of the iOS plan-row state for the tvOS detail column.
@@ -625,7 +625,7 @@ struct SupporterView: View {
     private func tierPerksSentence(for tier: SupporterTier) -> String {
         switch tier {
         case .frontRow:
-            "Six alternate app icons on iPhone and iPad, and supporter status for good — even if you cancel."
+            "Six alternate app icons on iPhone and iPad while your subscription is active."
         case .directorsCut:
             "Everything in Front Row, plus the exclusive Velvet, Emerald and Gilded icons on iPhone and iPad while it's active — and the biggest boost for Dusk's development."
         }
@@ -726,12 +726,14 @@ struct SupporterView: View {
     /// Auto-renewal disclosure for the subscription offer (App Review 3.1.2).
     private static let renewalDisclosure = "Subscriptions renew automatically at the price shown until cancelled at least 24 hours before the end of the period. Payment is charged to your Apple Account."
 
+    private static let subscriptionPerksNote = "Subscription perks are available while the subscription is active."
+
     private var subscriptionFootnote: String {
         // While subscribed, each card already explains how its switch applies.
         let switching = store.hasActiveSubscription
             ? ""
             : " Upgrades start right away; switching down takes effect at the next renewal."
-        return Self.renewalDisclosure + switching + " Cancel anytime in your App Store settings."
+        return Self.renewalDisclosure + switching + " \(Self.subscriptionPerksNote) Cancel anytime in your App Store settings."
     }
 }
 
@@ -892,7 +894,7 @@ private struct SupporterTierCard<Rows: View>: View {
     private var perks: [String] {
         switch tier {
         case .frontRow:
-            ["Six alternate app icons", "Supporter for good — even if you cancel"]
+            ["Six alternate app icons", "Cancel anytime"]
         case .directorsCut:
             ["Everything in Front Row"]
         }
@@ -1050,7 +1052,7 @@ struct SupporterIconShowcase: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
-            Text(store.isSupporter ? "Your App Icons" : "Supporter Perk — App Icons")
+            Text(store.hasIconAccess ? "Your App Icons" : "Supporter Perk — App Icons")
                 .font(DuskFont.groupHeader(ios: .footnote.weight(.semibold)))
                 .textCase(.uppercase)
                 .tracking(0.6)
@@ -1170,16 +1172,16 @@ struct SupporterIconShowcase: View {
         if store.hasDirectorsCut {
             return "App icons are applied on iPhone and iPad — the Director's Cut exclusives included."
         }
-        return store.isSupporter
+        return store.hasIconAccess
             ? "App icons are applied on iPhone and iPad. \(exclusives)."
             : "Supporting unlocks the alternate app icons on iPhone and iPad. \(exclusives)."
         #else
         if store.hasDirectorsCut {
             return "Tap an icon to apply it."
         }
-        return store.isSupporter
+        return store.hasIconAccess
             ? "Tap an icon to apply it. \(exclusives)."
-            : "Any support unlocks six icons for good. \(exclusives)."
+            : "A tip or an active subscription unlocks six icons. \(exclusives)."
         #endif
     }
 

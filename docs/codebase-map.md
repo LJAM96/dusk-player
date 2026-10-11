@@ -228,9 +228,9 @@ Supporter:
 
 - `SupporterStore` owns StoreKit 2 state; supporter status is monotonic
   (any purchase ever, cached in UserDefaults, never downgraded). The active
-  subscription level (Front Row / Director's Cut) is not: it follows the live
-  entitlement read. The pure rules live in `SupporterEntitlements.swift` and
-  are covered by `DuskTests/` (incl. StoreKitTest flows against `Dusk.storekit`).
+  subscription level (Front Row / Director's Cut) and every perk it unlocks are
+  not: they follow the live entitlement read (tips keep the classic icons).
+  The pure rules live in `SupporterEntitlements.swift` and are covered by `DuskTests/` (incl. StoreKitTest flows against `Dusk.storekit`).
 - `SupporterView` is the single pitch/thank-you/prompt sheet;
   `SupporterPromptPresenter` gates the iOS/iPadOS three-prompt ladder from
   `MainTabView`, while tvOS support remains available explicitly in Settings.

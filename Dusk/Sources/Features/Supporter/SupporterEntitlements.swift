@@ -37,9 +37,9 @@ struct SupporterTransactionRecord: Equatable {
 /// What the App Store says the user has, resolved from one read of
 /// `Transaction.currentEntitlements` and one of `Transaction.all`.
 ///
-/// This is a snapshot, not supporter status: the monotonic "supporter
-/// forever" rule lives in `SupporterStore`, which only ever lets a snapshot
-/// add evidence on top of its cache.
+/// This is a snapshot, not supporter status: the monotonic supporter flag
+/// lives in `SupporterStore`, which only ever lets a snapshot add evidence on
+/// top of its cache. Icon access is not monotonic (see `shouldRevertIcon`).
 struct SupporterEntitlements: Equatable {
     /// The highest subscription level currently in force, if any.
     var activeTier: SupporterTier?
@@ -49,6 +49,9 @@ struct SupporterEntitlements: Equatable {
     var hasAnySupport = false
     var earliestPurchase: Date?
     var tipCount = 0
+    /// Latest expiration among unrevoked subscription transactions of either
+    /// level in the history. Nil when the history has none.
+    var latestSubscriptionExpiration: Date?
     /// Latest expiration among unrevoked Director's Cut transactions in the
     /// history. Nil when the history has none (or none survived a refund).
     var latestDirectorsCutExpiration: Date?
@@ -96,6 +99,12 @@ struct SupporterEntitlements: Equatable {
             if product.tier == nil {
                 result.tipCount += max(record.purchasedQuantity, 1)
             }
+            if product.tier != nil, let expiration = record.expirationDate {
+                result.latestSubscriptionExpiration = max(
+                    result.latestSubscriptionExpiration ?? expiration,
+                    expiration
+                )
+            }
             if product.tier == .directorsCut, let expiration = record.expirationDate {
                 result.latestDirectorsCutExpiration = max(
                     result.latestDirectorsCutExpiration ?? expiration,
@@ -107,18 +116,28 @@ struct SupporterEntitlements: Equatable {
         return result
     }
 
-    /// Whether an exclusive (Director's Cut) app icon must be switched back to
-    /// the default. Only once the App Store no longer shows Director's Cut
-    /// *and* the last known Director's Cut period has run out, so a transient
-    /// empty entitlement read mid-period never flips someone's icon.
-    static func shouldRevertExclusiveIcon(
+    /// Whether the app icon that is currently set must be switched back to
+    /// the default. Subscription perks only last while the subscription does:
+    /// a Director's Cut exclusive needs Director's Cut, a classic alternate
+    /// needs either level or a tip (tips are one-time and keep theirs). Only
+    /// reverts once the App Store no longer shows the level *and* the last
+    /// known period of it has run out, so a transient empty entitlement read
+    /// mid-period never flips someone's icon.
+    static func shouldRevertIcon(
+        _ icon: DuskAppIcon,
         activeTier: SupporterTier?,
+        tipCount: Int,
+        lastKnownSubscriptionExpiration: Date?,
         lastKnownDirectorsCutExpiration: Date?,
         now: Date = Date()
     ) -> Bool {
-        guard activeTier != .directorsCut else { return false }
-        guard let lastKnownDirectorsCutExpiration else { return true }
-        return lastKnownDirectorsCutExpiration <= now
+        guard icon.requiresSupporter else { return false }
+        if icon.requiresDirectorsCut {
+            guard activeTier != .directorsCut else { return false }
+            return lastKnownDirectorsCutExpiration.map { $0 <= now } ?? true
+        }
+        guard activeTier == nil, tipCount == 0 else { return false }
+        return lastKnownSubscriptionExpiration.map { $0 <= now } ?? true
     }
 }
 

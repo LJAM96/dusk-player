@@ -10,8 +10,9 @@ import SwiftUI
 /// the supporter UI there only showcases the variants.
 ///
 /// Access comes in three steps: the primary icon is free, the classic
-/// alternates belong to every supporter forever, and Velvet/Emerald/Gilded only
-/// while Director's Cut is active (`SupporterStore` reverts them on lapse).
+/// alternates come with a tip or an active subscription of either level, and
+/// Velvet/Emerald/Gilded only with an active Director's Cut. `SupporterStore`
+/// switches back to the primary icon when a subscription lapses.
 enum DuskAppIcon: String, CaseIterable, Identifiable {
     case dusk
     case dawn
@@ -85,15 +86,15 @@ enum DuskAppIcon: String, CaseIterable, Identifiable {
         }
     }
 
-    /// Icons every supporter keeps forever, primary first.
+    /// The primary icon and the classic alternates (tip or any subscription).
     static var supporterIcons: [DuskAppIcon] { allCases.filter { !$0.requiresDirectorsCut } }
 
     /// Icons that only stay unlocked while Director's Cut is active.
     static var directorsCutIcons: [DuskAppIcon] { allCases.filter(\.requiresDirectorsCut) }
 
-    func isUnlocked(isSupporter: Bool, hasDirectorsCut: Bool) -> Bool {
+    func isUnlocked(hasIconAccess: Bool, hasDirectorsCut: Bool) -> Bool {
         if requiresDirectorsCut { return hasDirectorsCut }
-        return !requiresSupporter || isSupporter
+        return !requiresSupporter || hasIconAccess
     }
 
     #if os(iOS)
@@ -114,6 +115,6 @@ enum DuskAppIcon: String, CaseIterable, Identifiable {
 
 extension SupporterStore {
     func isUnlocked(_ icon: DuskAppIcon) -> Bool {
-        icon.isUnlocked(isSupporter: isSupporter, hasDirectorsCut: hasDirectorsCut)
+        icon.isUnlocked(hasIconAccess: hasIconAccess, hasDirectorsCut: hasDirectorsCut)
     }
 }

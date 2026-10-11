@@ -2,7 +2,7 @@ import SwiftUI
 
 #if os(iOS)
 /// Grid picker for the alternate app icons, opened from Settings → Appearance.
-/// Two groups: the icons every supporter keeps, and the Director's Cut
+/// Two groups: the classic alternates (tip or any subscription), and the Director's Cut
 /// exclusives. Locked tiles open the supporter sheet instead of applying.
 struct AppIconPickerView: View {
     @Environment(SupporterStore.self) private var store
@@ -12,6 +12,16 @@ struct AppIconPickerView: View {
     @State private var showsSupporterSheet = false
 
     private let columns = [GridItem(.adaptive(minimum: 96), spacing: 18)]
+
+    private var supporterIconsFootnote: String {
+        if store.tipCount > 0 {
+            return "Thanks for supporting Dusk."
+        }
+        if store.hasActiveSubscription {
+            return "Included with your subscription. If it ends, Dusk switches back to the default icon."
+        }
+        return "Alternate icons come with a tip or an active subscription. Everything else in Dusk stays free."
+    }
 
     var body: some View {
         NavigationStack {
@@ -23,9 +33,7 @@ struct AppIconPickerView: View {
                         iconGroup(
                             title: "Supporter Icons",
                             icons: DuskAppIcon.supporterIcons,
-                            footnote: store.isSupporter
-                                ? "Thanks for supporting Dusk — these are yours for good."
-                                : "Alternate icons are a small thank-you for supporters. Everything else in Dusk stays free."
+                            footnote: supporterIconsFootnote
                         )
 
                         iconGroup(

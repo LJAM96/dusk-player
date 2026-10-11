@@ -96,7 +96,7 @@ final class SupporterStoreKitTests {
         await store.purchase(try product(.monthly, in: store))
         #expect(await refresh(store) { $0.pendingDowngradeTier == .frontRow })
         #expect(store.activeTier == .directorsCut)
-        #expect(!store.shouldRevertExclusiveIcon())
+        #expect(!store.shouldRevertIcon(.gilded))
 
         // Renewal moves to Front Row and locks the exclusives.
         try session.forceRenewalOfSubscription(productIdentifier: "directorscut.monthly")
@@ -109,14 +109,32 @@ final class SupporterStoreKitTests {
         let store = await makeStore()
         await store.purchase(try product(.directorsCutYearly, in: store))
         #expect(store.activeTier == .directorsCut)
-        #expect(!store.shouldRevertExclusiveIcon())
+        #expect(!store.shouldRevertIcon(.gilded))
 
         try lapse("directorscut.yearly")
         #expect(await refresh(store) { $0.activeTier == nil })
         #expect(store.isSupporter)
         #expect(!store.isUnlocked(.gilded))
-        #expect(store.isUnlocked(.aurora))
-        #expect(store.shouldRevertExclusiveIcon())
+        #expect(!store.isUnlocked(.aurora))
+        #expect(store.shouldRevertIcon(.gilded))
+        #expect(store.shouldRevertIcon(.aurora))
+    }
+
+    @Test func frontRowLapseLocksIconsUntilATip() async throws {
+        let store = await makeStore()
+        await store.purchase(try product(.monthly, in: store))
+        #expect(store.isUnlocked(.neon))
+
+        try lapse("supporter.monthly")
+        #expect(await refresh(store) { $0.activeTier == nil })
+        #expect(store.isSupporter)
+        #expect(!store.isUnlocked(.neon))
+        #expect(store.shouldRevertIcon(.neon))
+
+        // A tip is a one-time purchase and unlocks the classic icons for good.
+        await store.purchase(try product(.tipCoffee, in: store))
+        #expect(store.isUnlocked(.neon))
+        #expect(!store.shouldRevertIcon(.neon))
     }
 
     @Test func restoreRecoversStatusOnAFreshInstall() async throws {
@@ -146,6 +164,6 @@ final class SupporterStoreKitTests {
 
         try session.refundTransaction(identifier: UInt(transaction.identifier))
         #expect(await refresh(store) { $0.activeTier == nil })
-        #expect(store.shouldRevertExclusiveIcon())
+        #expect(store.shouldRevertIcon(.gilded))
     }
 }

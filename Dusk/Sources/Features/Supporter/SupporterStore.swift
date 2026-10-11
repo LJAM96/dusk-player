@@ -50,9 +50,9 @@ enum SupporterProduct: String, CaseIterable {
 
 /// Owns all StoreKit 2 state for the supporter tier.
 ///
-/// Supporter status is intentionally monotonic: any verified purchase — one
-/// tip or one month of either subscription level, ever — makes the user a
-/// supporter permanently, even after the subscription lapses. Tips are
+/// Supporter status (the thank-you title, no more supporter prompts) is
+/// monotonic: any verified purchase — one tip or one month of either
+/// subscription level — sets it, and a lapse doesn't clear it. Tips are
 /// consumables, so reinstall survival relies on
 /// `SKIncludeConsumableInAppPurchaseHistory` (set in both Info.plists) which
 /// makes finished consumables appear in `Transaction.all`. The last-known
@@ -60,8 +60,10 @@ enum SupporterProduct: String, CaseIterable {
 /// offline, and the cache is never downgraded from `true` to `false` by a
 /// transient empty history.
 ///
-/// Director's Cut is the one thing that is *not* monotonic: its exclusive app
-/// icons only stay unlocked while that level is active (`activeTier`).
+/// Perks are *not* monotonic: subscription icons only stay unlocked while a
+/// subscription is active (`activeTier`) — the classic alternates with either
+/// level, the exclusives with Director's Cut. Tips are one-time purchases and
+/// unlock the classic alternates for good (`tipCount`).
 @MainActor
 @Observable
 final class SupporterStore {
@@ -69,6 +71,7 @@ final class SupporterStore {
         static let isSupporter = "supporterIsSupporter"
         static let supporterSince = "supporterSince"
         static let tipCount = "supporterTipCount"
+        static let subscriptionExpiration = "supporterSubscriptionExpiration"
         static let directorsCutExpiration = "supporterDirectorsCutExpiration"
     }
 
@@ -88,12 +91,17 @@ final class SupporterStore {
     private(set) var activeExpirationDate: Date?
     /// Renewal info for the active subscription (pending downgrade, cancelled).
     private(set) var renewalPlan: SupporterRenewalPlan?
-    /// Last known end of a Director's Cut period, cached so a transient empty
-    /// history read can't make the exclusive-icon check think it lapsed.
+    /// Last known end of a subscription period (either level / Director's
+    /// Cut), cached so a transient empty history read can't make the icon
+    /// check think it lapsed.
+    private(set) var lastKnownSubscriptionExpiration: Date?
     private(set) var lastKnownDirectorsCutExpiration: Date?
 
     var hasActiveSubscription: Bool { activeTier != nil }
     var hasDirectorsCut: Bool { activeTier == .directorsCut }
+    /// The classic alternate icons are unlocked: a tip, or an active
+    /// subscription of either level.
+    var hasIconAccess: Bool { tipCount > 0 || hasActiveSubscription }
     /// Director's Cut is active but set to renew into Front Row.
     var pendingDowngradeTier: SupporterTier? { renewalPlan?.pendingDowngrade(from: activeTier) }
 
@@ -116,6 +124,7 @@ final class SupporterStore {
         isSupporter = defaults.bool(forKey: Keys.isSupporter)
         supporterSince = defaults.object(forKey: Keys.supporterSince) as? Date
         tipCount = defaults.integer(forKey: Keys.tipCount)
+        lastKnownSubscriptionExpiration = defaults.object(forKey: Keys.subscriptionExpiration) as? Date
         lastKnownDirectorsCutExpiration = defaults.object(forKey: Keys.directorsCutExpiration) as? Date
     }
 
@@ -240,7 +249,7 @@ final class SupporterStore {
         renewalPlan = plan
 
         scheduleExpirationRefresh()
-        enforceExclusiveIconAccess()
+        enforceIconAccess()
     }
 
     /// Folds one entitlement snapshot into the cached status. Supporter status
@@ -261,42 +270,50 @@ final class SupporterStore {
         }
         tipCount = max(tipCount, entitlements.tipCount)
 
-        // A non-empty history is authoritative for the Director's Cut period
-        // (it reflects refunds); an empty one keeps the cached value.
+        // A non-empty history is authoritative for the subscription periods
+        // (it reflects refunds); an empty one keeps the cached values.
         if !entitlements.historyWasEmpty {
+            lastKnownSubscriptionExpiration = entitlements.latestSubscriptionExpiration
             lastKnownDirectorsCutExpiration = entitlements.latestDirectorsCutExpiration
         }
-        if entitlements.activeTier == .directorsCut, let expiration = entitlements.activeExpirationDate {
-            lastKnownDirectorsCutExpiration = max(lastKnownDirectorsCutExpiration ?? expiration, expiration)
+        if let expiration = entitlements.activeExpirationDate {
+            lastKnownSubscriptionExpiration = max(lastKnownSubscriptionExpiration ?? expiration, expiration)
+            if entitlements.activeTier == .directorsCut {
+                lastKnownDirectorsCutExpiration = max(lastKnownDirectorsCutExpiration ?? expiration, expiration)
+            }
         }
 
         persistCache()
     }
 
-    /// True when an exclusive Director's Cut icon is no longer covered.
-    func shouldRevertExclusiveIcon(now: Date = Date()) -> Bool {
-        SupporterEntitlements.shouldRevertExclusiveIcon(
+    /// True when `icon`, if set, is no longer covered and must go back to the
+    /// default.
+    func shouldRevertIcon(_ icon: DuskAppIcon, now: Date = Date()) -> Bool {
+        SupporterEntitlements.shouldRevertIcon(
+            icon,
             activeTier: activeTier,
+            tipCount: tipCount,
+            lastKnownSubscriptionExpiration: lastKnownSubscriptionExpiration,
             lastKnownDirectorsCutExpiration: lastKnownDirectorsCutExpiration,
             now: now
         )
     }
 
-    /// Switches back to the default icon once Director's Cut has lapsed while
-    /// one of its exclusive icons is set. iOS shows its own "You have changed
+    /// Switches back to the default icon once the subscription that unlocked
+    /// the current icon has lapsed. iOS shows its own "You have changed
     /// the icon" alert for any icon change; there is no in-app UI for this.
     /// Not awaited: the system call only returns once that alert is dismissed,
     /// which would stall every entitlement refresh behind it. If the app isn't
     /// active the switch fails and is retried on the next activation.
-    private func enforceExclusiveIconAccess() {
+    private func enforceIconAccess() {
         #if os(iOS)
-        guard DuskAppIcon.current.requiresDirectorsCut, shouldRevertExclusiveIcon() else { return }
+        guard shouldRevertIcon(DuskAppIcon.current) else { return }
         Task { try? await DuskAppIcon.select(.dusk) }
         #endif
     }
 
     /// Re-reads entitlements right after the active period ends so a lapse
-    /// while the app is open locks the exclusive icons without a relaunch.
+    /// while the app is open locks its icons without a relaunch.
     private func scheduleExpirationRefresh() {
         expirationTask?.cancel()
         guard let expiration = activeExpirationDate else { return }
@@ -313,6 +330,7 @@ final class SupporterStore {
         defaults.set(isSupporter, forKey: Keys.isSupporter)
         defaults.set(supporterSince, forKey: Keys.supporterSince)
         defaults.set(tipCount, forKey: Keys.tipCount)
+        defaults.set(lastKnownSubscriptionExpiration, forKey: Keys.subscriptionExpiration)
         defaults.set(lastKnownDirectorsCutExpiration, forKey: Keys.directorsCutExpiration)
     }
 
