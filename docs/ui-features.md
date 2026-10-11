@@ -356,21 +356,29 @@ in Dusk. Read this with `docs/codebase-map.md`, `STYLE.md`, and `docs/data-and-p
     because 16:9 artwork now lands in a 16:9 box.
   - `HomeTVScrollHint` (tvOS-only, defined in `HomeTVView.swift`) is the "More" +
     `chevron.down` affordance, attached as an `.overlay(alignment: .bottom)` on the
-    hero **after** the width frame and x-offset so it centres on the true screen, and
-    padded 60pt off the bottom. It is decoration: non-focusable, `allowsHitTesting`
+    hero **after** the width frame and **before** the x-offset, so it moves with the
+    hero and centres on the true screen, and padded 60pt off the bottom. An offset
+    only moves what is drawn: attached after it, the hint centred on the un-offset
+    frame, one leading safe-area inset (80pt) right of centre (measured). It is decoration: non-focusable, `allowsHitTesting`
     off, `accessibilityHidden`, with a gentle chevron bounce that is skipped under
     Reduce Motion, faded out (0.25s) whenever focus is not on a hero play button,
     and omitted entirely when there is nothing below the hero. Keep it out of
     `HomeCinematicHero`'s pages so it does not scroll away with them.
   - **Hero focus.** `HomeTVView.FocusTarget.heroPrimaryAction(storageKey)` names a
-    page's play button; `heroFocusKey` remembers the last one focused, which is the
-    page on screen. Neighbouring pages' buttons are `.disabled` unless a play button
-    has focus, so coming in from the shelves or the tab bar lands on the page on
-    screen rather than whichever button is nearest a page away. That is not the
-    fencing warned against below: the hero's focus section always keeps one enabled
-    item. A hero reset (`heroSelectionResetRevision`, new hero items) sends the
-    page to the start, clears `heroFocusKey` and, if a play button had focus, hands
-    it to the first page's.
+    page's play button. `heroPrimaryKey(in:)` is the focused page while a play button
+    has focus, otherwise the page on screen (`visibleHeroKey`, reported by the hero
+    from its page scroll through `onVisibleItemChange`). Every other page's button
+    is `.disabled` unless a play button has focus, so coming in from the shelves or
+    the tab bar lands on the page on screen rather than whichever button is nearest
+    a page away. That is not the fencing warned against below: the hero's focus
+    section always keeps one enabled item. **Never key that button on a remembered
+    page.** It used to be the page last focused, reset to the first page whenever
+    Home appeared again (its `.task` reruns after a detail page). With the hero on
+    any other page, the only enabled button was then a page or more to the side,
+    and up from the shelves did nothing (reproduced in the simulator: down, into an
+    item, back, up). A hero reset (`heroSelectionResetRevision`, new hero items)
+    sends the page to the start, and a play button that had focus hands it to the
+    first page's.
   - **Hero → shelves: the focus engine's move is overruled, never fenced**
     (`HomeTVView.beginHeroExit`). Measured in the tvOS simulator with a replica of
     this screen (SwiftUI hero + rows of lazy `NavigationLink` cards, driven by

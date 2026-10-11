@@ -37,9 +37,9 @@ struct HomeTVView: View {
         case heroPrimaryAction(String)
     }
 
-    /// The page whose play button last had focus, i.e. the hero page on
-    /// screen. See `heroPrimaryKey(in:)`.
-    @State private var heroFocusKey: String?
+    /// The hero page on screen, as the hero's own page scroll reports it.
+    /// See `heroPrimaryKey(in:)`.
+    @State private var visibleHeroKey: String?
 
     /// Whether the hero still covers at least half the screen. Tells
     /// `HomeTVFoldSnapping` which side of the fold a focus move starts from.
@@ -110,11 +110,21 @@ struct HomeTVView: View {
         return nil
     }
 
-    /// The play button Home hands focus to: the page last focused while it
-    /// is still in the hero, otherwise the first.
+    /// The play button Home hands focus to, and the only one that takes it
+    /// from outside the hero: the focused page's while a play button has
+    /// focus, otherwise the page on screen.
+    ///
+    /// Always the page on screen, never one remembered: up from the shelves
+    /// can only reach a play button the engine sees above it, and the other
+    /// pages' are a page or more to the side. It used to be the page last
+    /// focused, reset to the first page whenever Home appeared again. After
+    /// a detail page that left the only reachable button off screen while
+    /// the hero still showed another page, and up from the shelves did
+    /// nothing at all.
     private func heroPrimaryKey(in heroItems: [PlexItem]) -> String? {
-        if let heroFocusKey, heroItems.contains(where: { $0.id.storageKey == heroFocusKey }) {
-            return heroFocusKey
+        if let focusedHeroKey { return focusedHeroKey }
+        if let visibleHeroKey, heroItems.contains(where: { $0.id.storageKey == visibleHeroKey }) {
+            return visibleHeroKey
         }
         return heroItems.first?.id.storageKey
     }
@@ -175,6 +185,9 @@ struct HomeTVView: View {
                             onFocusItem: { item in
                                 focusedTarget = .heroPrimaryAction(item.id.storageKey)
                             },
+                            onVisibleItemChange: { key in
+                                visibleHeroKey = key
+                            },
                             primaryAction: { item, callbacks in
                                 let key = item.id.storageKey
                                 return AnyView(
@@ -227,13 +240,15 @@ struct HomeTVView: View {
                             }
                         )
                         .frame(width: heroContainerSize.width)
-                        .offset(x: -leadingContentInset)
-                        // Applied *after* the width frame and the offset so
-                        // the hint centres on the real display rather than on
-                        // the safe-area-inset content box.
+                        // Before the offset, so the hint moves with the hero
+                        // and centres on the display. An offset only moves
+                        // what is drawn: an overlay after it centres on the
+                        // un-offset frame, a leading safe-area inset to the
+                        // right of the display's centre.
                         .overlay(alignment: .bottom) {
                             scrollHint(isEnabled: hasContentBelowHero)
                         }
+                        .offset(x: -leadingContentInset)
                         #if os(tvOS)
                         .focusSection()
                         #endif
@@ -344,8 +359,7 @@ struct HomeTVView: View {
             .duskTVOSPageBackground()
             .defaultFocus($focusedTarget, .heroPrimaryAction(currentHeroKey ?? ""))
             .onChange(of: focusedTarget) { _, target in
-                if case .heroPrimaryAction(let key) = target {
-                    heroFocusKey = key
+                if case .heroPrimaryAction = target {
                     shelvesUnlocked = false
                     // Focus came back to the play button after the landing
                     // was requested: the user went back up. Withdraw the
@@ -359,15 +373,14 @@ struct HomeTVView: View {
                 scheduleFoldSettle(heroHeight: heroHeight, hasHeroItems: !heroItems.isEmpty)
             }
             .task(id: heroItemIDs) {
-                // The hero starts over on its first page when its items change.
-                heroFocusKey = nil
+                // New items start the hero over on its first page by itself
+                // (`visibleHeroKey` follows).
                 await requestHeroPrimaryFocusIfNeeded(hasHeroItems: !heroItems.isEmpty)
             }
             // The hero is back on its first page (Home reselected, the app
             // reactivated, playback over). A play button that had focus hands
             // it to the first page's, or focus would sit pages away off screen.
             .onChange(of: heroSelectionResetRevision) { _, _ in
-                heroFocusKey = nil
                 if isHeroPrimaryFocused, let first = heroItems.first {
                     focusedTarget = .heroPrimaryAction(first.id.storageKey)
                 }

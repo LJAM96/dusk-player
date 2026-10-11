@@ -146,6 +146,10 @@ struct HomeCinematicHero: View {
     /// wrap-around at either end page through it, so a page change is always
     /// the focus engine's own move and scroll.
     var onFocusItem: ((PlexItem) -> Void)? = nil
+    /// tvOS: the `storageKey` of the page on screen, whenever it changes.
+    /// It follows the page scroll, so it is the page actually showing even
+    /// when focus is elsewhere and the hero has been reset or refilled.
+    var onVisibleItemChange: ((String?) -> Void)? = nil
     let primaryAction: (PlexItem, HomeCinematicHeroCallbacks) -> AnyView
     var secondaryAction: ((PlexItem, HomeCinematicHeroCallbacks) -> AnyView)? = nil
     var detailsAction: ((PlexItem) -> Void)? = nil
@@ -278,6 +282,9 @@ struct HomeCinematicHero: View {
                 } else {
                     restartHeroRotation()
                 }
+            }
+            .onChange(of: visibleItemKey, initial: true) { _, key in
+                onVisibleItemChange?(key)
             }
         #else
         if supportsDragNavigation {
@@ -440,6 +447,10 @@ struct HomeCinematicHero: View {
 
     private var heroItemIDs: [String] {
         items.map(\.id.storageKey)
+    }
+
+    private var visibleItemKey: String? {
+        items.isEmpty ? nil : items[resolvedHeroIndex].id.storageKey
     }
 
     private func pixelAlignedLength(_ length: CGFloat) -> CGFloat {
