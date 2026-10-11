@@ -10,7 +10,8 @@ import SwiftUI
 /// the supporter UI there only showcases the variants.
 ///
 /// Access comes in three steps: the primary icon is free, the classic
-/// alternates come with a tip or an active subscription of either level, and
+/// alternates come with an active subscription of either level or a tip from
+/// Generous up, and
 /// Velvet/Emerald/Gilded only with an active Director's Cut. `SupporterStore`
 /// switches back to the primary icon when a subscription lapses.
 enum DuskAppIcon: String, CaseIterable, Identifiable {
@@ -86,7 +87,8 @@ enum DuskAppIcon: String, CaseIterable, Identifiable {
         }
     }
 
-    /// The primary icon and the classic alternates (tip or any subscription).
+    /// The primary icon and the classic alternates (any subscription, or a tip
+    /// from Generous up).
     static var supporterIcons: [DuskAppIcon] { allCases.filter { !$0.requiresDirectorsCut } }
 
     /// Icons that only stay unlocked while Director's Cut is active.

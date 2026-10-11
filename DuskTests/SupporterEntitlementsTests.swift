@@ -32,7 +32,7 @@ struct SupporterEntitlementsTests {
         SupporterEntitlements.shouldRevertIcon(
             icon,
             activeTier: result.activeTier,
-            tipCount: result.tipCount,
+            hasIconTip: result.hasIconTip,
             lastKnownSubscriptionExpiration: result.latestSubscriptionExpiration,
             lastKnownDirectorsCutExpiration: result.latestDirectorsCutExpiration,
             now: now
@@ -47,6 +47,7 @@ struct SupporterEntitlementsTests {
         #expect(SupporterProduct.directorsCutMonthly.tier == .directorsCut)
         #expect(SupporterProduct.directorsCutYearly.tier == .directorsCut)
         #expect(SupporterProduct.tipPatron.tier == nil)
+        #expect(SupporterProduct.allCases.filter(\.isIconTip) == [.tipGenerous, .tipLegendary, .tipPatron])
         #expect(SupporterProduct.directorsCutMonthly.rawValue == "directorscut.monthly")
         #expect(SupporterProduct.directorsCutYearly.rawValue == "directorscut.yearly")
         #expect(SupporterTier.directorsCut > SupporterTier.frontRow)
@@ -160,12 +161,19 @@ struct SupporterEntitlementsTests {
         #expect(reverts(.aurora, result))
     }
 
-    @Test func tipsKeepClassicIconsAfterALapse() {
+    @Test func generousTipKeepsClassicIconsAfterALapse() {
         let fr = record(.monthly, purchased: -60, expires: -30)
-        let tip = record(.tipCoffee, purchased: -90)
+        let tip = record(.tipGenerous, purchased: -90)
         let result = SupporterEntitlements.resolve(current: [], history: [fr, tip], now: now)
         #expect(!reverts(.aurora, result))
         #expect(reverts(.velvet, result))
+    }
+
+    @Test func coffeeTipDoesNotKeepIconsAfterALapse() {
+        let fr = record(.monthly, purchased: -60, expires: -30)
+        let tip = record(.tipCoffee, purchased: -90)
+        let result = SupporterEntitlements.resolve(current: [], history: [fr, tip], now: now)
+        #expect(reverts(.aurora, result))
     }
 
     @Test func refundedDirectorsCutGrantsNothing() {
@@ -183,16 +191,39 @@ struct SupporterEntitlementsTests {
         #expect(result.activeTier == nil)
         #expect(result.hasAnySupport)
         #expect(result.tipCount == 3)
+        #expect(result.hasIconTip)
+    }
+
+    @Test func coffeeTipAloneUnlocksNoIcons() {
+        let result = SupporterEntitlements.resolve(current: [], history: [record(.tipCoffee, quantity: 3)], now: now)
+        #expect(result.hasAnySupport)
+        #expect(!result.hasIconTip)
+        #expect(reverts(.neon, result))
+        #expect(reverts(.velvet, result))
+    }
+
+    @Test func generousTipKeepsClassicIconsButNeverExclusives() {
+        for tip in [SupporterProduct.tipGenerous, .tipLegendary, .tipPatron] {
+            let result = SupporterEntitlements.resolve(current: [], history: [record(tip, purchased: -900)], now: now)
+            #expect(result.hasIconTip)
+            #expect(!reverts(.neon, result))
+            #expect(reverts(.gilded, result))
+        }
+    }
+
+    @Test func refundedGenerousTipUnlocksNothing() {
+        let result = SupporterEntitlements.resolve(current: [], history: [record(.tipGenerous, revoked: true)], now: now)
+        #expect(!result.hasIconTip)
     }
 
     @Test func revertRuleWaitsForTheKnownPeriodToEnd() {
         let future = now.addingTimeInterval(5 * day)
         let past = now.addingTimeInterval(-day)
-        func reverts(_ icon: DuskAppIcon, _ tier: SupporterTier?, tips: Int = 0, subscription: Date?, directorsCut: Date?) -> Bool {
+        func reverts(_ icon: DuskAppIcon, _ tier: SupporterTier?, iconTip: Bool = false, subscription: Date?, directorsCut: Date?) -> Bool {
             SupporterEntitlements.shouldRevertIcon(
                 icon,
                 activeTier: tier,
-                tipCount: tips,
+                hasIconTip: iconTip,
                 lastKnownSubscriptionExpiration: subscription,
                 lastKnownDirectorsCutExpiration: directorsCut,
                 now: now
@@ -203,13 +234,13 @@ struct SupporterEntitlementsTests {
         #expect(!reverts(.gilded, nil, subscription: future, directorsCut: future))
         #expect(reverts(.gilded, nil, subscription: past, directorsCut: past))
         #expect(reverts(.gilded, .frontRow, subscription: future, directorsCut: nil))
-        #expect(reverts(.gilded, nil, tips: 3, subscription: nil, directorsCut: nil))
-        // Classic alternates follow either level, or any tip.
+        #expect(reverts(.gilded, nil, iconTip: true, subscription: nil, directorsCut: nil))
+        // Classic alternates follow either level, or a tip from Generous up.
         #expect(!reverts(.neon, .frontRow, subscription: past, directorsCut: nil))
         #expect(!reverts(.neon, nil, subscription: future, directorsCut: nil))
         #expect(reverts(.neon, nil, subscription: past, directorsCut: nil))
         #expect(reverts(.neon, nil, subscription: nil, directorsCut: nil))
-        #expect(!reverts(.neon, nil, tips: 1, subscription: past, directorsCut: nil))
+        #expect(!reverts(.neon, nil, iconTip: true, subscription: past, directorsCut: nil))
         // The primary icon never reverts.
         #expect(!reverts(.dusk, nil, subscription: nil, directorsCut: nil))
     }
@@ -258,7 +289,8 @@ struct SupporterStoreCacheTests {
         dcExpiration: Date? = nil,
         subscriptionExpiration: Date? = nil,
         history: Bool = true,
-        tips: Int = 0
+        tips: Int = 0,
+        iconTip: Bool = false
     ) -> SupporterEntitlements {
         let subscriptionExpiration = subscriptionExpiration ?? dcExpiration
         var value = SupporterEntitlements()
@@ -275,6 +307,7 @@ struct SupporterStoreCacheTests {
         value.latestSubscriptionExpiration = history ? subscriptionExpiration : nil
         value.latestDirectorsCutExpiration = history ? dcExpiration : nil
         value.tipCount = tips
+        value.hasIconTip = iconTip
         return value
     }
 
@@ -322,10 +355,19 @@ struct SupporterStoreCacheTests {
         #expect(store.shouldRevertIcon(.neon, now: now))
     }
 
-    @Test func tipKeepsClassicIconsAfterALapse() {
+    @Test func coffeeTipAloneUnlocksNoIcons() {
         let store = makeStore()
-        store.apply(entitlements(tier: .directorsCut, dcExpiration: now.addingTimeInterval(-day), tips: 1))
-        store.apply(entitlements(tier: nil, dcExpiration: now.addingTimeInterval(-day), tips: 1))
+        store.apply(entitlements(tier: nil, tips: 2))
+        #expect(store.isSupporter)
+        #expect(!store.hasIconAccess)
+        #expect(!store.isUnlocked(.neon))
+        #expect(store.shouldRevertIcon(.neon, now: now))
+    }
+
+    @Test func generousTipKeepsClassicIconsAfterALapse() {
+        let store = makeStore()
+        store.apply(entitlements(tier: .directorsCut, dcExpiration: now.addingTimeInterval(-day), tips: 1, iconTip: true))
+        store.apply(entitlements(tier: nil, dcExpiration: now.addingTimeInterval(-day), tips: 1, iconTip: true))
         #expect(store.hasIconAccess)
         #expect(store.isUnlocked(.neon))
         #expect(!store.shouldRevertIcon(.neon, now: now))
@@ -369,11 +411,12 @@ struct SupporterStoreCacheTests {
         let expiration = now.addingTimeInterval(10 * day)
 
         let first = SupporterStore(defaults: defaults)
-        first.apply(entitlements(tier: .directorsCut, dcExpiration: expiration, tips: 1))
+        first.apply(entitlements(tier: .directorsCut, dcExpiration: expiration, tips: 1, iconTip: true))
 
         let relaunched = SupporterStore(defaults: defaults)
         #expect(relaunched.isSupporter)
         #expect(relaunched.tipCount == 1)
+        #expect(relaunched.hasIconTip)
         #expect(relaunched.lastKnownDirectorsCutExpiration == expiration)
         #expect(relaunched.lastKnownSubscriptionExpiration == expiration)
         // The level itself is never cached: it waits for a live read.

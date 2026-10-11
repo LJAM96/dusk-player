@@ -48,8 +48,13 @@ other services) owns all state:
   is never downgraded by an empty/transient history read. **Perks are not:**
   everything a subscription unlocks is only available while that subscription
   is active — the six classic icons with either level, the three exclusives
-  with Director's Cut. Tips are one-time purchases and unlock the classic icons
-  without an end (`tipCount > 0`). Never write "forever", "for good" or "keep
+  with Director's Cut. **Tips:** Generous, Legendary and Patron
+  (`SupporterProduct.isIconTip`) are one-time purchases that unlock the six
+  classic icons for good (`hasIconTip`, monotonic and cached like `tipCount`);
+  the Coffee tip is a thank-you only and unlocks nothing. No tip ever unlocks
+  the Director's Cut exclusives. "Yours to keep" is fine for those tips (iOS
+  tip rows show "Includes the six alternate icons, yours to keep"; tvOS says
+  it in the tip section footer) — never write "forever", "for good" or "keep
   after cancelling" for subscription perks anywhere (sheet, picker, StoreKit /
   App Store Connect texts, review notes).
 - The **active level** (`activeTier`, `activeProductID`) is *not* monotonic:
@@ -60,7 +65,8 @@ other services) owns all state:
   in force until it renews into Front Row. `renewalPlan` (from the
   transaction's `subscriptionStatus` renewal info) exposes the pending
   downgrade / cancellation for the sheet's status line.
-- Lifetime evidence (`isSupporter`, `supporterSince`, `tipCount`) comes from
+- Lifetime evidence (`isSupporter`, `supporterSince`, `tipCount`,
+  `hasIconTip`) comes from
   `Transaction.all`.
 - **Family Sharing** is on for Director's Cut only. Family members see the
   shared transaction (`ownershipType == .familyShared`) in both reads, so they
@@ -174,14 +180,14 @@ exist to catch bugs this feature is prone to:
   primary mark's alpha, recolored), with the shared `icon.json`. Previews are
   flattened 512px `IconPreview*` imagesets in `Assets.xcassets`, shared with tvOS.
 - Access (`DuskAppIcon.isUnlocked`): the primary "Dusk" icon is free; the six
-  classic alternates need a tip or an active subscription of either level
-  (`SupporterStore.hasIconAccess`); three jewel-tone icons with a gold accent
+  classic alternates need an active subscription of either level or a tip from
+  Generous up (`SupporterStore.hasIconAccess`); three jewel-tone icons with a gold accent
   only while Director's Cut is active (`requiresDirectorsCut`):
   **Velvet** (cinema red, gold tip), **Emerald** (deep green, gold tip) and
   **Gilded** (polished gold on black lacquer).
 - **Lapse:** when the subscription that covers the current icon is no longer
-  active (Director's Cut for the exclusives; any level — and no tip — for the
-  classic alternates), `SupporterStore` switches back to the primary icon after
+  active (Director's Cut for the exclusives; any level — and no tip from
+  Generous up — for the classic alternates), `SupporterStore` switches back to the primary icon after
   an entitlement read — no in-app UI (iOS itself shows its standard one-line
   "icon changed" alert; no public API suppresses it). Guard against transient
   empty reads: the store caches the last known subscription and Director's Cut
@@ -205,12 +211,13 @@ exist to catch bugs this feature is prone to:
   - `SupporterEntitlementsTests` — pure rules: level resolution (active,
     upgrade with `isUpgraded`, pending downgrade, renewal into Front Row,
     lapse, refund, tips), the icon revert rule (exclusives, classic icons,
-    tips), icon access, and the store's cache.
+    Coffee vs. Generous-and-up tips), icon access, and the store's cache.
   - `SupporterStoreKitTests` — StoreKitTest (`SKTestSession` with
     `Dusk.storekit`, copied into the test bundle): catalog/levels/Family
     Sharing, buy → upgrade → scheduled downgrade → forced renewal into Front
     Row, Director's Cut lapse (auto-renew off + expire; expiring alone leaves
-    an auto-renewing test subscription in force), Front Row lapse then a tip,
+    an auto-renewing test subscription in force), Front Row lapse then a Coffee
+    tip (still locked) and a Generous tip (unlocked),
     restore on a fresh install,
     refund. Serialized: the StoreKit test
     environment is shared state. Trap: the first run right after the app
@@ -291,3 +298,18 @@ be switched off again once enabled for a product.
 
 Screenshot for review: the supporter sheet on iPhone (flatten to JPEG —
 App Store Connect rejects Simulator PNGs with an alpha channel).
+
+### Tips (existing consumables)
+
+Descriptions stay as they are (Coffee "A little thank-you.", Generous "A
+generous thank-you.", …); the icon perk is app copy on the tip rows. Review
+notes for `tip.generous`, `tip.legendary` and `tip.patron` (add by hand):
+
+> A one-time tip. Besides the thank-you, tips from Generous up unlock the six
+> standard alternate app icons on iPhone and iPad (Settings → Appearance →
+> App Icon). The Coffee tip unlocks nothing.
+
+Review risk: Apple's product types put permanent unlocks under
+non-consumables, and these tips are consumables (so they can be given again).
+If App Review objects, the fallback is a separate non-consumable for the icons
+or dropping the icon perk from tips.

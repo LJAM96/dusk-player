@@ -49,6 +49,8 @@ struct SupporterEntitlements: Equatable {
     var hasAnySupport = false
     var earliestPurchase: Date?
     var tipCount = 0
+    /// A tip from Generous up exists in the history (`SupporterProduct.isIconTip`).
+    var hasIconTip = false
     /// Latest expiration among unrevoked subscription transactions of either
     /// level in the history. Nil when the history has none.
     var latestSubscriptionExpiration: Date?
@@ -99,6 +101,9 @@ struct SupporterEntitlements: Equatable {
             if product.tier == nil {
                 result.tipCount += max(record.purchasedQuantity, 1)
             }
+            if product.isIconTip {
+                result.hasIconTip = true
+            }
             if product.tier != nil, let expiration = record.expirationDate {
                 result.latestSubscriptionExpiration = max(
                     result.latestSubscriptionExpiration ?? expiration,
@@ -119,14 +124,14 @@ struct SupporterEntitlements: Equatable {
     /// Whether the app icon that is currently set must be switched back to
     /// the default. Subscription perks only last while the subscription does:
     /// a Director's Cut exclusive needs Director's Cut, a classic alternate
-    /// needs either level or a tip (tips are one-time and keep theirs). Only
+    /// needs either level or a tip from Generous up (one-time, kept). Only
     /// reverts once the App Store no longer shows the level *and* the last
     /// known period of it has run out, so a transient empty entitlement read
     /// mid-period never flips someone's icon.
     static func shouldRevertIcon(
         _ icon: DuskAppIcon,
         activeTier: SupporterTier?,
-        tipCount: Int,
+        hasIconTip: Bool,
         lastKnownSubscriptionExpiration: Date?,
         lastKnownDirectorsCutExpiration: Date?,
         now: Date = Date()
@@ -136,7 +141,7 @@ struct SupporterEntitlements: Equatable {
             guard activeTier != .directorsCut else { return false }
             return lastKnownDirectorsCutExpiration.map { $0 <= now } ?? true
         }
-        guard activeTier == nil, tipCount == 0 else { return false }
+        guard activeTier == nil, !hasIconTip else { return false }
         return lastKnownSubscriptionExpiration.map { $0 <= now } ?? true
     }
 }

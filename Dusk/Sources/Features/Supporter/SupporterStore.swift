@@ -29,6 +29,15 @@ enum SupporterProduct: String, CaseIterable {
 
     var isSubscription: Bool { tier != nil }
 
+    /// A tip big enough to include the six classic alternate icons for good
+    /// (Generous and up). The Coffee tip is a thank-you only.
+    var isIconTip: Bool {
+        switch self {
+        case .tipGenerous, .tipLegendary, .tipPatron: true
+        default: false
+        }
+    }
+
     var isYearly: Bool {
         self == .yearly || self == .directorsCutYearly
     }
@@ -62,8 +71,9 @@ enum SupporterProduct: String, CaseIterable {
 ///
 /// Perks are *not* monotonic: subscription icons only stay unlocked while a
 /// subscription is active (`activeTier`) — the classic alternates with either
-/// level, the exclusives with Director's Cut. Tips are one-time purchases and
-/// unlock the classic alternates for good (`tipCount`).
+/// level, the exclusives with Director's Cut. Tips from Generous up are
+/// one-time purchases that unlock the classic alternates for good
+/// (`hasIconTip`); the Coffee tip unlocks nothing.
 @MainActor
 @Observable
 final class SupporterStore {
@@ -71,6 +81,7 @@ final class SupporterStore {
         static let isSupporter = "supporterIsSupporter"
         static let supporterSince = "supporterSince"
         static let tipCount = "supporterTipCount"
+        static let hasIconTip = "supporterHasIconTip"
         static let subscriptionExpiration = "supporterSubscriptionExpiration"
         static let directorsCutExpiration = "supporterDirectorsCutExpiration"
     }
@@ -85,6 +96,8 @@ final class SupporterStore {
     private(set) var isSupporter: Bool
     private(set) var supporterSince: Date?
     private(set) var tipCount: Int
+    /// A tip from Generous up was ever bought (monotonic, like `tipCount`).
+    private(set) var hasIconTip: Bool
     /// Highest subscription level currently in force; nil when none is.
     private(set) var activeTier: SupporterTier?
     private(set) var activeProductID: String?
@@ -99,9 +112,9 @@ final class SupporterStore {
 
     var hasActiveSubscription: Bool { activeTier != nil }
     var hasDirectorsCut: Bool { activeTier == .directorsCut }
-    /// The classic alternate icons are unlocked: a tip, or an active
-    /// subscription of either level.
-    var hasIconAccess: Bool { tipCount > 0 || hasActiveSubscription }
+    /// The classic alternate icons are unlocked: a tip from Generous up, or an
+    /// active subscription of either level.
+    var hasIconAccess: Bool { hasIconTip || hasActiveSubscription }
     /// Director's Cut is active but set to renew into Front Row.
     var pendingDowngradeTier: SupporterTier? { renewalPlan?.pendingDowngrade(from: activeTier) }
 
@@ -124,6 +137,7 @@ final class SupporterStore {
         isSupporter = defaults.bool(forKey: Keys.isSupporter)
         supporterSince = defaults.object(forKey: Keys.supporterSince) as? Date
         tipCount = defaults.integer(forKey: Keys.tipCount)
+        hasIconTip = defaults.bool(forKey: Keys.hasIconTip)
         lastKnownSubscriptionExpiration = defaults.object(forKey: Keys.subscriptionExpiration) as? Date
         lastKnownDirectorsCutExpiration = defaults.object(forKey: Keys.directorsCutExpiration) as? Date
     }
@@ -269,6 +283,7 @@ final class SupporterStore {
             supporterSince = min(supporterSince ?? earliestPurchase, earliestPurchase)
         }
         tipCount = max(tipCount, entitlements.tipCount)
+        hasIconTip = hasIconTip || entitlements.hasIconTip
 
         // A non-empty history is authoritative for the subscription periods
         // (it reflects refunds); an empty one keeps the cached values.
@@ -292,7 +307,7 @@ final class SupporterStore {
         SupporterEntitlements.shouldRevertIcon(
             icon,
             activeTier: activeTier,
-            tipCount: tipCount,
+            hasIconTip: hasIconTip,
             lastKnownSubscriptionExpiration: lastKnownSubscriptionExpiration,
             lastKnownDirectorsCutExpiration: lastKnownDirectorsCutExpiration,
             now: now
@@ -330,6 +345,7 @@ final class SupporterStore {
         defaults.set(isSupporter, forKey: Keys.isSupporter)
         defaults.set(supporterSince, forKey: Keys.supporterSince)
         defaults.set(tipCount, forKey: Keys.tipCount)
+        defaults.set(hasIconTip, forKey: Keys.hasIconTip)
         defaults.set(lastKnownSubscriptionExpiration, forKey: Keys.subscriptionExpiration)
         defaults.set(lastKnownDirectorsCutExpiration, forKey: Keys.directorsCutExpiration)
     }

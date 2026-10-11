@@ -295,6 +295,7 @@ struct SupporterView: View {
                         product: product,
                         isHighlighted: false,
                         priceSuffix: priceSuffix(for: product),
+                        perk: SupporterProduct(rawValue: product.id)?.isIconTip == true ? Self.iconTipPerk : nil,
                         isPurchasing: store.purchasingProductID == product.id
                     ) {
                         report(.supporterPurchaseTapped, ["product": .string(product.id)])
@@ -551,7 +552,7 @@ struct SupporterView: View {
             if !store.tipProducts.isEmpty {
                 TVSettingsSection(
                     title: store.isSupporter ? "Support Again" : "One-Time",
-                    footer: store.lastErrorMessage ?? "Tips can be given again anytime.",
+                    footer: store.lastErrorMessage ?? "Tips can be given again anytime. Generous and up include the six alternate app icons on iPhone and iPad, yours to keep.",
                     footerColor: store.lastErrorMessage == nil ? Color.duskTextSecondary : .red
                 ) {
                     tvProductRows(store.tipProducts)
@@ -726,6 +727,10 @@ struct SupporterView: View {
     /// Auto-renewal disclosure for the subscription offer (App Review 3.1.2).
     private static let renewalDisclosure = "Subscriptions renew automatically at the price shown until cancelled at least 24 hours before the end of the period. Payment is charged to your Apple Account."
 
+    /// One-time tips from Generous up keep their icons; never say this about
+    /// a subscription.
+    private static let iconTipPerk = "Includes the six alternate icons, yours to keep"
+
     private static let subscriptionPerksNote = "Subscription perks are available while the subscription is active."
 
     private var subscriptionFootnote: String {
@@ -745,6 +750,8 @@ private struct SupporterProductRow: View {
     /// Draws the accent border used to gently spotlight the yearly option.
     let isHighlighted: Bool
     let priceSuffix: String?
+    /// What the purchase includes beyond the thank-you, if anything.
+    var perk: String? = nil
     let isPurchasing: Bool
     let action: () -> Void
 
@@ -761,6 +768,20 @@ private struct SupporterProductRow: View {
                             .font(.caption)
                             .foregroundStyle(Color.duskTextSecondary)
                             .multilineTextAlignment(.leading)
+                    }
+
+                    if let perk {
+                        HStack(alignment: .firstTextBaseline, spacing: 5) {
+                            Image(systemName: "checkmark")
+                                .font(.caption2.weight(.bold))
+                                .foregroundStyle(Color.duskAccent)
+
+                            Text(perk)
+                                .font(.caption)
+                                .foregroundStyle(Color.duskTextPrimary)
+                                .multilineTextAlignment(.leading)
+                        }
+                        .padding(.top, 2)
                     }
                 }
 
@@ -1181,7 +1202,7 @@ struct SupporterIconShowcase: View {
         }
         return store.hasIconAccess
             ? "Tap an icon to apply it. \(exclusives)."
-            : "A tip or an active subscription unlocks six icons. \(exclusives)."
+            : "An active subscription or a tip from Generous up unlocks six icons. \(exclusives)."
         #endif
     }
 

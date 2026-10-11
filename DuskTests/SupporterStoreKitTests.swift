@@ -120,7 +120,7 @@ final class SupporterStoreKitTests {
         #expect(store.shouldRevertIcon(.aurora))
     }
 
-    @Test func frontRowLapseLocksIconsUntilATip() async throws {
+    @Test func frontRowLapseLocksIconsUntilAGenerousTip() async throws {
         let store = await makeStore()
         await store.purchase(try product(.monthly, in: store))
         #expect(store.isUnlocked(.neon))
@@ -131,10 +131,17 @@ final class SupporterStoreKitTests {
         #expect(!store.isUnlocked(.neon))
         #expect(store.shouldRevertIcon(.neon))
 
-        // A tip is a one-time purchase and unlocks the classic icons for good.
+        // The Coffee tip is a thank-you only.
         await store.purchase(try product(.tipCoffee, in: store))
+        #expect(store.tipCount == 1)
+        #expect(!store.isUnlocked(.neon))
+
+        // Generous and up are one-time purchases that keep the classic icons.
+        await store.purchase(try product(.tipGenerous, in: store))
+        #expect(store.hasIconTip)
         #expect(store.isUnlocked(.neon))
         #expect(!store.shouldRevertIcon(.neon))
+        #expect(!store.isUnlocked(.velvet))
     }
 
     @Test func restoreRecoversStatusOnAFreshInstall() async throws {
