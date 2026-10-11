@@ -40,6 +40,8 @@ enum PlayerTVHUDLayout {
     static let actionRowSpacing: CGFloat = 18
     /// Diameter of a circular action-row button.
     static let actionButtonDiameter: CGFloat = 62
+    /// Space between a selected action button and its tooltip.
+    static let actionTooltipGap: CGFloat = 14
 
     /// Height of the bottom scrim behind the HUD.
     static let backdropHeight: CGFloat = 320

@@ -132,6 +132,14 @@ extension PlayerViewModel {
     /// point. Spans `duration − clamp(10% of duration, 1.5 min, 3 min)` to the
     /// end. Never added to `markers`, so it can't surface a "Skip" button (which
     /// only intros do).
+    /// Past the start of Plex's own credits marker. The estimated fallback
+    /// does not count: it is a guess, and this decides whether skipping to
+    /// another episode marks the current one watched.
+    var isPastCreditsMarker: Bool {
+        guard let reachedCreditsMarker else { return false }
+        return !reachedCreditsMarker.isEstimated
+    }
+
     private var estimatedCreditsMarker: PlexMarker? {
         guard duration > 0 else { return nil }
         let durationMs = duration * 1000

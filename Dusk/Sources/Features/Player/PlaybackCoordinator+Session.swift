@@ -532,6 +532,7 @@ extension PlaybackCoordinator {
             activePlaybackSessionIdentifier = sessionIdentifier
             activeTranscodeSessionID = transcodeSessionID
             activeItemDetails = details
+            refreshAdjacentEpisodesIfNeeded()
             // Ahead of the engine so the display's mode switch (which blanks the
             // screen briefly) overlaps buffering instead of playback.
             DisplayModeMatcher.apply(media: media, part: part, decision: playbackDecision)
@@ -1612,6 +1613,7 @@ extension PlaybackCoordinator {
         isPreparingAirPlay = false
         upNextPresentation = nil
         upNextPoster = nil
+        clearAdjacentEpisodes()
         spentAutoSkipMarkerIDs = []
         engine?.onPlaybackEnded = nil
         engine?.setPictureInPictureDelegate(nil)

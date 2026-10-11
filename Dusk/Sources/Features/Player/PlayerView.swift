@@ -1286,6 +1286,9 @@ private struct PlayerSessionView: View {
                 playback.playUpNextPosterNow()
             }
         }
+        hudController.onPlayNextEpisode = {
+            playback.playAdjacentEpisode(.next, isPastCredits: viewModel.isPastCreditsMarker)
+        }
         hudController.onDismissBottomTrailingControl = {
             // The Skip Intro chip has nothing to dismiss; returning false lets
             // Down fall through to opening the settings panel.

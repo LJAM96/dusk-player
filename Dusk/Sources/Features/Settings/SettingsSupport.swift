@@ -6,7 +6,7 @@ enum SettingsSupport {
     #if os(tvOS)
     static let playbackBehaviorFooterText = "Auto-Skip automatically skips intros and credits after a brief countdown. Intro skipping can skip every intro or skip every intro except episode 1 of each season. Continuous Play shows an Up Next screen after TV episodes finish and can auto-start the next one after the configured delay. Pause After counts the current episode too, then pauses autoplay until you confirm."
     #else
-    static let playbackBehaviorFooterText = "Auto-Skip automatically skips intros and credits after a brief countdown. Intro skipping can skip every intro or skip every intro except episode 1 of each season. Continuous Play shows an Up Next screen after TV episodes finish and can auto-start the next one after the configured delay. Pause After counts the current episode too, then pauses autoplay until you confirm. Double-Tap to Seek adds left and right double-tap seek zones in the player."
+    static let playbackBehaviorFooterText = "Auto-Skip automatically skips intros and credits after a brief countdown. Intro skipping can skip every intro or skip every intro except episode 1 of each season. Continuous Play shows an Up Next screen after TV episodes finish and can auto-start the next one after the configured delay. Pause After counts the current episode too, then pauses autoplay until you confirm. Episode Buttons adds Previous and Next Episode buttons beside Play while you watch a TV episode. Double-Tap to Seek adds left and right double-tap seek zones in the player."
     #endif
 
     #if os(tvOS)

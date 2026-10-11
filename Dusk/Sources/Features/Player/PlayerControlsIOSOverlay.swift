@@ -2,6 +2,7 @@ import SwiftUI
 
 struct PlayerControlsIOSOverlay: View {
     @Environment(PlaybackCoordinator.self) private var playback
+    @Environment(UserPreferences.self) private var preferences
 
     let viewModel: PlayerViewModel
     let context: PlayerControlsContext
@@ -110,8 +111,11 @@ struct PlayerControlsIOSOverlay: View {
         let isPlaying = viewModel.state == .playing
         let isSpinnerActive = isLoadingPresentationActive
 
-        return HStack {
-            Spacer()
+        return HStack(spacing: 44) {
+            Spacer(minLength: 0)
+            if showsEpisodeButtons {
+                episodeButton(.previous)
+            }
             // The center slot belongs to `PlayerView`'s shared spinner whenever
             // that spinner is up: startup (including the VLCKit audio warmup,
             // masked as .loading), delayed mid-play buffering, and the automatic
@@ -136,8 +140,41 @@ struct PlayerControlsIOSOverlay: View {
             .allowsHitTesting(!isSpinnerActive)
             .accessibilityHidden(isSpinnerActive)
             .animation(.easeInOut(duration: 0.15), value: isSpinnerActive)
-            Spacer()
+            if showsEpisodeButtons {
+                episodeButton(.next)
+            }
+            Spacer(minLength: 0)
         }
+    }
+
+    /// Opt-in (`playerEpisodeButtonsEnabled`) and episodes only:
+    /// `adjacentEpisodes` is nil for movies, clips and Live TV. The buttons
+    /// stay mounted while the lookup runs and at the first / last episode,
+    /// just dimmed, so Play never shifts sideways.
+    private var showsEpisodeButtons: Bool {
+        preferences.playerEpisodeButtonsEnabled && playback.adjacentEpisodes != nil
+    }
+
+    private func episodeButton(_ direction: AdjacentEpisodeDirection) -> some View {
+        let episode = playback.adjacentEpisodes?.episode(direction)
+        let isEnabled = episode != nil && playback.canStepEpisodes
+
+        return Button {
+            playback.playAdjacentEpisode(direction, isPastCredits: viewModel.isPastCreditsMarker)
+        } label: {
+            Image(systemName: direction == .next ? "forward.end.fill" : "backward.end.fill")
+                .font(.title2.weight(.semibold))
+                .foregroundStyle(.white)
+                .frame(width: 56, height: 56)
+                .background(.ultraThinMaterial, in: Circle())
+        }
+        .disabled(!isEnabled)
+        .opacity(isEnabled ? 1 : 0.35)
+        .animation(.easeInOut(duration: 0.15), value: isEnabled)
+        .accessibilityLabel(direction == .next ? "Next Episode" : "Previous Episode")
+        .accessibilityValue(episode.flatMap {
+            MediaTextFormatter.seasonEpisodeLabel(season: $0.parentIndex, episode: $0.index)
+        } ?? "")
     }
 
     /// Mirrors what makes `PlayerView`'s spinner visible. `playerLoadingState` is

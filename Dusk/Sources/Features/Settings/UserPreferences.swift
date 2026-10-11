@@ -21,6 +21,7 @@ final class UserPreferences {
         static let continuousPlayCountdown = "continuousPlayCountdown"
         static let continuousPlayPassoutProtectionEpisodeLimit = "continuousPlayPassoutProtectionEpisodeLimit"
         static let playerDoubleTapSeekEnabled = "playerDoubleTapSeekEnabled"
+        static let playerEpisodeButtonsEnabled = "playerEpisodeButtonsEnabled"
         static let playerDoubleTapForwardInterval = "playerDoubleTapForwardInterval"
         static let playerDoubleTapBackwardInterval = "playerDoubleTapBackwardInterval"
         static let playerAspectFillPortrait = "playerAspectFillPortrait"
@@ -108,6 +109,13 @@ final class UserPreferences {
     /// Enable left/right double-tap seeking on touch-based platforms.
     var playerDoubleTapSeekEnabled: Bool {
         didSet { UserDefaults.standard.set(playerDoubleTapSeekEnabled, forKey: Keys.playerDoubleTapSeekEnabled) }
+    }
+
+    /// Previous / Next Episode buttons beside Play in the iOS player. Opt-in so
+    /// the default HUD stays clean; tvOS always offers Next Episode in its
+    /// action row and has no toggle.
+    var playerEpisodeButtonsEnabled: Bool {
+        didSet { UserDefaults.standard.set(playerEpisodeButtonsEnabled, forKey: Keys.playerEpisodeButtonsEnabled) }
     }
 
     /// Jump interval for double-tapping the right side of the player.
@@ -373,6 +381,7 @@ final class UserPreferences {
         let autoSkipIntroMode = Self.storedAutoSkipIntroMode(defaults: defaults)
         let autoSkipCredits = defaults.object(forKey: Keys.autoSkipCredits) as? Bool ?? false
         let playerDoubleTapSeekEnabled = defaults.object(forKey: Keys.playerDoubleTapSeekEnabled) as? Bool ?? true
+        let playerEpisodeButtonsEnabled = defaults.bool(forKey: Keys.playerEpisodeButtonsEnabled)
         let playerDoubleTapForwardInterval = Self.storedSeekInterval(
             forKey: Keys.playerDoubleTapForwardInterval,
             defaults: defaults,
@@ -444,6 +453,7 @@ final class UserPreferences {
         self.autoSkipIntroMode = autoSkipIntroMode
         self.autoSkipCredits = autoSkipCredits
         self.playerDoubleTapSeekEnabled = playerDoubleTapSeekEnabled
+        self.playerEpisodeButtonsEnabled = playerEpisodeButtonsEnabled
         self.playerDoubleTapForwardInterval = playerDoubleTapForwardInterval
         self.playerDoubleTapBackwardInterval = playerDoubleTapBackwardInterval
         self.playerAspectFillPortrait = playerAspectFillPortrait

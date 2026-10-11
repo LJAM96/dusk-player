@@ -103,3 +103,35 @@ extension PlexEpisode {
         return "Episode \(e)"
     }
 }
+
+/// The episodes either side of the one playing, for the player's Previous /
+/// Next Episode controls. Either side may be nil: the first or last episode of
+/// the show, or (for downloads) no downloaded neighbour.
+struct PlexAdjacentEpisodes: Sendable {
+    var previous: PlexEpisode?
+    var next: PlexEpisode?
+
+    /// Neighbours inside one season. `episodes` must be sorted by `index`.
+    /// Falls back to episode numbers when the playing episode is not in the
+    /// list (a server-side renumbering, a cached list from another server).
+    /// `isEligible` skips episodes that cannot play, such as ones that are not
+    /// downloaded during offline playback.
+    static func inSeason(
+        _ episodes: [PlexEpisode],
+        around episode: PlexMediaDetails,
+        isEligible: (PlexEpisode) -> Bool = { _ in true }
+    ) -> PlexAdjacentEpisodes {
+        if let position = episodes.firstIndex(where: { $0.ratingKey == episode.ratingKey }) {
+            return PlexAdjacentEpisodes(
+                previous: episodes[..<position].last(where: isEligible),
+                next: episodes[episodes.index(after: position)...].first(where: isEligible)
+            )
+        }
+
+        guard let number = episode.index else { return PlexAdjacentEpisodes() }
+        return PlexAdjacentEpisodes(
+            previous: episodes.last { ($0.index ?? 0) < number && isEligible($0) },
+            next: episodes.first { ($0.index ?? 0) > number && isEligible($0) }
+        )
+    }
+}

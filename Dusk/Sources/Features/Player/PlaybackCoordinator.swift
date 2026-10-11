@@ -43,6 +43,9 @@ final class PlaybackCoordinator {
     /// when not in credits, when there is no next episode, or while the
     /// full-screen `upNextPresentation` is showing instead.
     var upNextPoster: UpNextPosterPresentation?
+    /// Previous / Next Episode targets for the episode now playing; nil for
+    /// anything that is not a library episode (movies, clips, Live TV).
+    var adjacentEpisodes: PlaybackAdjacentEpisodes?
     /// Markers whose one-shot auto-skip has been used up for the item currently
     /// playing: an intro Dusk (or the viewer) already skipped, and credits whose
     /// auto-advance countdown already ran or was waved off. Auto-skip is a
@@ -141,6 +144,7 @@ final class PlaybackCoordinator {
     @ObservationIgnored nonisolated(unsafe) var timelineTimer: Timer?
     @ObservationIgnored nonisolated(unsafe) var upNextCountdownTask: Task<Void, Never>?
     @ObservationIgnored nonisolated(unsafe) var upNextPosterCountdownTask: Task<Void, Never>?
+    @ObservationIgnored nonisolated(unsafe) var adjacentEpisodesTask: Task<Void, Never>?
     /// One-shot per attempt: observes the engine after an online direct-play
     /// start and swaps the session to the server-stream ladder rung when the
     /// engine fails. Cancelled on finalize/clear/engine swap.
@@ -179,6 +183,7 @@ final class PlaybackCoordinator {
         airPlayTransitionTask?.cancel()
         spatialAudioTransitionTask?.cancel()
         upNextPosterCountdownTask?.cancel()
+        adjacentEpisodesTask?.cancel()
         liveTVScheduleRefreshTask?.cancel()
     }
 
@@ -644,6 +649,7 @@ final class PlaybackCoordinator {
         cancelUpNextPosterCountdown()
         upNextPresentation = nil
         upNextPoster = nil
+        clearAdjacentEpisodes()
 
         engine?.onPlaybackEnded = nil
         engine?.setPictureInPictureDelegate(nil)

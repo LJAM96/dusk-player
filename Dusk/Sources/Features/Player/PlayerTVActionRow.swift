@@ -48,8 +48,42 @@ struct PlayerTVActionRow: View {
                 radius: isSelected ? 16 : 0,
                 y: isSelected ? 6 : 0
             )
+            // Trailing-aligned: the only button with a tooltip (Next Episode)
+            // ends the row, so a centered tooltip would run past the safe
+            // inset. An overlay lifted by the button's own height, so it
+            // never changes the row's height.
+            .overlay(alignment: .bottomTrailing) {
+                if isSelected, let tooltip = action.tooltip {
+                    PlayerTVActionTooltip(text: tooltip)
+                        .padding(.bottom, PlayerTVHUDLayout.actionButtonDiameter + PlayerTVHUDLayout.actionTooltipGap)
+                        .transition(.opacity)
+                }
+            }
             .accessibilityLabel(action.accessibilityLabel)
+            .accessibilityValue(action.tooltip ?? "")
             .accessibilityAddTraits(isSelected ? [.isButton, .isSelected] : .isButton)
+    }
+}
+
+/// Small glass capsule over a selected action button, drawn like the play
+/// bar's scrub time tooltip.
+private struct PlayerTVActionTooltip: View {
+    let text: String
+
+    var body: some View {
+        Text(text)
+            .font(DuskFont.TV.badge.monospacedDigit())
+            .foregroundStyle(.white)
+            .lineLimit(1)
+            .fixedSize()
+            .padding(.horizontal, 14)
+            .padding(.vertical, 8)
+            .background {
+                Capsule()
+                    .fill(.white.opacity(0.08))
+                    .background(.ultraThinMaterial, in: Capsule())
+            }
+            .overlay { Capsule().strokeBorder(.white.opacity(0.24), lineWidth: 1) }
     }
 }
 

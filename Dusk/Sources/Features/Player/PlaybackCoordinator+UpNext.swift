@@ -331,6 +331,81 @@ extension PlaybackCoordinator {
         return .autoAdvanceAtEnd
     }
 
+    // MARK: - Previous / Next Episode
+
+    /// Whether the player's Previous / Next Episode controls may act. Off while
+    /// a SharePlay group is (or is becoming) attached: a manual jump would
+    /// leave the group behind on the old episode.
+    var canStepEpisodes: Bool {
+        !isSharePlayActive && !isSharePlayStarting
+    }
+
+    /// Resolves the playing episode's neighbours once per item. Called at
+    /// session commit; a Quality switch or delivery fallback of the same item
+    /// keeps what was already resolved. Download sessions only see downloaded
+    /// neighbours; an online lookup that fails falls back to them too, like
+    /// `nextEpisode(after:)`.
+    func refreshAdjacentEpisodesIfNeeded() {
+        guard let details = activeItemDetails,
+              details.type == .episode,
+              activeLiveTVContext == nil,
+              let itemID = activeItemID else {
+            clearAdjacentEpisodes()
+            return
+        }
+        guard adjacentEpisodes?.itemID != itemID else { return }
+
+        adjacentEpisodesTask?.cancel()
+        adjacentEpisodes = PlaybackAdjacentEpisodes(itemID: itemID, episodes: nil)
+        let usesLocalDownload = activePlaybackUsesLocalDownload
+
+        adjacentEpisodesTask = Task { @MainActor [weak self] in
+            guard let self else { return }
+            var resolved: PlexAdjacentEpisodes?
+            if !usesLocalDownload {
+                resolved = try? await self.plexService.getAdjacentEpisodes(around: details)
+            }
+            if resolved == nil {
+                resolved = self.downloadManager?.cachedAdjacentDownloadedEpisodes(around: details)
+            }
+
+            guard !Task.isCancelled, self.adjacentEpisodes?.itemID == itemID else { return }
+            self.adjacentEpisodes = PlaybackAdjacentEpisodes(
+                itemID: itemID,
+                episodes: resolved ?? PlexAdjacentEpisodes()
+            )
+        }
+    }
+
+    func clearAdjacentEpisodes() {
+        adjacentEpisodesTask?.cancel()
+        adjacentEpisodesTask = nil
+        adjacentEpisodes = nil
+    }
+
+    /// Previous / Next Episode from the player. The current episode is marked
+    /// watched only when the viewer is past its credits (`isPastCredits`);
+    /// past 90 % it is scrobbled by finalization anyway. Anything earlier just
+    /// reports its progress. Goes through the normal play flow (loading cover
+    /// on the target's artwork, resume offset, server fallback), which also
+    /// restarts the Pause After count from this episode.
+    func playAdjacentEpisode(_ direction: AdjacentEpisodeDirection, isPastCredits: Bool) {
+        guard canStepEpisodes,
+              let episode = adjacentEpisodes?.episode(direction) else { return }
+
+        cancelUpNextPosterCountdown()
+        finalizeCurrentPlaybackSession(markCompleted: isPastCredits)
+
+        Task { @MainActor in
+            await play(
+                id: episode.id,
+                resumeOffsetMilliseconds: episode.viewOffset,
+                resumeOffsetDurationMilliseconds: episode.duration,
+                placeholder: PlaybackPlaceholder(episode: episode)
+            )
+        }
+    }
+
     func nextEpisode(after episode: PlexMediaDetails) async -> PlexEpisode? {
         if let nextEpisode = try? await plexService.getNextEpisode(after: episode) {
             return nextEpisode

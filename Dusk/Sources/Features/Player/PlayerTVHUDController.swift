@@ -67,11 +67,15 @@ enum PlayerTVPanelTab: String, CaseIterable, Identifiable, Hashable {
 enum PlayerTVActionItem: Equatable, Identifiable {
     case panel(PlayerTVPanelTab)
     case goLive
+    /// Plays the next episode. `label` is its `S2 · E8` marker, shown in the
+    /// tooltip while the button is selected.
+    case nextEpisode(label: String)
 
     var id: String {
         switch self {
         case let .panel(tab): return "panel.\(tab.rawValue)"
         case .goLive: return "goLive"
+        case .nextEpisode: return "nextEpisode"
         }
     }
 
@@ -79,6 +83,7 @@ enum PlayerTVActionItem: Equatable, Identifiable {
         switch self {
         case let .panel(tab): return tab.systemImage
         case .goLive: return "forward.end.alt.fill"
+        case .nextEpisode: return "forward.end.fill"
         }
     }
 
@@ -86,6 +91,15 @@ enum PlayerTVActionItem: Equatable, Identifiable {
         switch self {
         case let .panel(tab): return tab.title
         case .goLive: return "Go Live"
+        case .nextEpisode: return "Next Episode"
+        }
+    }
+
+    /// Floated above the button while it is selected.
+    var tooltip: String? {
+        switch self {
+        case let .nextEpisode(label): return "Next: \(label)"
+        case .panel, .goLive: return nil
         }
     }
 }
@@ -128,6 +142,7 @@ final class PlayerTVHUDController {
     @ObservationIgnored weak var viewModel: PlayerViewModel?
     @ObservationIgnored var onDismissPlayer: (() -> Void)?
     @ObservationIgnored var onActivateBottomTrailingControl: (() -> Void)?
+    @ObservationIgnored var onPlayNextEpisode: (() -> Void)?
     /// Returns true when it actually dismissed something; false lets Down fall
     /// through to opening the panel (the Skip Intro chip cannot be dismissed).
     @ObservationIgnored var onDismissBottomTrailingControl: (() -> Bool)?
@@ -450,6 +465,8 @@ final class PlayerTVHUDController {
         case .goLive:
             viewModel?.goLive()
             noteInteraction()
+        case .nextEpisode:
+            onPlayNextEpisode?()
         }
     }
 

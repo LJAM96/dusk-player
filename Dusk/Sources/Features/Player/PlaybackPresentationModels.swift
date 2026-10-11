@@ -584,6 +584,28 @@ struct UpNextPresentation: Sendable {
 /// In every mode, tapping the poster plays the next episode now, and dragging it
 /// down (iOS) / swiping down (tvOS) cancels any timer and opens the full-screen
 /// Up Next screen with no countdown so the user can wait indefinitely.
+/// Which way the player's Previous / Next Episode controls step.
+enum AdjacentEpisodeDirection: Sendable {
+    case previous
+    case next
+}
+
+/// Previous / Next Episode targets for the episode now playing. Resolved once
+/// per episode (`PlaybackCoordinator.refreshAdjacentEpisodesIfNeeded`); a
+/// Quality switch or a delivery fallback of the same item keeps them.
+struct PlaybackAdjacentEpisodes: Sendable {
+    let itemID: PlexItemID
+    /// nil while the lookup is still running.
+    var episodes: PlexAdjacentEpisodes?
+
+    func episode(_ direction: AdjacentEpisodeDirection) -> PlexEpisode? {
+        switch direction {
+        case .previous: episodes?.previous
+        case .next: episodes?.next
+        }
+    }
+}
+
 struct UpNextPosterPresentation: Sendable {
     enum Mode: Sendable, Equatable {
         case timedAutoplay(countdown: Int)

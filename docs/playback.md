@@ -1447,6 +1447,9 @@ so the whole live HUD is derived from one instant.
     the bar, Down from the bar → `panel`; Left/Right on the bar → seek, on the
     row → move the selection; Select on the bar → play/pause, on the row → run
     the action. Auto-hide is armed here only.
+    The row is Go Live (live, behind the edge), Subtitles, Audio, Info, then
+    Next Episode when there is one; a selected action may float a tooltip
+    (`PlayerTVActionItem.tooltip`) above its button.
   - `scrubbing`: the swipe moves a preview target, Left/Right steps it; Select
     or Play/Pause commits a precise seek (resuming if the session was paused);
     Menu or Up cancels back to wherever the scrub started.
@@ -1606,6 +1609,32 @@ so the whole live HUD is derived from one instant.
   message instead of the generic "Couldn't Play" alert.
 - Continuous play uses `continuousPlayEnabled`, `continuousPlayCountdown`, and
   optional passout protection. The episode run count includes the current item.
+- Previous / Next Episode (issue #8, for credits Plex detects late): iOS shows
+  `backward.end` / `forward.end` circles beside Play, opt-in via
+  `playerEpisodeButtonsEnabled` ("Episode Buttons", default off); tvOS always
+  appends a Next Episode button to the trailing end of the action row
+  (`PlayerTVActionItem.nextEpisode`, tooltip `Next: S2 · E8`) and has no
+  Previous (the Siri Remote has no spare button and the row is kept short).
+  - Neighbours are resolved once per item at session commit
+    (`refreshAdjacentEpisodesIfNeeded` → `adjacentEpisodes`); a Quality switch
+    or delivery fallback of the same item keeps them. Online uses
+    `PlexService.getAdjacentEpisodes` (current season fetched once for both
+    sides; Previous never steps from a regular season into Specials), download
+    sessions and failed online lookups use
+    `DownloadManager.cachedAdjacentDownloadedEpisodes` (downloaded neighbours
+    only). `adjacentEpisodes` is nil for movies, clips, trailers and Live TV, so
+    no buttons appear there.
+  - iOS keeps both buttons mounted and dims them while the lookup runs, at the
+    first / last episode, and during SharePlay (`canStepEpisodes`), so Play never
+    shifts. tvOS instead omits the Next button in those cases: a disabled
+    control should not be a stop on the row, and Go Live already comes and goes.
+  - `playAdjacentEpisode` always plays the other episode (Previous never
+    restarts the current one) through the normal `play` flow: loading cover on
+    the target's artwork, its resume offset, server fallback, and a reset of
+    the Pause After count. It finalizes first with `markCompleted` only when
+    Plex's own credits marker has been reached (`isPastCreditsMarker`; the
+    estimated marker does not count); past 90 % the normal finalize scrobble
+    marks it watched anyway, and anything earlier just reports progress.
 - `PlaybackNowPlayingController` is iOS-only and owns AVAudioSession,
   MPNowPlayingInfoCenter, remote commands, route/interruption handling, and art.
 
@@ -1618,7 +1647,8 @@ so the whole live HUD is derived from one instant.
   writes the same `UserPreferences` value and calls
   `engine.applySubtitleFontSize(_:)`; there is no per-session override.
 - Active UI defaults: intro auto-skip mode, credits auto-skip, double-tap seek,
-  and continuous play.
+  continuous play, and the iOS Episode Buttons (`playerEpisodeButtonsEnabled`,
+  default off; no tvOS toggle).
 - New installs default intro auto-skip to always except episode 1 of each
   season; existing stored intro-skip preferences are preserved.
 - `forceAVPlayer` and `forceVLCKit` are mutually exclusive in their setters.

@@ -805,6 +805,59 @@ final class DownloadManager {
         return nil
     }
 
+    /// `PlexService.getAdjacentEpisodes` over the metadata cache, limited to
+    /// episodes that play offline: the neighbours a download-only session can
+    /// actually reach.
+    func cachedAdjacentDownloadedEpisodes(around episode: PlexMediaDetails) -> PlexAdjacentEpisodes {
+        guard episode.type == .episode,
+              let seasonKey = episode.parentRatingKey,
+              let showKey = episode.grandparentRatingKey else {
+            return PlexAdjacentEpisodes()
+        }
+
+        let serverID = episode.serverID
+        let isDownloaded: (PlexEpisode) -> Bool = { [self] in isPlayableOffline(id: $0.id) }
+        let currentSeasonEpisodes = (cachedEpisodes(season: PlexItemID(serverID: serverID, ratingKey: seasonKey)) ?? [])
+            .sorted { ($0.index ?? 0) < ($1.index ?? 0) }
+        var adjacent = PlexAdjacentEpisodes.inSeason(
+            currentSeasonEpisodes,
+            around: episode,
+            isEligible: isDownloaded
+        )
+        guard adjacent.previous == nil || adjacent.next == nil else { return adjacent }
+
+        let seasons = (cachedSeasons(show: PlexItemID(serverID: serverID, ratingKey: showKey)) ?? [])
+            .sorted { $0.index < $1.index }
+        let currentSeasonIndex = episode.parentIndex
+            ?? seasons.first(where: { $0.ratingKey == seasonKey })?.index
+        guard let currentSeasonIndex else { return adjacent }
+
+        func downloadedEpisodes(in season: PlexSeason) -> [PlexEpisode] {
+            (cachedEpisodes(season: season.id) ?? [])
+                .filter(isDownloaded)
+                .sorted { ($0.index ?? 0) < ($1.index ?? 0) }
+        }
+
+        if adjacent.next == nil {
+            adjacent.next = seasons
+                .filter { $0.index > currentSeasonIndex }
+                .lazy
+                .compactMap { downloadedEpisodes(in: $0).first }
+                .first
+        }
+
+        if adjacent.previous == nil {
+            adjacent.previous = seasons
+                .filter { $0.index < currentSeasonIndex && $0.index > 0 }
+                .reversed()
+                .lazy
+                .compactMap { downloadedEpisodes(in: $0).last }
+                .first
+        }
+
+        return adjacent
+    }
+
     func localArtworkURL(for path: String?) -> URL? {
         guard let url = fileStore.artworkURL(for: path),
               FileManager.default.fileExists(atPath: url.path) else {

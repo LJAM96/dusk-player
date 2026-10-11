@@ -151,6 +151,53 @@ extension PlexService {
         return nil
     }
 
+    /// Both neighbours of an episode, for the player's Previous / Next Episode
+    /// controls. Same server and ordering rules as `getNextEpisode`, but the
+    /// current season is fetched once for both directions, and the show's
+    /// seasons only when a neighbour lies outside it. Previous never steps from
+    /// a regular season back into Specials (season 0).
+    func getAdjacentEpisodes(around episode: PlexMediaDetails) async throws -> PlexAdjacentEpisodes {
+        guard episode.type == .episode,
+              let seasonKey = episode.parentRatingKey,
+              let showKey = episode.grandparentRatingKey else {
+            return PlexAdjacentEpisodes()
+        }
+
+        let serverID = episode.serverID
+        let currentSeasonEpisodes = try await getEpisodes(seasonKey: seasonKey, serverID: serverID)
+            .sorted { ($0.index ?? 0) < ($1.index ?? 0) }
+        var adjacent = PlexAdjacentEpisodes.inSeason(currentSeasonEpisodes, around: episode)
+        guard adjacent.previous == nil || adjacent.next == nil else { return adjacent }
+
+        let seasons = try await getSeasons(showKey: showKey, serverID: serverID)
+            .sorted { $0.index < $1.index }
+        let currentSeasonIndex = episode.parentIndex
+            ?? seasons.first(where: { $0.ratingKey == seasonKey })?.index
+        guard let currentSeasonIndex else { return adjacent }
+
+        if adjacent.next == nil {
+            for season in seasons where season.index > currentSeasonIndex {
+                let episodes = try await getEpisodes(seasonKey: season.ratingKey, serverID: serverID)
+                if let first = episodes.min(by: { ($0.index ?? 0) < ($1.index ?? 0) }) {
+                    adjacent.next = first
+                    break
+                }
+            }
+        }
+
+        if adjacent.previous == nil {
+            for season in seasons.reversed() where season.index < currentSeasonIndex && season.index > 0 {
+                let episodes = try await getEpisodes(seasonKey: season.ratingKey, serverID: serverID)
+                if let last = episodes.max(by: { ($0.index ?? 0) < ($1.index ?? 0) }) {
+                    adjacent.previous = last
+                    break
+                }
+            }
+        }
+
+        return adjacent
+    }
+
     /// `includeGuids=1` so merging across servers can match the same title by
     /// its global Plex guid instead of falling back to title/year heuristics.
     func getHubs(serverID: String? = nil) async throws -> [PlexHub] {

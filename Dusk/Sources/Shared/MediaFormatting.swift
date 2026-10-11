@@ -18,6 +18,20 @@ enum MediaTextFormatter {
         }
     }
 
+    /// "S2 · E8", for tight spots like the tvOS Next Episode tooltip.
+    static func compactSeasonEpisodeLabel(season: Int?, episode: Int?) -> String? {
+        switch (season, episode) {
+        case let (season?, episode?):
+            return "S\(season) · E\(episode)"
+        case let (season?, nil):
+            return "S\(season)"
+        case let (nil, episode?):
+            return "E\(episode)"
+        default:
+            return nil
+        }
+    }
+
     static func seasonCount(_ count: Int?) -> String? {
         pluralizedCount(count, singular: "Season", plural: "Seasons")
     }

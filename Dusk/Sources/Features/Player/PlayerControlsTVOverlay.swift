@@ -12,6 +12,7 @@ import SwiftUI
 /// owns focus outright while it is up.
 struct PlayerControlsTVOverlay: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(PlaybackCoordinator.self) private var playback
 
     let viewModel: PlayerViewModel
     let controller: PlayerTVHUDController
@@ -151,6 +152,19 @@ struct PlayerControlsTVOverlay: View {
         }
         if !panelTabs.isEmpty {
             items.append(.panel(.info))
+        }
+        // Last, so it sits at the trailing end of the row. Only present while
+        // there is a next episode to play (and no SharePlay group to leave
+        // behind): a dimmed button would still be a stop on the row, and a
+        // disabled control should not take selection on tvOS.
+        if let nextEpisode = playback.adjacentEpisodes?.episode(.next),
+           playback.canStepEpisodes {
+            items.append(.nextEpisode(
+                label: MediaTextFormatter.compactSeasonEpisodeLabel(
+                    season: nextEpisode.parentIndex,
+                    episode: nextEpisode.index
+                ) ?? nextEpisode.title
+            ))
         }
 
         return items
