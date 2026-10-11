@@ -186,11 +186,12 @@ extension View {
     @ViewBuilder
     func homeHeroNativeButtonStyle() -> some View {
         #if os(tvOS)
+        // No tint: the tab shell clears it for its content, and an explicit
+        // one (even `Color.primary`) turns the focused glass white-on-white.
         self
             .buttonStyle(.glass)
             .controlSize(.regular)
             .buttonBorderShape(.capsule)
-            .tint(Color.primary)
         #elseif os(iOS)
         // Prominent glass tinted with a translucent `primary` so the hero CTA
         // contrasts the artwork (dark in Light mode, light in Dark) while still
