@@ -48,7 +48,7 @@ struct PlayerUpNextOverlayView: View {
         .ignoresSafeArea()
         #if os(tvOS)
         // The screen is near-black in either appearance mode; the system
-        // buttons must resolve their unfocused platter for a dark surface.
+        // buttons must resolve their unfocused glass for a dark surface.
         .environment(\.colorScheme, .dark)
         #endif
     }
@@ -98,18 +98,6 @@ struct PlayerUpNextOverlayView: View {
                 startPoint: .topLeading,
                 endPoint: .bottomTrailing
             )
-
-            #if !os(tvOS)
-            RadialGradient(
-                colors: [
-                    Color.duskAccent.opacity(0.14),
-                    Color.clear,
-                ],
-                center: .topLeading,
-                startRadius: 20,
-                endRadius: 620
-            )
-            #endif
         }
         .clipped()
         .ignoresSafeArea()
@@ -178,7 +166,7 @@ struct PlayerUpNextOverlayView: View {
                 Text(eyebrowText)
                     .font(metrics.eyebrowFont)
                     .tracking(1.4)
-                    .foregroundStyle(Self.eyebrowColor)
+                    .foregroundStyle(.white.opacity(0.6))
                     .lineLimit(1)
                     .minimumScaleFactor(0.75)
 
@@ -226,7 +214,7 @@ struct PlayerUpNextOverlayView: View {
             if let errorMessage = presentation.errorMessage {
                 Text(errorMessage)
                     .font(metrics.metadataFont.weight(.medium))
-                    .foregroundStyle(Color.duskAccent)
+                    .foregroundStyle(.white.opacity(0.84))
                     .fixedSize(horizontal: false, vertical: true)
             }
         }
@@ -253,8 +241,8 @@ struct PlayerUpNextOverlayView: View {
                     .lineLimit(1)
             }
             #if os(tvOS)
-            // The system button colours the label: white on the unfocused
-            // platter, dark on the focused white one.
+            // The system glass colours the label: white on the unfocused
+            // glass, dark on the focused light one.
             // Matches the detail hero primary: a contained width so the button
             // does not hug a two-word label in a left-aligned column.
             .frame(minWidth: 300)
@@ -281,8 +269,10 @@ struct PlayerUpNextOverlayView: View {
             Image(systemName: "xmark")
                 .font(metrics.closeIconFont)
         }
-        .buttonStyle(.bordered)
+        .buttonStyle(.glass)
         .buttonBorderShape(.circle)
+        // See `upNextPrimaryButtonStyle`: no tint, or the app's coral leaks in.
+        .tint(nil)
         .accessibilityLabel("Close Player")
         #else
         Button(action: onDismiss) {
@@ -328,7 +318,7 @@ struct PlayerUpNextOverlayView: View {
                             .fill(Color.white.opacity(0.16))
 
                         Capsule()
-                            .fill(Self.countdownFill)
+                            .fill(Color.white)
                             .frame(width: geometry.size.width * visualState.progress)
                             .animation(.linear(duration: 0.1), value: visualState.progress)
                     }
@@ -392,16 +382,6 @@ struct PlayerUpNextOverlayView: View {
         return "Keep Watching"
     }
 
-    // tvOS is monochrome like the play bar and the TV app's own end-of-episode
-    // screen; iOS keeps the brand coral.
-    #if os(tvOS)
-    private static let eyebrowColor: Color = .white.opacity(0.6)
-    private static let countdownFill: Color = .white
-    #else
-    private static let eyebrowColor: Color = .duskAccent
-    private static let countdownFill: Color = .duskAccent
-    #endif
-
     private static func countdownLabel(for seconds: Int) -> String {
         "Plays in \(max(seconds, 0))s"
     }
@@ -441,13 +421,17 @@ private extension View {
     @ViewBuilder
     func upNextPrimaryButtonStyle() -> some View {
         #if os(tvOS)
-        // The plain system button, not `.glassProminent`: its focus highlight
-        // forces the fill *and* the label to white (white-on-white). `.bordered`
-        // is the tvOS standard — a translucent platter that turns white with a
-        // dark label and lifts when focused, the same as the Close circle.
+        // System Liquid Glass with the tint cleared, the same as the Close
+        // circle: dark glass with a white label at rest, light glass with a
+        // dark label when focused. The tint must be `nil`, not a colour — the
+        // root `.tint(Color.duskAccent)` filled `.bordered` with coral on focus,
+        // and any explicit tint (even `.primary`) recolours the label, which is
+        // white-on-white on the focused glass. `.glassProminent` has the same
+        // white-on-white focus problem.
         self
-            .buttonStyle(.bordered)
+            .buttonStyle(.glass)
             .buttonBorderShape(.capsule)
+            .tint(nil)
         #else
         if #available(iOS 26.0, *) {
             self

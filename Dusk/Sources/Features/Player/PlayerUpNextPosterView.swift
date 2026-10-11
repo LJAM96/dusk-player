@@ -351,11 +351,7 @@ private enum Metrics {
     static let eyebrowFont: Font = DuskFont.TV.badge
     static let titleFont: Font = DuskFont.TV.playerTitleCompact
     static let metaFont: Font = DuskFont.TV.cardSubtitle
-    // Monochrome like the play bar and the TV app's own player chrome: a
-    // secondary-label eyebrow and a white countdown, no brand coral.
-    static let eyebrowColor: Color = .white.opacity(0.6)
     static let metaOpacity: Double = 0.6
-    static let countdownFill: Color = .white
     #else
     static let thumbnailWidth: CGFloat = 132
     static let cardCornerRadius: CGFloat = 24
@@ -372,10 +368,13 @@ private enum Metrics {
     static let eyebrowFont: Font = .caption2.weight(.bold)
     static let titleFont: Font = .subheadline.weight(.semibold)
     static let metaFont: Font = .caption2
-    static let eyebrowColor: Color = .duskAccent
     static let metaOpacity: Double = 0.7
-    static let countdownFill: Color = .duskAccent
     #endif
+
+    // Monochrome like the play bar and the TV app's own player chrome: a
+    // secondary-label eyebrow and a white countdown, no brand coral.
+    static let eyebrowColor: Color = .white.opacity(0.6)
+    static let countdownFill: Color = .white
 
     static var thumbnailHeight: CGFloat {
         (thumbnailWidth * 9.0 / 16.0).rounded()
