@@ -955,15 +955,24 @@ private struct HomeTVScrollMetrics: Equatable {
 /// must not carry the press to a card. Otherwise it counts when
 /// - a click on the clickpad's bottom edge is in flight or just ended (the
 ///   click can be over before Home gets to ask), or
-/// - the touch has travelled `deliberateTravel` down since it began, or has
-///   moved down faster than `deliberateVelocity` at some point; a touch that
-///   ended less than `touchGrace` ago is judged by how it ended, since the
-///   engine's move can reach Home a render after the finger lifted, or
+/// - the touch has gone more down than sideways since it began, and has
+///   travelled `deliberateTravel` down or moved down faster than
+///   `deliberateVelocity` at some point (while moving more down than
+///   sideways); a touch that ended less than `touchGrace` ago is judged by
+///   how it ended, since the engine's move can reach Home a render after the
+///   finger lifted, or
 /// - nothing has touched the surface lately (so the move is not a drift).
 ///
 /// A move Home refused is retried by Home itself if the same touch then goes
 /// on to qualify (`noteRefusedMove`, `onQualifiedAfterRefusal`): leaving the
 /// hero must not depend on the engine attempting a second move.
+///
+/// The direction comes first. A thumb swiping left or right to page the hero
+/// arcs on its way across the surface, and the focus engine turns that arc
+/// into a down move off the small play button. Measured on its own, the arc's
+/// downward travel and speed look like a swipe down, and a fast page swipe
+/// went straight to the shelves. A touch that went further sideways than down
+/// is a page swipe, whatever its speed.
 ///
 /// Travel and velocity are in the window's points, as UIKit reports indirect
 /// touches: the touch starts at the centre of the display and moves from
@@ -1001,9 +1010,11 @@ private final class HomeTVHeroDownGate {
     private var touchEndedAt: CFTimeInterval = -.infinity
     /// Translation since the touch began, window points, y down.
     private var touchTravel = CGPoint.zero
-    /// Points per second, y down, lightly smoothed, and its peak so far: a
-    /// flick is judged by its fastest moment, not by how it ended.
-    private var touchVelocityY: CGFloat = 0
+    /// Points per second, y down, lightly smoothed, and the peak downward
+    /// speed so far among the moments the touch moved more down than
+    /// sideways: a flick is judged by its fastest moment, not by how it
+    /// ended, and the fast middle of a sideways swipe never counts.
+    private var touchVelocity = CGPoint.zero
     private var touchPeakVelocityY: CGFloat = 0
     /// Home refused a move during the current touch. If the touch then
     /// qualifies, `onQualifiedAfterRefusal` runs once.
@@ -1033,7 +1044,8 @@ private final class HomeTVHeroDownGate {
     }
 
     private var isTouchDeliberate: Bool {
-        touchTravel.y >= Self.deliberateTravel || touchPeakVelocityY >= Self.deliberateVelocity
+        guard touchTravel.y > abs(touchTravel.x) else { return false }
+        return touchTravel.y >= Self.deliberateTravel || touchPeakVelocityY >= Self.deliberateVelocity
     }
 
     /// Home turned a move down. Called where focus is handed back.
@@ -1065,16 +1077,21 @@ private final class HomeTVHeroDownGate {
     func touchBegan() {
         isTouching = true
         touchTravel = .zero
-        touchVelocityY = 0
+        touchVelocity = .zero
         touchPeakVelocityY = 0
         hasRefusedMove = false
     }
 
-    func touchMoved(translation: CGPoint, velocityY: CGFloat) {
+    func touchMoved(translation: CGPoint, velocity: CGPoint) {
         guard isTouching else { return }
         touchTravel = translation
-        touchVelocityY = touchVelocityY * 0.5 + velocityY * 0.5
-        touchPeakVelocityY = max(touchPeakVelocityY, touchVelocityY)
+        touchVelocity = CGPoint(
+            x: touchVelocity.x * 0.5 + velocity.x * 0.5,
+            y: touchVelocity.y * 0.5 + velocity.y * 0.5
+        )
+        if touchVelocity.y > abs(touchVelocity.x) {
+            touchPeakVelocityY = max(touchPeakVelocityY, touchVelocity.y)
+        }
         if hasRefusedMove, !isHoldingSelect, isTouchDeliberate {
             hasRefusedMove = false
             onQualifiedAfterRefusal?()
@@ -1253,12 +1270,14 @@ private final class HeroTouchObserver: UIGestureRecognizer {
         guard let touch = touches.first else { return }
         let location = touch.location(in: nil)
         let dt = touch.timestamp - lastTimestamp
-        let velocityY = dt > 0 ? (location.y - lastLocation.y) / dt : 0
+        let velocity = dt > 0
+            ? CGPoint(x: (location.x - lastLocation.x) / dt, y: (location.y - lastLocation.y) / dt)
+            : .zero
         lastLocation = location
         lastTimestamp = touch.timestamp
         downGate?.touchMoved(
             translation: CGPoint(x: location.x - startLocation.x, y: location.y - startLocation.y),
-            velocityY: velocityY
+            velocity: velocity
         )
     }
 

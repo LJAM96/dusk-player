@@ -403,10 +403,15 @@ in Dusk. Read this with `docs/codebase-map.md`, `STYLE.md`, and `docs/data-and-p
         remote presses (measured in the simulator). Never while Select / Play-Pause
         is held on the play button or for 300ms after (a thumb rolling on the
         clickpad as it clicks Play); otherwise a move counts when a down click is
-        in flight or just ended, or the touch has travelled ≥ `deliberateTravel`
-        (160 window pt) down or peaked faster than `deliberateVelocity`
-        (1500 pt/s) — a touch that ended less than 300ms ago is judged by how it
-        ended — or nothing has touched the surface lately. A move refused as a
+        in flight or just ended, or the touch has gone more down than sideways
+        since it began **and** has travelled ≥ `deliberateTravel` (160 window pt)
+        down or peaked faster than `deliberateVelocity` (1500 pt/s) while moving
+        more down than sideways — a touch that ended less than 300ms ago is
+        judged by how it ended — or nothing has touched the surface lately. The
+        direction rule comes first: a thumb swiping left/right to page the hero
+        arcs, the engine turns the arc into a down move off the small play
+        button, and before the rule a fast page swipe's downward travel/speed
+        alone passed the limits and dropped focus into the first shelf. A move refused as a
         drift is retried by Home itself if the same touch then qualifies
         (`noteRefusedMove` / `onQualifiedAfterRefusal`), so leaving the hero never
         depends on the engine attempting a second move. The two limits are set by
