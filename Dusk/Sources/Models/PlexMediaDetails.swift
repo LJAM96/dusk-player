@@ -1,4 +1,10 @@
 import Foundation
+import OSLog
+
+private let plexMediaLogger = Logger(
+    subsystem: Bundle.main.bundleIdentifier ?? "Dusk",
+    category: "PlexMedia"
+)
 
 /// Full metadata for a Plex item including the media/part/stream hierarchy.
 /// Returned from `GET /library/metadata/{ratingKey}`. Used by StreamResolver
@@ -396,7 +402,28 @@ struct PlexMediaPart: Codable, Sendable, Identifiable {
         audioProfile = try container.decodeIfPresent(String.self, forKey: .audioProfile)
         accessible = Self.decodeFlexibleBool(container, forKey: .accessible)
         exists = Self.decodeFlexibleBool(container, forKey: .exists)
-        streams = try container.decodeIfPresent([PlexStream].self, forKey: .streams) ?? []
+        streams = try Self.decodeStreams(container)
+    }
+
+    /// Decodes each `Stream` entry on its own and drops the ones that fail, so
+    /// one odd track can't take the whole item down. Plex has been seen omitting
+    /// `id` on a stream in the metadata JSON (likely embedded EIA-608 captions),
+    /// and newer servers may add stream types we don't model. A dropped stream
+    /// just isn't offered from Plex metadata; a made-up id could otherwise be
+    /// sent back to Plex as a stream selection.
+    private static func decodeStreams(
+        _ container: KeyedDecodingContainer<CodingKeys>
+    ) throws -> [PlexStream] {
+        guard let entries = try container.decodeIfPresent([LenientStream].self, forKey: .streams) else {
+            return []
+        }
+        return entries.enumerated().compactMap { index, entry in
+            if let stream = entry.stream { return stream }
+            plexMediaLogger.error(
+                "Dropping undecodable stream \(index, privacy: .public) (streamType \(entry.streamType.map(String.init) ?? "?", privacy: .public), codec \(entry.codec ?? "?", privacy: .public)): \(entry.failure ?? "unknown error", privacy: .public)"
+            )
+            return nil
+        }
     }
 
     /// Plex serializes these flags inconsistently across versions (bool, `1`/`0`,
@@ -420,6 +447,34 @@ struct PlexMediaPart: Codable, Sendable, Identifiable {
             }
         }
         return nil
+    }
+}
+
+/// One `Stream` entry that never fails to decode: holds the stream when it is
+/// valid, otherwise whatever is readable for logging.
+private struct LenientStream: Decodable {
+    let stream: PlexStream?
+    let streamType: Int?
+    let codec: String?
+    let failure: String?
+
+    private enum ProbeKeys: String, CodingKey {
+        case streamType, codec
+    }
+
+    init(from decoder: Decoder) throws {
+        do {
+            stream = try PlexStream(from: decoder)
+            streamType = nil
+            codec = nil
+            failure = nil
+        } catch {
+            let probe = try? decoder.container(keyedBy: ProbeKeys.self)
+            stream = nil
+            streamType = try? probe?.decodeIfPresent(Int.self, forKey: .streamType)
+            codec = try? probe?.decodeIfPresent(String.self, forKey: .codec)
+            failure = String(describing: error)
+        }
     }
 }
 
