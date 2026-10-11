@@ -19,6 +19,7 @@ struct MainTabView: View {
     @State private var librariesViewModel: LibrariesViewModel?
     @State private var liveTVViewModel: LiveTVViewModel?
     #if os(tvOS)
+    @Environment(TopShelfLinkRouter.self) private var topShelfLinks
     @State private var isHomeScrolledOffTop = false
     @State private var homeScrollToTopRevision = 0
     #endif
@@ -65,6 +66,13 @@ struct MainTabView: View {
             #if !os(tvOS)
             .supporterPromptPresenter()
             #endif
+            #if os(tvOS)
+            // Re-checked whenever a server connects: a cold launch from the
+            // Top Shelf delivers the link before the item's server is up.
+            .task(id: TopShelfLinkAttempt(link: topShelfLinks.pending, revision: plexService.serverContentRevision)) {
+                await openPendingTopShelfLink()
+            }
+            #endif
     }
 
     private var tabSelection: Binding<MainTabItem> {
@@ -106,6 +114,38 @@ struct MainTabView: View {
         }
         guard isHomeScrolledOffTop else { return nil }
         return { homeScrollToTopRevision += 1 }
+    }
+
+    /// Acts on the Top Shelf link once the item's server is connected. Open
+    /// lands on the item's detail page in Home; Play resumes it from the
+    /// server's current position, not the one the snapshot was written with.
+    private func openPendingTopShelfLink() async {
+        guard let link = topShelfLinks.pending else { return }
+        if link.isStale() {
+            topShelfLinks.pending = nil
+            return
+        }
+        guard plexService.pool.connection(for: link.id.serverID) != nil else { return }
+        topShelfLinks.pending = nil
+
+        switch link.action {
+        case .open:
+            if selectedTab != .home {
+                activate(.home)
+            }
+            homePath = NavigationPath([link.route])
+        case .play:
+            let details = try? await plexService.getMediaDetails(
+                ratingKey: link.id.ratingKey,
+                serverID: link.id.serverID
+            )
+            await playback.play(
+                id: link.id,
+                resumeOffsetMilliseconds: details?.viewOffset,
+                resumeOffsetDurationMilliseconds: details?.duration,
+                placeholder: details.map(PlaybackPlaceholder.init(details:))
+            )
+        }
     }
     #endif
 
@@ -342,3 +382,10 @@ struct MainTabView: View {
         }
     }
 }
+
+#if os(tvOS)
+private struct TopShelfLinkAttempt: Equatable {
+    let link: TopShelfLink?
+    let revision: ServerContentRevision
+}
+#endif

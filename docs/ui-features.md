@@ -545,6 +545,32 @@ in Dusk. Read this with `docs/codebase-map.md`, `STYLE.md`, and `docs/data-and-p
   `isClip` — frame grabs read poorly full-bleed). They stay visible in hub rows, where
   an all-clip hub (`isVideoHub`) renders as a 16:9 carousel.
 
+## tvOS Top Shelf
+
+- The `DuskTopShelf` app extension (tvOS only, bundle id
+  `com.dusk-player.app.topshelf`) shows Continue Watching in the Top Shelf when
+  Dusk sits in the Home Screen's top row: sectioned content, 16:9 tiles,
+  "Continue Watching" (started items, with progress) and "Up Next" (Plex's
+  not-yet-started next episodes), each in Home's order, at most 10 items.
+- **The extension never talks to Plex.** `TopShelfPublisher`
+  (`Dusk/Sources/TopShelf/`) is called from `HomeViewModel.publish` on every
+  Continue Watching publish; it caches each tile's artwork with the app's own
+  session and writes `TopShelfSnapshot` (titles, artwork file names, deep links)
+  into the App Group `group.com.dusk-player.app`, then calls
+  `TVTopShelfContentProvider.topShelfContentDidChange()`. The extension only
+  reads that snapshot (`TopShelfSnapshot.swift` is compiled into both). No
+  snapshot → the static Top Shelf image.
+- `PlexService.tearDownServerSessions` clears the snapshot (sign-out, Plex Home
+  switch): the shelf must never show another identity's items.
+- Deep links: `dusk://play?server=…&item=…&type=…[&clip=1]` resumes,
+  `dusk://open?…` opens the detail page on Home. `DuskApp` hands the URL to
+  `TopShelfLinkRouter`; `MainTabView` acts on it once the item's server is
+  connected (a cold launch delivers it first) and drops it after 30 s. Play
+  re-reads the server's `viewOffset` instead of trusting the snapshot.
+- iOS is untouched: everything is `#if os(tvOS)`, the URL scheme is only in
+  `Info-tvOS.plist`, and only the tvOS app uses `Dusk-tvOS.entitlements` (App
+  Group added); iOS keeps `Dusk.entitlements`.
+
 ## Libraries
 
 - `LibrariesViewModel` groups Plex libraries by `PlexLibraryType`. Its `libraries`

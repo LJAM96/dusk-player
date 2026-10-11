@@ -498,6 +498,10 @@ final class HomeViewModel {
         } else {
             updates()
         }
+
+        #if os(tvOS)
+        TopShelfPublisher.shared.publish(continueWatching: newContinueWatching, plexService: plexService)
+        #endif
     }
 
     func setWatched(_ watched: Bool, for item: PlexItem) async {

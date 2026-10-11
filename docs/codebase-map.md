@@ -29,6 +29,8 @@ Dusk/Sources
     Search/            Search view and view model
     Settings/          Preferences, server priority, and account settings
     Supporter/         Supporter tier: StoreKit store, sheet, prompt, app icons
+  TopShelf/            tvOS Top Shelf: App Group snapshot, publisher, deep-link router
+                       (the extension itself lives in DuskTopShelf/)
 ```
 
 ## App Lifetime

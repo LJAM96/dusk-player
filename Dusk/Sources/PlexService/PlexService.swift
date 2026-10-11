@@ -287,6 +287,10 @@ final class PlexService {
             ServerPool.forget(serverID: serverID)
         }
         pool.clear()
+        #if os(tvOS)
+        // The Top Shelf mirrors this identity's Continue Watching.
+        TopShelfPublisher.shared.clear()
+        #endif
         if forgetServers {
             UserDefaults.standard.removeObject(forKey: Self.defaultsServerIDKey)
             serverPriority.reset()

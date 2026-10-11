@@ -43,6 +43,8 @@ Dusk/Sources
   Playback/            PlaybackEngine, AVPlayer, VLCKit, StreamResolver
   PlexService/         Plex auth, servers, library, history, playback, network
   Shared/              Reusable UI, formatting, presentation helpers
+  TopShelf/            tvOS Top Shelf snapshot, publisher, deep links
+DuskTopShelf/          tvOS Top Shelf extension (reads the App Group snapshot only)
 ```
 
 ## Where New Files Go
@@ -167,8 +169,9 @@ SIGNING_KEYCHAIN=<optional: keychain with the "Apple Distribution" identity>
 SIGNING_KEYCHAIN_PASSWORD_FILE=<optional: file with its password>
 ```
 
-plus an installed App Store provisioning profile per bundle id and platform (iOS and tvOS are separate profiles) (app and every extension), made
-with that distribution certificate. The script picks the newest matching one, checks it is
+plus an installed App Store provisioning profile per bundle id and platform (iOS and tvOS are separate profiles) (app and every extension: tvOS also needs one for `com.dusk-player.app.topshelf`), made
+with that distribution certificate. Both tvOS profiles must include the App Group
+`group.com.dusk-player.app`. The script picks the newest matching one, checks it is
 ACTIVE in App Store Connect and covers the target's entitlements, and signs manually with it
 (the project itself keeps automatic signing).
 

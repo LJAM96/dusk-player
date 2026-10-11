@@ -88,6 +88,9 @@ struct DuskApp: App {
     @State private var userPreferences: UserPreferences
     @State private var analytics: AnalyticsClient
     @State private var supporterStore: SupporterStore
+    #if os(tvOS)
+    @State private var topShelfLinks = TopShelfLinkRouter()
+    #endif
 
     init() {
         AppImageCache.configureSharedCache()
@@ -129,6 +132,12 @@ struct DuskApp: App {
                 .environment(userPreferences)
                 .environment(supporterStore)
                 .environment(analytics)
+                #if os(tvOS)
+                .environment(topShelfLinks)
+                .onOpenURL { url in
+                    topShelfLinks.open(url)
+                }
+                #endif
                 .preferredColorScheme(userPreferences.appearanceMode.preferredColorScheme)
                 .task {
                     analytics.recordAppOpenedIfNeeded()

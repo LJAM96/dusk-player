@@ -74,7 +74,9 @@ targets:
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.dusk-player.app
-        CODE_SIGN_ENTITLEMENTS: Dusk/Support/Dusk.entitlements
+        # Adds the App Group the Top Shelf extension reads its snapshot from.
+        # iOS keeps Dusk.entitlements, so its signing is untouched.
+        CODE_SIGN_ENTITLEMENTS: Dusk/Support/Dusk-tvOS.entitlements
         PRODUCT_NAME: Dusk
         GENERATE_INFOPLIST_FILE: false
         INFOPLIST_FILE: Dusk/Support/Info-tvOS.plist
@@ -96,10 +98,35 @@ targets:
       - sdk: AVKit.framework
       - framework: Frameworks/TVVLCKit.xcframework
         embed: true
+      - target: DuskTopShelf
     postBuildScripts:
       - script: ./scripts/verify_embedded_vlckit.sh
         name: Verify embedded VLCKit is not stale
         basedOnDependencyAnalysis: false
+
+  # tvOS Top Shelf: shows Continue Watching from the snapshot the app writes
+  # into the shared App Group (Dusk/Sources/TopShelf). No Plex access of its own.
+  DuskTopShelf:
+    type: app-extension
+    platform: tvOS
+    sources:
+      - path: DuskTopShelf
+        excludes:
+          - Info.plist
+          - DuskTopShelf.entitlements
+      - path: Dusk/Sources/TopShelf/TopShelfSnapshot.swift
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.dusk-player.app.topshelf
+        PRODUCT_NAME: DuskTopShelf
+        CODE_SIGN_ENTITLEMENTS: DuskTopShelf/DuskTopShelf.entitlements
+        GENERATE_INFOPLIST_FILE: false
+        INFOPLIST_FILE: DuskTopShelf/Info.plist
+        DEVELOPMENT_TEAM: ""
+        APPLICATION_EXTENSION_API_ONLY: true
+        SWIFT_STRICT_CONCURRENCY: complete
+    dependencies:
+      - sdk: TVServices.framework
 
   # Unit tests, hosted by the app so StoreKitTest can drive Dusk.storekit.
   DuskTests:
