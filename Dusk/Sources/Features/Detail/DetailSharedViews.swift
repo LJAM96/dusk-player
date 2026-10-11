@@ -68,7 +68,7 @@ struct OfflineMetadataBanner: View {
         HStack(spacing: 10) {
             Image(systemName: "wifi.slash")
                 .font(DuskFont.glyphSmall(ios: .caption.weight(.semibold)))
-                .foregroundStyle(Color.duskAccent)
+                .foregroundStyle(Color.duskTextSecondary)
 
             Text(message)
                 .font(DuskFont.caption(ios: .caption.weight(.medium)))
@@ -82,7 +82,7 @@ struct OfflineMetadataBanner: View {
         .background(Color.duskSurface, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
         .overlay(
             RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .strokeBorder(Color.duskAccent.opacity(0.22), lineWidth: 1)
+                .strokeBorder(Color.primary.opacity(0.08), lineWidth: 1)
         )
     }
 }
@@ -90,7 +90,7 @@ struct OfflineMetadataBanner: View {
 /// The show-title header shown in the season and episode detail heroes: the
 /// show's clear-logo art (centered) when Plex provides it, falling back to the
 /// show name, and wrapped in a link to the show so it doubles as navigation.
-/// tvOS keeps the plain accent text — the image treatment is iOS-only.
+/// tvOS keeps the plain text — the image treatment is iOS-only.
 struct DetailHeroShowTitleLink: View {
     @Environment(\.horizontalSizeClass) private var sizeClass
     let title: String
@@ -166,7 +166,7 @@ struct DetailHeroShowTitleLink: View {
     private var titleText: some View {
         Text(title)
             .font(DuskFont.metadata(ios: .subheadline.weight(.medium)))
-            .foregroundStyle(Color.duskAccent)
+            .foregroundStyle(Color.primary.opacity(0.78))
     }
 }
 
@@ -596,11 +596,14 @@ struct DetailHeroPrimaryActionButtonLabel: View {
         #if os(tvOS)
         // tvOS is left-aligned, so give the primary a contained width (space to its
         // right) rather than letting it hug the short "Play" / "Resume" label.
+        // No label color: the system glass flips it between light (unfocused) and
+        // dark (focused, on the white platter) by itself.
         .frame(minWidth: detailHeroTVActionLabelMinWidth)
-        #endif
-        // The primary fills with a translucent-`primary` prominent glass on every
-        // platform, so the label uses the inverse color to stay legible on it.
+        #else
+        // The iOS primary fills with a translucent-`primary` prominent glass, so
+        // the label uses the inverse color to stay legible on it.
         .foregroundStyle(Color.duskPrimaryActionLabel)
+        #endif
         .contentShape(Capsule())
     }
 }
@@ -638,14 +641,15 @@ extension View {
     @ViewBuilder
     func detailHeroNativePrimaryButtonStyle() -> some View {
         #if os(tvOS)
-        // A fully custom style so the fill *and* label colors are ours in both the
-        // focused and unfocused states. The system `.glassProminent` focus highlight
-        // forces the fill and label to white when focused — white-on-white in Dark
-        // mode, and a fill that flips to white in Light mode (it should stay dark).
-        // Here the capsule keeps its translucent-`primary` lean (white in Dark, black
-        // in Light) and the label keeps its inverse, focused or not; focus only adds
-        // the app's standard scale + glow.
-        self.buttonStyle(DetailHeroPrimaryTVButtonStyle())
+        // Plain system glass, like the TV app: a dark platter that lifts to white
+        // with a dark label on focus. The tint is cleared because the app-wide
+        // coral `.tint` otherwise fills the focused platter; an explicit colour
+        // (even `.primary`) recolours the label too and goes white-on-white.
+        self
+            .buttonStyle(.glass)
+            .controlSize(.regular)
+            .buttonBorderShape(.capsule)
+            .tint(nil)
         #elseif os(iOS)
         // Prominent glass tinted with a *translucent* `primary`: a contrasting lean
         // (dark in Light mode, light in Dark) that still reads as liquid glass rather
@@ -672,12 +676,13 @@ extension View {
     func detailHeroNativeSecondaryButtonStyle() -> some View {
         #if os(tvOS)
         // tvOS secondaries are icon-only and sit beside the primary, so make them
-        // round — there is no width to match.
+        // round — there is no width to match. Tint cleared for the same reason as
+        // the primary.
         self
             .buttonStyle(.glass)
             .controlSize(.regular)
             .buttonBorderShape(.circle)
-            .tint(Color.primary)
+            .tint(nil)
         #elseif os(iOS)
         if #available(iOS 26.0, *) {
             self
@@ -719,41 +724,6 @@ extension View {
         #endif
     }
 }
-
-#if os(tvOS)
-/// tvOS play button. A custom `ButtonStyle` so the capsule fill and the label
-/// color are ours in both the focused and unfocused states — the system
-/// `.glassProminent` focus highlight otherwise forces both to white, which reads
-/// as white-on-white in Dark mode and turns the Light-mode fill white when it
-/// should stay dark. The capsule keeps the same translucent-`primary` lean (white
-/// in Dark, black in Light) regardless of focus, and the label keeps its inverse
-/// (`duskPrimaryActionLabel`); focus only adds the app's standard scale + glow.
-private struct DetailHeroPrimaryTVButtonStyle: ButtonStyle {
-    func makeBody(configuration: Configuration) -> some View {
-        Content(configuration: configuration)
-    }
-
-    private struct Content: View {
-        let configuration: ButtonStyleConfiguration
-        @Environment(\.isFocused) private var isFocused
-
-        var body: some View {
-            configuration.label
-                .padding(.horizontal, 22)
-                .padding(.vertical, 10)
-                .glassEffect(.regular.tint(Color.duskPrimaryButtonTint), in: Capsule())
-                .scaleEffect(isFocused ? 1.05 : 1.0)
-                .shadow(
-                    color: isFocused ? Color.white.opacity(0.34) : .clear,
-                    radius: isFocused ? 16 : 0,
-                    y: isFocused ? 6 : 0
-                )
-                .opacity(configuration.isPressed ? 0.86 : 1.0)
-                .animation(.easeOut(duration: 0.18), value: isFocused)
-        }
-    }
-}
-#endif
 
 /// Fraction of the hero (screen) width the iPhone primary action button spans.
 let detailHeroCompactActionWidthFraction: CGFloat = 0.6
@@ -969,10 +939,15 @@ struct ExpandableSummaryText: View {
                 Button(isExpanded ? "Show Less" : "Show More") {
                     isExpanded.toggle()
                 }
-                .font(DuskFont.buttonLabel(ios: .subheadline.weight(.medium)))
-                .foregroundStyle(Color.duskAccent)
+                .font(DuskFont.buttonLabel(ios: .subheadline.weight(.semibold)))
+                #if os(tvOS)
+                .buttonStyle(.glass)
+                .buttonBorderShape(.capsule)
+                .tint(nil)
+                #else
+                .foregroundStyle(Color.primary)
                 .buttonStyle(.plain)
-                .duskSuppressTVOSButtonChrome()
+                #endif
             }
         }
     }

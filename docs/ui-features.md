@@ -103,9 +103,13 @@ in Dusk. Read this with `docs/codebase-map.md`, `STYLE.md`, and `docs/data-and-p
 - Poster UI is layered: `PosterArtwork`, `PosterCardText`, `PosterCard`,
   `PosterNavigationCard`, and `PosterActionCard`.
 - Fully watched items (e.g. fully watched seasons) pass `isWatched` to the poster
-  card to show a checkmark next to the title; suppress the progress bar in that
-  case (pass `progress: nil`) so completion reads as the checkmark, not a full bar.
-  Partial progress still renders the bar (`DuskPosterMetrics.posterProgressBarHeight`).
+  card to add a small checkmark to the subtitle line, in the subtitle's own colour
+  (never the accent — a fully watched row must not become a wall of badges);
+  suppress the progress bar in that case (pass `progress: nil`) so completion
+  reads as the checkmark, not a full bar. Partial progress still renders the bar
+  (`DuskPosterMetrics.posterProgressBarHeight`); shelves keep the accent fill,
+  the show/season/episode pages pass `progressStyle: .neutral` (white on a dark
+  track, like the TV app).
 - Use `PlexItemPosterCarouselSection` for horizontal shelves and
   `PlexItemPosterGrid` for grids. They already handle image sizing, context menus,
   progress, and route creation. Both take `imageAspectRatio` (default 2:3); pass
@@ -653,8 +657,12 @@ in Dusk. Read this with `docs/codebase-map.md`, `STYLE.md`, and `docs/data-and-p
   header so the row never jumps. Season pills sit above the horizontal episode row
   (only when there are 2+ seasons); picking one loads that season and swaps it in
   only once loaded (the row dims meanwhile), so the page never blanks. A Seerr-only
-  season pill opens its request page. Each episode card shows the title with a
-  "Season X · Episode N" subtitle and a watched checkmark (`PosterCardText`); the
+  season pill opens its request page. The page carries no coral: hero buttons
+  and season pills are system `.glass` with `.tint(nil)` (the selected season is
+  bold and full-opacity, the rest dimmed, so it never looks focused), and
+  progress bars are neutral. Each episode card shows the title with a
+  "Season X · Episode N" subtitle plus a quiet watched checkmark
+  (`PosterCardText`); the
   hero's clear-logo title, focused-episode name/metadata/summary, backdrop, and the
   "Episode Cast" row follow the focused card inside stable-height regions, with the
   focus commit debounced so rapid remote navigation does not shift the scroll

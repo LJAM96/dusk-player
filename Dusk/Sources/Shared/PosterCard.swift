@@ -1,10 +1,19 @@
 import SwiftUI
 
+/// How a poster's resume-progress bar is drawn. Shelves keep the brand accent;
+/// the show/season/episode pages use the neutral TV-app look (white on a dark
+/// track) so a row of half-watched episodes doesn't turn the page coral.
+enum PosterProgressStyle {
+    case accent
+    case neutral
+}
+
 struct PosterArtwork: View {
     static let cornerRadius: CGFloat = 16
 
     let imageURL: URL?
     var progress: Double?
+    var progressStyle: PosterProgressStyle = .accent
     var width: CGFloat = 130
     var imageAspectRatio: CGFloat = 2.0 / 3.0
     var cornerRadius: CGFloat = Self.cornerRadius
@@ -127,16 +136,30 @@ struct PosterArtwork: View {
 
         return ZStack(alignment: .leading) {
             Capsule()
-                .fill(.white.opacity(0.35))
+                .fill(progressTrackColor)
                 .frame(height: height)
             GeometryReader { geo in
                 Capsule()
-                    .fill(Color.duskAccent)
+                    .fill(progressFillColor)
                     .frame(width: geo.size.width * clampedProgress, height: height, alignment: .leading)
             }
         }
         .frame(height: height)
         .shadow(color: .black.opacity(0.28), radius: 2, y: 1)
+    }
+
+    private var progressFillColor: Color {
+        switch progressStyle {
+        case .accent: Color.duskAccent
+        case .neutral: Color.white.opacity(0.92)
+        }
+    }
+
+    private var progressTrackColor: Color {
+        switch progressStyle {
+        case .accent: Color.white.opacity(0.35)
+        case .neutral: Color.black.opacity(0.42)
+        }
     }
 }
 
@@ -144,7 +167,9 @@ struct PosterCardText: View {
     let title: String
     var subtitle: String?
     var width: CGFloat = 130
-    /// Shows a "watched" checkmark next to the title (e.g. a fully watched season).
+    /// Adds a small checkmark to the subtitle line (a watched episode, a fully
+    /// watched season). Deliberately quiet: same colour and size as the
+    /// subtitle, so a fully watched row doesn't turn into a wall of badges.
     var isWatched: Bool = false
 
     var body: some View {
@@ -157,29 +182,33 @@ struct PosterCardText: View {
 
     @ViewBuilder
     private var titleRow: some View {
-        HStack(alignment: .firstTextBaseline, spacing: 4) {
-            Text(title)
-                .font(DuskPosterMetrics.titleFont)
-                .foregroundStyle(Color.primary)
-                .lineLimit(2)
-
-            if isWatched {
-                Image(systemName: "checkmark.circle.fill")
-                    .font(DuskPosterMetrics.subtitleFont)
-                    .foregroundStyle(Color.duskAccent)
-            }
-        }
-        .frame(width: width, alignment: .leading)
+        Text(title)
+            .font(DuskPosterMetrics.titleFont)
+            .foregroundStyle(Color.primary)
+            .lineLimit(2)
+            .frame(width: width, alignment: .leading)
     }
 
     @ViewBuilder
     private var subtitleRow: some View {
-        if let subtitle, !subtitle.isEmpty {
-            Text(subtitle)
-                .font(DuskPosterMetrics.subtitleFont)
-                .foregroundStyle(Color.primary.opacity(0.68))
-                .lineLimit(1)
-                .frame(width: width, alignment: .leading)
+        let subtitle = subtitle?.nilIfEmpty
+        if subtitle != nil || isWatched {
+            HStack(alignment: .firstTextBaseline, spacing: 8) {
+                if let subtitle {
+                    Text(subtitle)
+                        .lineLimit(1)
+                }
+
+                if isWatched {
+                    Image(systemName: "checkmark")
+                        .imageScale(.small)
+                        .fontWeight(.semibold)
+                        .accessibilityLabel("Watched")
+                }
+            }
+            .font(DuskPosterMetrics.subtitleFont)
+            .foregroundStyle(Color.primary.opacity(0.68))
+            .frame(width: width, alignment: .leading)
         } else {
             Text(" ")
                 .font(DuskPosterMetrics.subtitleFont)

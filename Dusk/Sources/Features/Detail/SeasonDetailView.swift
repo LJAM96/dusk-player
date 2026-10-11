@@ -455,6 +455,7 @@ private struct SeasonEpisodePosterArtwork: View {
         PosterArtwork(
             imageURL: imageURL,
             progress: progress,
+            progressStyle: .neutral,
             width: artworkWidth,
             imageAspectRatio: 16.0 / 9.0,
             showsPlayOverlay: showsPlayOverlay
@@ -485,9 +486,10 @@ private struct SeasonEpisodeTextContent: View {
                 }
 
                 if isWatched {
-                    Image(systemName: "checkmark.circle.fill")
-                        .font(DuskFont.glyphSmall(ios: .caption))
-                        .foregroundStyle(Color.duskAccent)
+                    Image(systemName: "checkmark")
+                        .font(DuskFont.glyphSmall(ios: .caption2.weight(.semibold)))
+                        .foregroundStyle(Color.primary.opacity(0.6))
+                        .accessibilityLabel("Watched")
                 }
 
                 downloadStatusBadge
@@ -519,7 +521,7 @@ private struct SeasonEpisodeTextContent: View {
             Label("Downloaded", systemImage: "arrow.down.circle.fill")
                 .labelStyle(.iconOnly)
                 .font(DuskFont.glyphSmall(ios: .caption))
-                .foregroundStyle(Color.duskAccent)
+                .foregroundStyle(Color.primary.opacity(0.6))
         } else if showsOfflineAvailability {
             Text(isUsingCachedData ? "Unavailable Offline" : "Not Downloaded")
                 .font(DuskFont.badge(ios: .caption2.weight(.semibold)))

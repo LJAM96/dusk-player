@@ -618,7 +618,7 @@ private struct SeriesSeasonPills<SeasonMenu: View>: View {
                     isWatched: season.isFullyWatched
                 )
             }
-            .buttonStyle(SeriesSeasonPillButtonStyle(isSelected: isSelected))
+            .seriesSeasonPillButtonStyle()
             .contextMenu {
                 seasonMenu(season)
             }
@@ -631,71 +631,56 @@ private struct SeriesSeasonPills<SeasonMenu: View>: View {
                     isWatched: false
                 )
             }
-            .buttonStyle(SeriesSeasonPillButtonStyle(isSelected: false))
+            .seriesSeasonPillButtonStyle()
         }
     }
 }
 
+/// The selected season reads brighter and bolder than the rest; a filled pill
+/// would look exactly like the focused one. Label colours come from the system
+/// glass (light unfocused, dark on the focused white platter), so emphasis is
+/// carried by opacity and weight only, and focus always gets full contrast.
 private struct SeriesSeasonPillLabel: View {
     let title: String
     let badge: String?
     let isSelected: Bool
     let isWatched: Bool
+    @Environment(\.isFocused) private var isFocused
 
     var body: some View {
-        HStack(spacing: 10) {
+        HStack(alignment: .firstTextBaseline, spacing: 10) {
             Text(title)
                 .font(DuskFont.TV.cardTitle)
+                .fontWeight(isSelected ? .bold : .medium)
                 .lineLimit(1)
 
             if isWatched {
-                Image(systemName: "checkmark.circle.fill")
+                Image(systemName: "checkmark")
                     .font(DuskFont.TV.glyphSmall)
-                    .foregroundStyle(isSelected ? Color.duskPrimaryActionLabel : Color.duskAccent)
+                    .imageScale(.small)
+                    .fontWeight(.semibold)
+                    .opacity(0.7)
+                    .accessibilityLabel("Watched")
             }
 
             if let badge {
                 Text(badge)
                     .font(DuskFont.TV.badge)
-                    .foregroundStyle(Color.duskTextSecondary)
+                    .opacity(0.7)
                     .lineLimit(1)
             }
         }
-        .foregroundStyle(isSelected ? Color.duskPrimaryActionLabel : Color.primary)
+        .opacity(isSelected || isFocused ? 1 : 0.6)
     }
 }
 
-/// The selected pill borrows the detail primary's contrasting glass; the rest
-/// are neutral glass. Focus adds the app's standard scale + glow either way.
-private struct SeriesSeasonPillButtonStyle: ButtonStyle {
-    let isSelected: Bool
-
-    func makeBody(configuration: Configuration) -> some View {
-        Content(configuration: configuration, isSelected: isSelected)
-    }
-
-    private struct Content: View {
-        let configuration: ButtonStyleConfiguration
-        let isSelected: Bool
-        @Environment(\.isFocused) private var isFocused
-
-        var body: some View {
-            configuration.label
-                .padding(.horizontal, 26)
-                .padding(.vertical, 12)
-                .glassEffect(
-                    isSelected ? Glass.regular.tint(Color.duskPrimaryButtonTint) : Glass.regular,
-                    in: Capsule()
-                )
-                .scaleEffect(isFocused ? 1.05 : 1.0)
-                .shadow(
-                    color: isFocused ? Color.white.opacity(0.34) : .clear,
-                    radius: isFocused ? 16 : 0,
-                    y: isFocused ? 6 : 0
-                )
-                .opacity(configuration.isPressed ? 0.86 : 1.0)
-                .animation(.easeOut(duration: 0.18), value: isFocused)
-        }
+private extension View {
+    func seriesSeasonPillButtonStyle() -> some View {
+        self
+            .buttonStyle(.glass)
+            .buttonBorderShape(.capsule)
+            // The app-wide coral tint would otherwise fill the focused pill.
+            .tint(nil)
     }
 }
 
@@ -731,6 +716,7 @@ private struct SeriesEpisodeCard: View {
                 PosterArtwork(
                     imageURL: imageURL,
                     progress: progress,
+                    progressStyle: .neutral,
                     width: artworkWidth,
                     imageAspectRatio: 16.0 / 9.0,
                     showsPlayOverlay: false

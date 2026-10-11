@@ -70,7 +70,7 @@ rendering is unchanged.
 | `cardTitle` | 25 | Semibold | Poster / episode / video card titles |
 | `metadata` | 25 | Medium | `2024 · PG-13 · 2h 10m`, genres, credits, ratings, time readouts |
 | `groupHeader` | 25 | Semibold | Settings section headers (secondary colour) |
-| `cardSubtitle` | 23 | Regular | Card subtitles, cast names, watched checkmark |
+| `cardSubtitle` | 23 | Regular | Card subtitles (incl. their watched checkmark), cast names |
 | `caption` | 23 | Regular | Footers, hints, menu subtitles |
 | `glyphSmall` | 23 | Regular | Inline icons beside text |
 | `badge` | 21 | Bold | Pills over artwork, player tooltips |
@@ -122,9 +122,13 @@ ratings, active states, and inline links.
 
 **Primary action (Play / Resume).**
 
-* **Style:** prominent Liquid Glass — `.buttonStyle(.glassProminent)` (fallback
-  `.borderedProminent` below iOS 26), on **all** platforms (tvOS included).
-* **Color:** `.tint(Color.duskPrimaryButtonTint)` — a *translucent* `primary` so the
+* **Style:** prominent Liquid Glass on iOS — `.buttonStyle(.glassProminent)`
+  (fallback `.borderedProminent` below iOS 26). **tvOS** uses the plain system
+  `.glass` with `.tint(nil)`, like the TV app: a dark platter that lifts to white
+  with a dark label on focus. Never give a tvOS system button an explicit tint —
+  the root coral fills the focused platter, and any colour (even `.primary`)
+  recolours the label so the focused state goes white-on-white.
+* **Color (iOS):** `.tint(Color.duskPrimaryButtonTint)` — a *translucent* `primary` so the
   button keeps a **dark** (Light mode) / **light** (Dark mode) lean for contrast
   while still reading as liquid glass, not a solid black/white fill. Label/icon use
   `Color.duskPrimaryActionLabel` (the inverse of `primary`). Tune the tint's opacity
@@ -142,11 +146,17 @@ ratings, active states, and inline links.
 * **Icon-only everywhere** — use `DetailHeroSecondaryIconLabel` (SF Symbol only)
   plus an `.accessibilityLabel`; no text crowds the row.
 * **Style:** neutral Liquid Glass — `.buttonStyle(.glass)` (fallback `.bordered`),
-  `.tint(Color.primary)`, `.controlSize(.regular)`. **Shape:** `.capsule` pills on
+  `.tint(Color.primary)` on iOS / `.tint(nil)` on tvOS, `.controlSize(.regular)`. **Shape:** `.capsule` pills on
   iOS, **`.circle`** on tvOS (there is no shared width to match there).
 * **Placement:** a compact row **below** the primary on iOS (centered on iPhone,
   leading on iPad); **to the right** of the primary on tvOS. Movie, Show, Season,
   and Episode all expose a watched toggle; Show/Season mark the whole show/season.
+
+**Show / season / episode pages carry no coral.** Watched state is quiet: a small
+checkmark in the card's subtitle colour (no filled badge), a neutral white
+progress bar (`PosterArtwork(progressStyle: .neutral)`) for partially watched
+episodes, nothing for unwatched. "Show More" is a `.glass` button on tvOS and
+plain `primary` text on iOS.
 
 **Home cinematic hero button.**
 
