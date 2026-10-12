@@ -99,23 +99,90 @@ struct TVSettingsMenuRow<Option: Hashable>: View {
         self.optionTitle = optionTitle
     }
 
+    /// Pushes its own option list instead of using `Picker` with
+    /// `.pickerStyle(.navigationLink)`: on tvOS 27 that style pushes an empty
+    /// list with nothing focusable, so focus falls to the tab bar and Back
+    /// leaves the app with the blank screen still on top of Settings.
     var body: some View {
-        Picker(selection: $selection) {
-            ForEach(options, id: \.self) { option in
-                Text(optionTitle(option)).tag(option)
-            }
+        NavigationLink {
+            TVSettingsOptionList(
+                title: title,
+                options: options,
+                selection: $selection,
+                optionTitle: optionTitle
+            )
         } label: {
-            Text(title)
-                .font(DuskFont.rowTitle(ios: .headline))
-                .foregroundStyle(Color.duskTextPrimary)
-                .lineLimit(1)
+            HStack(spacing: 20) {
+                Text(title)
+                    .font(DuskFont.rowTitle(ios: .headline))
+                    .foregroundStyle(Color.duskTextPrimary)
+                    .lineLimit(1)
+
+                Spacer(minLength: 24)
+
+                Text(selectedTitle)
+                    .duskFont(tvOnly: DuskFont.TV.rowValue)
+                    .foregroundStyle(Color.duskTextSecondary)
+                    .lineLimit(1)
+            }
+            .frame(minHeight: TVSettingsMetrics.rowMinHeight)
+            .contentShape(Rectangle())
         }
-        .pickerStyle(.navigationLink)
+        .duskSuppressTVOSButtonChrome()
         .focused($isFocused)
         .accessibilityLabel(title)
         .accessibilityValue(selectedTitle)
         .frame(maxWidth: .infinity, minHeight: TVSettingsMetrics.rowMinHeight, alignment: .leading)
         .tvSettingsRowFocusHighlight(isFocused)
+    }
+}
+
+/// Selection screen pushed by `TVSettingsMenuRow`; picking an option pops back.
+private struct TVSettingsOptionList<Option: Hashable>: View {
+    let title: String
+    let options: [Option]
+    @Binding var selection: Option
+    let optionTitle: (Option) -> String
+    @Environment(\.dismiss) private var dismiss
+    @FocusState private var focusedOption: Option?
+
+    var body: some View {
+        ScrollView {
+            TVSettingsSection(title: title) {
+                ForEach(options, id: \.self) { option in
+                    Button {
+                        selection = option
+                        dismiss()
+                    } label: {
+                        HStack(spacing: 20) {
+                            Text(optionTitle(option))
+                                .font(DuskFont.rowTitle(ios: .headline))
+                                .foregroundStyle(Color.duskTextPrimary)
+
+                            Spacer()
+
+                            if option == selection {
+                                Image(systemName: "checkmark")
+                                    .font(DuskFont.glyphSmall(ios: .headline))
+                                    .foregroundStyle(Color.duskTextPrimary)
+                            }
+                        }
+                        .frame(minHeight: TVSettingsMetrics.rowMinHeight)
+                        .contentShape(Rectangle())
+                    }
+                    .duskSuppressTVOSButtonChrome()
+                    .focused($focusedOption, equals: option)
+                    .tvSettingsRowFocusHighlight(focusedOption == option)
+                }
+            }
+            .frame(maxWidth: 980, alignment: .leading)
+            .padding(.horizontal, 60)
+            .padding(.top, 48)
+            .padding(.bottom, 88)
+        }
+        .defaultFocus($focusedOption, selection)
+        .background(Color.duskBackground.ignoresSafeArea())
+        .duskNavigationTitle(title)
     }
 }
 
