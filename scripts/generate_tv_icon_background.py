@@ -4,7 +4,7 @@ icon's dark fill. The Front layer (the Dusk mark) is untouched.
 
 Usage (needs Pillow + NumPy):
     python3 scripts/generate_tv_icon_background.py apply [variant]
-        Writes the Back layer PNGs for both image stacks (default: charcoal).
+        Writes the Back layer PNGs for both image stacks (default: dark-charcoal).
     python3 scripts/generate_tv_icon_background.py preview <out-dir>
         Renders every variant as a flattened icon (Back + Front) for review.
 
@@ -17,10 +17,11 @@ from PIL import Image, ImageDraw
 VARIANTS = {
     "original": ("#090A0F", "#090A0F"),  # the near-black it shipped with
     "flat": ("#1C1C1E", "#1C1C1E"),
-    "charcoal": ("#26262A", "#1A1A1D"),  # recommended
+    "dark-charcoal": ("#18181C", "#121216"),  # current: halfway between original and charcoal
+    "charcoal": ("#26262A", "#1A1A1D"),  # read a bit too grey on the TV
     "graphite": ("#2C2C30", "#1E1E21"),
 }
-DEFAULT = "charcoal"
+DEFAULT = "dark-charcoal"
 
 STACKS = "Dusk/Resources/Assets.xcassets/AppIconTV.brandassets"
 BACKS = {
