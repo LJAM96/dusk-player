@@ -1,3 +1,4 @@
+import AppIntents
 import AVFoundation
 import SwiftUI
 import UIKit
@@ -106,12 +107,16 @@ struct DuskApp: App {
         _offlinePlaybackSyncManager = State(initialValue: playbackSync)
         _analytics = State(initialValue: analyticsClient)
         _supporterStore = State(initialValue: SupporterStore(analytics: analyticsClient))
-        _playbackCoordinator = State(initialValue: PlaybackCoordinator(
+        let coordinator = PlaybackCoordinator(
             plexService: service,
             preferences: prefs,
             downloadManager: downloads,
             offlinePlaybackSyncManager: playbackSync
-        ))
+        )
+        _playbackCoordinator = State(initialValue: coordinator)
+        // Siri's intents run in this process and reach the app through it.
+        let siri = SiriPlaybackService(plexService: service, playback: coordinator)
+        AppDependencyManager.shared.add(dependency: siri)
         _userPreferences = State(initialValue: prefs)
         Self.configurePlaybackAudioSession()
         #if os(iOS)

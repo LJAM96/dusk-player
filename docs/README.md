@@ -46,6 +46,8 @@ that owns the behavior you are changing.
 - `analytics.md`: the self-hosted anonymous event reporting — the hard rules
   that keep the privacy policy accurate, the event list, and how to add one.
   MANDATORY reading before adding or changing any reported event.
+- `siri.md`: "Play <title> in Dusk" — App Intents routes, title resolution,
+  the Siri title catalog, and what only a device can verify.
 - `downloads-and-offline.md`: download queue, local file storage, metadata cache,
   offline playback, and delayed watch-state sync.
 - `development-workflow.md`: setup, project generation, verification, git, and doc

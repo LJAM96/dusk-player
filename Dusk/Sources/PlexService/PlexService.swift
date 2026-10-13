@@ -287,6 +287,8 @@ final class PlexService {
             ServerPool.forget(serverID: serverID)
         }
         pool.clear()
+        // Siri's titles belong to this identity's libraries too.
+        SiriTitleCatalog.shared.clear()
         #if os(tvOS)
         // The Top Shelf mirrors this identity's Continue Watching.
         TopShelfPublisher.shared.clear()

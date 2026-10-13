@@ -107,6 +107,11 @@ extension PlexService {
         try await fetchMetadata(path: "/library/metadata/\(seasonKey)/children", serverID: serverID)
     }
 
+    /// Every episode of a show, across all its seasons, in one request.
+    func getAllEpisodes(showKey: String, serverID: String? = nil) async throws -> [PlexEpisode] {
+        try await fetchMetadata(path: "/library/metadata/\(showKey)/allLeaves", serverID: serverID)
+    }
+
     /// Walks forward from an episode to the next one. Everything it reads comes
     /// from the same server the episode came from — an episode's siblings and
     /// its show's later seasons only exist there.

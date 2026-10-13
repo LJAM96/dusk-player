@@ -29,6 +29,7 @@ Dusk/Sources
     Search/            Search view and view model
     Settings/          Preferences, server priority, and account settings
     Supporter/         Supporter tier: StoreKit store, sheet, prompt, app icons
+  Siri/                App Intents: "Play <title> in Dusk", title matching, Siri title catalog
   TopShelf/            tvOS Top Shelf: App Group snapshot, publisher, deep-link router
                        (the extension itself lives in DuskTopShelf/)
 ```
@@ -225,6 +226,13 @@ Search and Seerr:
 - `Features/Seerr` contains request-only details and must never expose playback.
 - `ShowDetailViewModel` enriches missing seasons only through exact Plex TMDB
   GUIDs. Details and traps: `docs/seerr-integration.md`.
+
+Siri:
+
+- `DuskIntents.swift` declares the intents, `PlexTitleEntity` and the App
+  Shortcut phrases; `SiriPlaybackService` waits for servers, resolves and
+  starts playback; `SiriTitleMatching.swift` is the pure, tested matcher and
+  next-episode rule; `SiriTitleCatalog` is what Siri learns. See `docs/siri.md`.
 
 Supporter:
 

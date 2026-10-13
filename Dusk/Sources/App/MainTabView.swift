@@ -6,6 +6,7 @@ struct MainTabView: View {
     @Environment(PlaybackCoordinator.self) private var playback
     @Environment(DownloadManager.self) private var downloadManager
     @Environment(UserPreferences.self) private var preferences
+    @Environment(\.scenePhase) private var scenePhase
     @State private var selectedTab: MainTabItem = .home
     @State private var homePath = NavigationPath()
     @State private var moviesPath = NavigationPath()
@@ -40,6 +41,18 @@ struct MainTabView: View {
                 }
                 await librariesViewModel?.loadLibraries()
                 await liveTVViewModel?.discover()
+            }
+            // Teaches Siri the recently watched and added titles, again on
+            // each return to the foreground (at most every 30 minutes). Waits
+            // a moment so it never competes with Home's first paint.
+            .task(id: SiriCatalogRefreshTrigger(
+                revision: plexService.serverContentRevision,
+                isActive: scenePhase == .active
+            )) {
+                guard scenePhase == .active else { return }
+                try? await Task.sleep(for: .seconds(5))
+                guard !Task.isCancelled else { return }
+                await SiriTitleCatalog.shared.refreshIfNeeded(plexService: plexService)
             }
             .onChange(of: availableTabs) { _, newTabs in
                 guard !newTabs.contains(selectedTab) else { return }
@@ -389,3 +402,8 @@ private struct TopShelfLinkAttempt: Equatable {
     let revision: ServerContentRevision
 }
 #endif
+
+private struct SiriCatalogRefreshTrigger: Equatable {
+    let revision: ServerContentRevision
+    let isActive: Bool
+}
