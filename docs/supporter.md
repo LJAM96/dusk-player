@@ -94,12 +94,20 @@ credentials — only call it from an explicit user action.
   Under a "Recurring" heading the subscription is one card (iOS
   `SupporterSubscriptionCard`, modelled on MealMate's): "Dusk Supporter", its
   perks (all nine icons, the three subscriber exclusives shown as thumbnails),
-  then two price buttons ("$2.99 / month", "$24.99 / year") and "Yearly saves
-  N%". While subscribed the card shows an Active badge, the plan status
+  then two price buttons ("$2.99 / month", "$24.99 / year", the StoreKit
+  price, never hardcoded) with "Billed monthly" / "Saves N%" under each.
+  While subscribed the card shows an Active badge, the plan status
   (Monthly/Yearly · renews / ends / switches on <date>) and Manage
   Subscription instead of the buttons. tvOS shows a "Recurring" settings
-  section with the two plans as rows (current plan marked and disabled).
-  The header shows the same status line. Manage Subscription is iOS only (via
+  section with the two plans as rows (current plan marked and disabled);
+  plan and tip rows carry a subtitle (`TVSettingsActionRow.subtitle`) with the
+  perk, the yearly savings or the tip's description. The header shows the
+  same status line.
+- iOS layout: one spacing scale in `SupporterLayout` (32pt between sections,
+  10pt label-to-card, 16pt text inset inside every card that section labels,
+  footnotes and the icon strip share). The close button is a toolbar button
+  in the sheet's own `NavigationStack`, so scrolled content passes under the
+  bar. Manage Subscription is iOS only (via
   `manageSubscriptionsSheet`; tvOS footer points to the system Settings path).
 - App Review 3.1.2 requirements, keep them when restyling: every purchase
   button/row shows price and period (and the card names the subscription); right under the

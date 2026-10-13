@@ -84,11 +84,9 @@ struct SupporterView: View {
 
     #if !os(tvOS)
     private var iosBody: some View {
-        ZStack(alignment: .topTrailing) {
-            Color.duskBackground.ignoresSafeArea()
-
+        NavigationStack {
             ScrollView {
-                VStack(spacing: 30) {
+                VStack(spacing: SupporterLayout.sectionSpacing) {
                     header
 
                     SupporterIconShowcase()
@@ -108,26 +106,19 @@ struct SupporterView: View {
 
                     footer
                 }
-                .padding(.horizontal, 20)
-                .padding(.top, 48)
-                .padding(.bottom, 32)
+                .padding(.horizontal, SupporterLayout.pageInset)
+                .padding(.top, 4)
+                .padding(.bottom, 36)
                 .frame(maxWidth: 560)
                 .frame(maxWidth: .infinity)
             }
-
-            Button {
-                report(.supporterDismissed, ["control": .string("close")])
-                dismiss()
-            } label: {
-                Image(systemName: "xmark")
-                    .font(.footnote.weight(.bold))
-                    .foregroundStyle(Color.duskTextSecondary)
-                    .padding(10)
-                    .background(Color.duskSurface, in: Circle())
+            .background(Color.duskBackground.ignoresSafeArea())
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailing) {
+                    closeButton
+                }
             }
-            .buttonStyle(.plain)
-            .padding(.top, 14)
-            .padding(.trailing, 16)
         }
         .presentationDragIndicator(.visible)
         #if os(iOS)
@@ -135,8 +126,33 @@ struct SupporterView: View {
         #endif
     }
 
+    /// The system close button, so scrolled content passes under the bar
+    /// instead of under a floating circle.
+    @ViewBuilder
+    private var closeButton: some View {
+        if #available(iOS 26.0, *) {
+            Button(role: .close) {
+                report(.supporterDismissed, ["control": .string("close")])
+                dismiss()
+            }
+        } else {
+            Button {
+                report(.supporterDismissed, ["control": .string("close")])
+                dismiss()
+            } label: {
+                Image(systemName: "xmark")
+                    .font(.footnote.weight(.bold))
+                    .foregroundStyle(Color.duskTextSecondary)
+                    .padding(8)
+                    .background(Color.duskSurface, in: Circle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Close")
+        }
+    }
+
     private var header: some View {
-        VStack(spacing: 12) {
+        VStack(spacing: 0) {
             ZStack {
                 Circle()
                     .fill(Color.duskAccent.opacity(0.14))
@@ -146,20 +162,26 @@ struct SupporterView: View {
                     .font(.title2.weight(.semibold))
                     .foregroundStyle(Color.duskAccent)
             }
+            .padding(.bottom, 16)
 
             Text(headlineText)
                 .font(.title2.weight(.bold))
                 .foregroundStyle(Color.duskTextPrimary)
+                .multilineTextAlignment(.center)
+                .padding(.bottom, 8)
 
             Text(bodyText)
                 .font(.subheadline)
                 .foregroundStyle(Color.duskTextSecondary)
                 .multilineTextAlignment(.center)
+                .lineSpacing(2)
+                .fixedSize(horizontal: false, vertical: true)
 
             if let supporterSinceText {
                 Text(supporterSinceText)
                     .font(.caption)
                     .foregroundStyle(Color.duskTextSecondary)
+                    .padding(.top, 10)
             }
             // The plan status lives on the subscription card.
         }
@@ -189,9 +211,9 @@ struct SupporterView: View {
                     .padding(.vertical, 24)
             }
         } else {
-            VStack(alignment: .leading, spacing: 24) {
+            VStack(alignment: .leading, spacing: SupporterLayout.sectionSpacing) {
                 if !store.subscriptionProducts.isEmpty || store.hasActiveSubscription {
-                    VStack(alignment: .leading, spacing: 10) {
+                    VStack(alignment: .leading, spacing: SupporterLayout.labelSpacing) {
                         sectionLabel("Recurring")
 
                         SupporterSubscriptionCard(
@@ -206,13 +228,14 @@ struct SupporterView: View {
                             }
                         )
 
-                        Text(subscriptionFootnote)
-                            .font(.caption)
-                            .foregroundStyle(Color.duskTextSecondary)
+                        VStack(alignment: .leading, spacing: 8) {
+                            sectionFootnote(subscriptionFootnote)
 
-                        // App Review (3.1.2): privacy policy + EULA links next
-                        // to the subscription offer itself.
-                        legalLinks
+                            // App Review (3.1.2): privacy policy + EULA links
+                            // next to the subscription offer itself.
+                            legalLinks
+                        }
+                        .padding(.top, 2)
                     }
                 }
 
@@ -233,19 +256,31 @@ struct SupporterView: View {
         }
     }
 
+    /// Section headers and footnotes sit on the same text column as the
+    /// content inside the cards below them, like an inset grouped list.
     private func sectionLabel(_ title: String) -> some View {
         Text(title)
             .font(.footnote.weight(.semibold))
             .textCase(.uppercase)
             .tracking(0.6)
             .foregroundStyle(Color.duskTextSecondary)
+            .padding(.horizontal, SupporterLayout.cardInset)
+    }
+
+    private func sectionFootnote(_ text: String) -> some View {
+        Text(text)
+            .font(.caption)
+            .foregroundStyle(Color.duskTextSecondary)
+            .lineSpacing(1)
+            .fixedSize(horizontal: false, vertical: true)
+            .padding(.horizontal, SupporterLayout.cardInset)
     }
 
     private func productSection(title: String, footnote: String, products: [Product]) -> some View {
-        VStack(alignment: .leading, spacing: 10) {
+        VStack(alignment: .leading, spacing: SupporterLayout.labelSpacing) {
             sectionLabel(title)
 
-            VStack(spacing: 10) {
+            VStack(spacing: SupporterLayout.rowSpacing) {
                 ForEach(products, id: \.id) { product in
                     SupporterProductRow(
                         product: product,
@@ -261,14 +296,13 @@ struct SupporterView: View {
                 }
             }
 
-            Text(footnote)
-                .font(.caption)
-                .foregroundStyle(Color.duskTextSecondary)
+            sectionFootnote(footnote)
+                .padding(.top, 2)
         }
     }
 
     private var footer: some View {
-        VStack(spacing: 14) {
+        VStack(spacing: 16) {
             Text("Everything in Dusk stays free either way — supporting just unlocks app icons, and keeps development going.")
                 .font(.caption)
                 .foregroundStyle(Color.duskTextSecondary)
@@ -308,7 +342,7 @@ struct SupporterView: View {
                 legalLinks
             }
         }
-        .padding(.top, 4)
+        .padding(.horizontal, SupporterLayout.cardInset)
     }
 
     private var legalLinks: some View {
@@ -326,17 +360,14 @@ struct SupporterView: View {
         .font(.caption.weight(.medium))
         .foregroundStyle(Color.duskAccent)
         .buttonStyle(.plain)
+        .padding(.horizontal, SupporterLayout.cardInset)
     }
 
     private var aboutMe: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Text("About")
-                .font(.footnote.weight(.semibold))
-                .textCase(.uppercase)
-                .tracking(0.6)
-                .foregroundStyle(Color.duskTextSecondary)
+        VStack(alignment: .leading, spacing: SupporterLayout.labelSpacing) {
+            sectionLabel("About")
 
-            VStack(spacing: 10) {
+            VStack(spacing: SupporterLayout.rowSpacing) {
                 aboutLinkRow(
                     title: "About Me",
                     subtitle: "marvinvr.ch",
@@ -394,13 +425,9 @@ struct SupporterView: View {
                     .font(.caption.weight(.semibold))
                     .foregroundStyle(Color.duskTextSecondary)
             }
-            .padding(16)
-            .background(Color.duskSurface, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
-            .overlay {
-                RoundedRectangle(cornerRadius: 16, style: .continuous)
-                    .strokeBorder(Color.primary.opacity(0.05), lineWidth: 1)
-            }
-            .contentShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+            .padding(.horizontal, SupporterLayout.cardInset)
+            .padding(.vertical, 14)
+            .supporterCardBackground()
         }
         .buttonStyle(.plain)
     }
@@ -414,27 +441,35 @@ struct SupporterView: View {
             Color.duskBackground.ignoresSafeArea()
 
             ScrollView {
-                VStack(alignment: .leading, spacing: TVSettingsMetrics.sectionSpacing) {
-                    VStack(alignment: .leading, spacing: 12) {
+                VStack(alignment: .leading, spacing: TVSettingsMetrics.sectionSpacing + 8) {
+                    VStack(alignment: .leading, spacing: 0) {
                         Text(headlineText)
                             .font(DuskFont.TV.pageTitle)
                             .foregroundStyle(Color.duskTextPrimary)
+                            .padding(.bottom, 14)
 
                         Text(bodyText)
                             .font(DuskFont.TV.body)
                             .foregroundStyle(Color.duskTextSecondary)
-                            .frame(maxWidth: 780, alignment: .leading)
+                            .lineSpacing(4)
+                            .fixedSize(horizontal: false, vertical: true)
+                            .frame(maxWidth: 820, alignment: .leading)
 
-                        if let supporterSinceText {
-                            Text(supporterSinceText)
-                                .font(DuskFont.TV.caption)
-                                .foregroundStyle(Color.duskTextSecondary)
-                        }
+                        if supporterSinceText != nil || subscriptionStatusText != nil {
+                            VStack(alignment: .leading, spacing: 6) {
+                                if let subscriptionStatusText {
+                                    Text("Dusk Supporter · \(subscriptionStatusText)")
+                                        .font(DuskFont.TV.caption.weight(.semibold))
+                                        .foregroundStyle(Color.duskTextPrimary)
+                                }
 
-                        if let subscriptionStatusText {
-                            Text(subscriptionStatusText)
-                                .font(DuskFont.TV.caption.weight(.semibold))
-                                .foregroundStyle(Color.duskTextPrimary)
+                                if let supporterSinceText {
+                                    Text(supporterSinceText)
+                                        .font(DuskFont.TV.caption)
+                                        .foregroundStyle(Color.duskTextSecondary)
+                                }
+                            }
+                            .padding(.top, 18)
                         }
                     }
                     .padding(.leading, TVSettingsMetrics.contentInset)
@@ -473,8 +508,8 @@ struct SupporterView: View {
                 }
                 .frame(maxWidth: 980, alignment: .leading)
                 .padding(.horizontal, 60)
-                .padding(.top, 48)
-                .padding(.bottom, 88)
+                .padding(.top, 64)
+                .padding(.bottom, 96)
             }
         }
     }
@@ -504,7 +539,7 @@ struct SupporterView: View {
             if !store.tipProducts.isEmpty {
                 TVSettingsSection(
                     title: store.isSupporter ? "Support Again" : "One-Time",
-                    footer: store.lastErrorMessage ?? "Tips can be given again anytime. Generous and up include the six alternate app icons on iPhone and iPad, yours to keep.",
+                    footer: store.lastErrorMessage ?? "Tips can be given again anytime.",
                     footerColor: store.lastErrorMessage == nil ? Color.duskTextSecondary : .red
                 ) {
                     tvProductRows(store.tipProducts)
@@ -522,6 +557,7 @@ struct SupporterView: View {
 
             TVSettingsActionRow(
                 title: rowTitle(for: product),
+                subtitle: tvSubtitle(for: product),
                 tint: store.activeProductID == product.id ? Color.duskTextSecondary : Color.duskTextPrimary,
                 isLoading: store.purchasingProductID == product.id,
                 detail: tvDetail(for: product)
@@ -540,14 +576,30 @@ struct SupporterView: View {
         }
     }
 
-    private var tvSubscriptionFooter: String {
-        var text = store.hasActiveSubscription
-            ? "Thank you for subscribing. Your subscription includes all nine alternate app icons on iPhone and iPad, Velvet, Emerald and Gilded too."
-            : "Dusk Supporter, monthly or yearly: all nine alternate app icons on iPhone and iPad while your subscription is active, including the subscriber-exclusive Velvet, Emerald and Gilded. Cancel anytime."
-        if store.hasActiveSubscription {
-            text += " Switching between monthly and yearly takes effect at your next renewal."
+    /// What a row adds under its name: the yearly savings for the plans,
+    /// the StoreKit description (plus the icon perk) for tips.
+    private func tvSubtitle(for product: Product) -> String? {
+        guard let supporterProduct = SupporterProduct(rawValue: product.id) else {
+            return product.description.isEmpty ? nil : product.description
         }
-        return text
+        if supporterProduct.isSubscription {
+            let perks = "All nine alternate app icons"
+            guard supporterProduct.isYearly, let percent = store.yearlySavingsPercent else { return perks }
+            return "\(perks) · saves \(percent)%"
+        }
+        var parts: [String] = []
+        if !product.description.isEmpty { parts.append(product.description) }
+        if supporterProduct.isIconTip { parts.append("Includes the six alternate icons, yours to keep.") }
+        return parts.isEmpty ? nil : parts.joined(separator: " ")
+    }
+
+    /// Sits right under the plans so the renewal terms are next to the offer
+    /// (App Review 3.1.2).
+    private var tvSubscriptionFooter: String {
+        let lead = store.hasActiveSubscription
+            ? "Thank you for subscribing. Switching between monthly and yearly takes effect at your next renewal."
+            : "App icons apply on iPhone and iPad, including the subscriber-exclusive Velvet, Emerald and Gilded."
+        return "\(lead) \(Self.renewalDisclosure) \(Self.subscriptionPerksNote)"
     }
 
     private var tvRowDivider: some View {
@@ -561,7 +613,7 @@ struct SupporterView: View {
 
     #if os(tvOS)
     private var tvManageFooter: String {
-        "Everything in Dusk stays free either way. \(Self.renewalDisclosure) \(Self.subscriptionPerksNote) Manage or cancel subscriptions in Settings → Users & Accounts → Subscriptions. Privacy Policy: getdusk.app/privacy · Terms of Use (EULA): apple.com/legal/internet-services/itunes/dev/stdeula"
+        "Everything in Dusk stays free either way. Manage or cancel subscriptions in Settings → Users & Accounts → Subscriptions.\n\nPrivacy Policy: getdusk.app/privacy\nTerms of Use (EULA): apple.com/legal/internet-services/itunes/dev/stdeula"
     }
 
     /// Plain-text equivalent of the iOS plan-row state for the tvOS detail column.
@@ -684,7 +736,7 @@ private struct SupporterProductRow: View {
 
     var body: some View {
         Button(action: action) {
-            HStack(spacing: 12) {
+            HStack(alignment: .center, spacing: 12) {
                 VStack(alignment: .leading, spacing: 3) {
                     Text(product.displayName)
                         .font(.subheadline.weight(.semibold))
@@ -698,7 +750,7 @@ private struct SupporterProductRow: View {
                     }
 
                     if let perk {
-                        HStack(alignment: .firstTextBaseline, spacing: 5) {
+                        HStack(alignment: .firstTextBaseline, spacing: 6) {
                             Image(systemName: "checkmark")
                                 .font(.caption2.weight(.bold))
                                 .foregroundStyle(Color.duskAccent)
@@ -707,20 +759,20 @@ private struct SupporterProductRow: View {
                                 .font(.caption)
                                 .foregroundStyle(Color.duskTextPrimary)
                                 .multilineTextAlignment(.leading)
+                                .fixedSize(horizontal: false, vertical: true)
                         }
-                        .padding(.top, 2)
+                        .padding(.top, 4)
                     }
                 }
 
-                Spacer()
+                Spacer(minLength: 0)
 
-                if isPurchasing {
-                    ProgressView()
-                        .tint(Color.duskAccent)
-                } else {
+                // The spinner overlays the price so the row never shifts.
+                ZStack(alignment: .trailing) {
                     VStack(alignment: .trailing, spacing: 2) {
                         Text(product.displayPrice)
                             .font(.callout.weight(.semibold))
+                            .monospacedDigit()
                             .foregroundStyle(Color.duskTextPrimary)
 
                         if let priceSuffix {
@@ -729,18 +781,18 @@ private struct SupporterProductRow: View {
                                 .foregroundStyle(Color.duskTextSecondary)
                         }
                     }
+                    .opacity(isPurchasing ? 0 : 1)
+
+                    if isPurchasing {
+                        ProgressView()
+                    }
                 }
             }
-            .padding(16)
-            .background(Color.duskSurface, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
-            .overlay {
-                RoundedRectangle(cornerRadius: 16, style: .continuous)
-                    .strokeBorder(
-                        isHighlighted ? Color.duskAccent.opacity(0.35) : Color.primary.opacity(0.05),
-                        lineWidth: 1
-                    )
-            }
-            .contentShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+            .padding(.horizontal, SupporterLayout.cardInset)
+            .padding(.vertical, 14)
+            .supporterCardBackground(
+                stroke: isHighlighted ? Color.duskAccent.opacity(0.35) : nil
+            )
         }
         .buttonStyle(.plain)
     }
@@ -761,10 +813,8 @@ private struct SupporterSubscriptionCard: View {
 
     @Environment(SupporterStore.self) private var store
 
-    private let shape = RoundedRectangle(cornerRadius: 22, style: .continuous)
-
     var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
+        VStack(alignment: .leading, spacing: 18) {
             HStack(alignment: .firstTextBaseline, spacing: 8) {
                 VStack(alignment: .leading, spacing: 3) {
                     Text("Dusk Supporter")
@@ -791,22 +841,21 @@ private struct SupporterSubscriptionCard: View {
                 }
             }
 
-            VStack(alignment: .leading, spacing: 9) {
+            VStack(alignment: .leading, spacing: 10) {
                 perkRow("All nine alternate app icons")
                 exclusiveIconsPerk
                 perkRow("Keeps Dusk free, ad-free and independent")
             }
 
             actions
+                .padding(.top, 2)
         }
-        .padding(18)
-        .background(Color.duskSurface, in: shape)
-        .overlay {
-            shape.strokeBorder(
-                store.hasActiveSubscription ? Color.duskAccent.opacity(0.45) : Color.primary.opacity(0.05),
-                lineWidth: 1
-            )
-        }
+        .padding(.horizontal, SupporterLayout.cardInset)
+        .padding(.vertical, 18)
+        .supporterCardBackground(
+            cornerRadius: SupporterLayout.featureCornerRadius,
+            stroke: store.hasActiveSubscription ? Color.duskAccent.opacity(0.45) : nil
+        )
     }
 
     private var subtitle: String {
@@ -815,10 +864,8 @@ private struct SupporterSubscriptionCard: View {
     }
 
     private func perkRow(_ text: String) -> some View {
-        HStack(alignment: .firstTextBaseline, spacing: 8) {
-            Image(systemName: "checkmark")
-                .font(.caption.weight(.bold))
-                .foregroundStyle(Color.duskAccent)
+        HStack(alignment: .firstTextBaseline, spacing: 10) {
+            checkmark
 
             Text(text)
                 .font(.footnote)
@@ -827,25 +874,30 @@ private struct SupporterSubscriptionCard: View {
         }
     }
 
+    private var checkmark: some View {
+        Image(systemName: "checkmark")
+            .font(.caption.weight(.bold))
+            .foregroundStyle(Color.duskAccent)
+            .frame(width: 14)
+    }
+
     private var exclusiveIconsPerk: some View {
-        HStack(alignment: .center, spacing: 8) {
-            Image(systemName: "checkmark")
-                .font(.caption.weight(.bold))
-                .foregroundStyle(Color.duskAccent)
+        HStack(alignment: .center, spacing: 10) {
+            checkmark
 
             Text("Three subscriber exclusives")
                 .font(.footnote)
                 .foregroundStyle(Color.duskTextPrimary)
 
-            HStack(spacing: 5) {
+            HStack(spacing: 6) {
                 ForEach(DuskAppIcon.subscriptionIcons) { icon in
                     Image(icon.previewImageName)
                         .resizable()
                         .scaledToFit()
-                        .frame(width: 26, height: 26)
-                        .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
+                        .frame(width: 28, height: 28)
+                        .clipShape(RoundedRectangle(cornerRadius: 7, style: .continuous))
                         .overlay {
-                            RoundedRectangle(cornerRadius: 6, style: .continuous)
+                            RoundedRectangle(cornerRadius: 7, style: .continuous)
                                 .strokeBorder(Color.primary.opacity(0.08), lineWidth: 1)
                         }
                         .accessibilityHidden(true)
@@ -863,59 +915,57 @@ private struct SupporterSubscriptionCard: View {
                 .buttonBorderShape(.capsule)
                 .tint(Color.duskAccent)
         } else if !store.subscriptionProducts.isEmpty {
-            VStack(alignment: .leading, spacing: 8) {
-                ViewThatFits(in: .horizontal) {
-                    HStack(spacing: 10) { priceButtons }
-                    VStack(spacing: 8) { priceButtons }
-                }
-
-                if let savings {
-                    Text(savings)
-                        .font(.footnote)
-                        .foregroundStyle(Color.duskTextSecondary)
-                }
+            ViewThatFits(in: .horizontal) {
+                HStack(alignment: .top, spacing: 10) { priceOptions }
+                VStack(spacing: 12) { priceOptions }
             }
         }
     }
 
+    /// Each period's button with a short line under it, so the two columns
+    /// stay the same height and the savings sit under the yearly price.
     @ViewBuilder
-    private var priceButtons: some View {
+    private var priceOptions: some View {
         ForEach(store.subscriptionProducts, id: \.id) { product in
             let isYearly = SupporterProduct(rawValue: product.id)?.isYearly == true
-            Button {
-                purchase(product)
-            } label: {
-                ZStack {
-                    Text("\(product.displayPrice) / \(isYearly ? "year" : "month")")
-                        .monospacedDigit()
-                        .opacity(store.purchasingProductID == product.id ? 0 : 1)
+            VStack(spacing: 6) {
+                priceButton(for: product, isYearly: isYearly)
 
-                    if store.purchasingProductID == product.id {
-                        ProgressView()
-                            .controlSize(.small)
-                    }
-                }
-                .font(.subheadline.weight(.semibold))
-                .frame(maxWidth: .infinity)
+                Text(isYearly ? (savings ?? "Billed yearly") : "Billed monthly")
+                    .font(.caption)
+                    .foregroundStyle(Color.duskTextSecondary)
             }
-            .buttonStyle(.bordered)
-            .buttonBorderShape(.capsule)
-            .controlSize(.large)
-            .tint(Color.duskAccent)
-            .disabled(store.purchasingProductID != nil)
-            .accessibilityLabel("Dusk Supporter \(isYearly ? "Yearly" : "Monthly"), \(product.displayPrice) per \(isYearly ? "year" : "month")")
         }
     }
 
-    /// "Yearly saves 30%." from the monthly and yearly prices.
+    private func priceButton(for product: Product, isYearly: Bool) -> some View {
+        Button {
+            purchase(product)
+        } label: {
+            ZStack {
+                Text("\(product.displayPrice) / \(isYearly ? "year" : "month")")
+                    .monospacedDigit()
+                    .opacity(store.purchasingProductID == product.id ? 0 : 1)
+
+                if store.purchasingProductID == product.id {
+                    ProgressView()
+                        .controlSize(.small)
+                }
+            }
+            .font(.subheadline.weight(.semibold))
+            .frame(maxWidth: .infinity)
+        }
+        .buttonStyle(.bordered)
+        .buttonBorderShape(.capsule)
+        .controlSize(.large)
+        .tint(Color.duskAccent)
+        .disabled(store.purchasingProductID != nil)
+        .accessibilityLabel("Dusk Supporter \(isYearly ? "Yearly" : "Monthly"), \(product.displayPrice) per \(isYearly ? "year" : "month")")
+    }
+
+    /// "Saves 30%" from the monthly and yearly prices.
     private var savings: String? {
-        let products = store.subscriptionProducts
-        guard let monthly = products.first(where: { $0.id == SupporterProduct.monthly.rawValue }),
-              let yearly = products.first(where: { $0.id == SupporterProduct.yearly.rawValue }),
-              monthly.price > 0 else { return nil }
-        let ratio = (yearly.price / (monthly.price * 12) as NSDecimalNumber).doubleValue
-        let percent = Int(((1 - ratio) * 100).rounded())
-        return percent > 0 ? "Yearly saves \(percent)%." : nil
+        store.yearlySavingsPercent.map { "Saves \($0)%" }
     }
 }
 #endif
@@ -936,11 +986,23 @@ struct SupporterIconShowcase: View {
     private static let tileSpacing: CGFloat = 14
 
     #if os(tvOS)
+    /// Matches `TVSettingsSection`'s header-to-card gap.
+    private static let labelSpacing: CGFloat = 12
+    private static let labelInset: CGFloat = 0
+    #else
+    private static let labelSpacing = SupporterLayout.labelSpacing
+    private static let labelInset = SupporterLayout.cardInset
+    #endif
+
+    #if os(tvOS)
     private let tileSize: CGFloat = 116
     #else
     /// Matches the sheet's horizontal content padding; the strip bleeds this
     /// far past the content column so tiles scroll out under the screen edge.
-    private static let edgeInset: CGFloat = 20
+    private static let edgeInset = SupporterLayout.pageInset
+    /// Where the label, caption and first tile start: the same text column as
+    /// the section labels and card content below.
+    private static let textInset = SupporterLayout.cardInset
     @State private var stripWidth: CGFloat = 0
 
     /// Sized so five tiles fit and a sixth is always cut in half at the
@@ -949,18 +1011,20 @@ struct SupporterIconShowcase: View {
     /// tiles fill an iPhone Pro Max column to within 4pt) and fake a
     /// complete, non-scrollable row.
     private var tileSize: CGFloat {
-        guard stripWidth > 0 else { return 68 }
-        return max(52, (stripWidth - Self.edgeInset - 5 * Self.tileSpacing) / 5.5)
+        guard stripWidth > 0 else { return 64 }
+        let leading = Self.edgeInset + Self.textInset
+        return max(52, (stripWidth - leading - 5 * Self.tileSpacing) / 5.5)
     }
     #endif
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
+        VStack(alignment: .leading, spacing: Self.labelSpacing) {
             Text(store.hasIconAccess ? "Your App Icons" : "Supporter Perk — App Icons")
                 .font(DuskFont.groupHeader(ios: .footnote.weight(.semibold)))
                 .textCase(.uppercase)
                 .tracking(0.6)
                 .foregroundStyle(Color.duskTextSecondary)
+                .padding(.horizontal, Self.labelInset)
 
             #if os(tvOS)
             // Not focusable on tvOS, so it can't scroll: the exclusives get
@@ -976,7 +1040,7 @@ struct SupporterIconShowcase: View {
                 .textCase(.uppercase)
                 .tracking(0.6)
                 .foregroundStyle(Color.duskTextSecondary)
-                .padding(.top, 8)
+                .padding(.top, 22)
 
             HStack(alignment: .top, spacing: Self.tileSpacing) {
                 ForEach(DuskAppIcon.subscriptionIcons) { icon in
@@ -1003,7 +1067,8 @@ struct SupporterIconShowcase: View {
                 .padding(.vertical, 2)
             }
             .scrollTargetBehavior(.viewAligned)
-            .contentMargins(.horizontal, Self.edgeInset, for: .scrollContent)
+            .contentMargins(.leading, Self.edgeInset + Self.textInset, for: .scrollContent)
+            .contentMargins(.trailing, Self.edgeInset, for: .scrollContent)
             .onGeometryChange(for: CGFloat.self) { proxy in
                 proxy.size.width
             } action: { width in
@@ -1015,6 +1080,11 @@ struct SupporterIconShowcase: View {
             Text(captionText)
                 .font(DuskFont.caption(ios: .caption))
                 .foregroundStyle(Color.duskTextSecondary)
+                .fixedSize(horizontal: false, vertical: true)
+                .padding(.horizontal, Self.labelInset)
+                #if os(tvOS)
+                .padding(.top, 4)
+                #endif
         }
         #if os(iOS)
         .onAppear { currentIcon = DuskAppIcon.current }
@@ -1060,11 +1130,13 @@ struct SupporterIconShowcase: View {
             }
             .overlay(alignment: .bottomTrailing) {
                 if !store.isUnlocked(icon) {
+                    // White on a dark disc reads on both light and dark
+                    // artwork, in either appearance.
                     Image(systemName: "lock.fill")
                         .font(.system(size: tileSize * 0.14, weight: .semibold))
-                        .foregroundStyle(Color.duskTextPrimary)
+                        .foregroundStyle(.white)
                         .padding(tileSize * 0.08)
-                        .background(.ultraThinMaterial, in: Circle())
+                        .background(Color.black.opacity(0.55), in: Circle())
                         .padding(3)
                 }
             }
@@ -1105,6 +1177,54 @@ struct SupporterIconShowcase: View {
         }
     }
     #endif
+}
+
+// MARK: - Layout
+
+/// One spacing scale for the iOS sheet so every section, card and footnote
+/// keeps the same rhythm.
+enum SupporterLayout {
+    /// Gap between the page's sections (header, icons, plans, tips, about).
+    static let sectionSpacing: CGFloat = 32
+    /// Gap between a section label and its first card.
+    static let labelSpacing: CGFloat = 10
+    /// Gap between stacked cards in one section.
+    static let rowSpacing: CGFloat = 10
+    /// Horizontal page margin; the icon strip bleeds past it to the edge.
+    static let pageInset: CGFloat = 20
+    /// Text inset inside every card. Section labels and footnotes share it,
+    /// so all text in a section starts on one column.
+    static let cardInset: CGFloat = 16
+    static let cornerRadius: CGFloat = 16
+    static let featureCornerRadius: CGFloat = 22
+}
+
+private extension View {
+    /// Surface fill + 1pt hairline shared by every card on the sheet.
+    func supporterCardBackground(
+        cornerRadius: CGFloat = SupporterLayout.cornerRadius,
+        stroke: Color? = nil
+    ) -> some View {
+        let shape = RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+        return background(Color.duskSurface, in: shape)
+            .overlay {
+                shape.strokeBorder(stroke ?? Color.primary.opacity(0.05), lineWidth: 1)
+            }
+            .contentShape(shape)
+    }
+}
+
+extension SupporterStore {
+    /// How much cheaper a year is than twelve months, in whole percent.
+    var yearlySavingsPercent: Int? {
+        let products = subscriptionProducts
+        guard let monthly = products.first(where: { $0.id == SupporterProduct.monthly.rawValue }),
+              let yearly = products.first(where: { $0.id == SupporterProduct.yearly.rawValue }),
+              monthly.price > 0 else { return nil }
+        let ratio = (yearly.price / (monthly.price * 12) as NSDecimalNumber).doubleValue
+        let percent = Int(((1 - ratio) * 100).rounded())
+        return percent > 0 ? percent : nil
+    }
 }
 
 // MARK: - Button style helpers

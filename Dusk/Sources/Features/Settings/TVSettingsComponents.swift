@@ -211,6 +211,9 @@ struct TVSettingsToggleRow: View {
 
 struct TVSettingsActionRow: View {
     let title: String
+    /// Optional second line under the title, for rows that need to say what
+    /// they do (the Supporter plans and tips).
+    let subtitle: String?
     let tint: Color
     let role: ButtonRole?
     let showsChevron: Bool
@@ -221,6 +224,7 @@ struct TVSettingsActionRow: View {
 
     init(
         title: String,
+        subtitle: String? = nil,
         tint: Color = Color.duskTextPrimary,
         role: ButtonRole? = nil,
         showsChevron: Bool = false,
@@ -229,6 +233,7 @@ struct TVSettingsActionRow: View {
         action: @escaping () -> Void
     ) {
         self.title = title
+        self.subtitle = subtitle
         self.tint = tint
         self.role = role
         self.showsChevron = showsChevron
@@ -253,9 +258,21 @@ struct TVSettingsActionRow: View {
     @ViewBuilder
     private func label() -> some View {
         HStack(spacing: 20) {
-            Text(title)
-                .font(DuskFont.rowTitle(ios: .headline))
-                .foregroundStyle(tint)
+            VStack(alignment: .leading, spacing: 4) {
+                Text(title)
+                    .font(DuskFont.rowTitle(ios: .headline))
+                    .foregroundStyle(tint)
+
+                if let subtitle {
+                    Text(subtitle)
+                        .font(DuskFont.caption(ios: .footnote))
+                        .foregroundStyle(Color.duskTextSecondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+            // A two-line row needs its own breathing room so the focus band
+            // doesn't hug the text.
+            .padding(.vertical, subtitle == nil ? 0 : 14)
 
             Spacer()
 
