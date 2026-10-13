@@ -34,7 +34,11 @@ final class TopShelfPublisher {
     func publish(continueWatching items: [PlexItem], plexService: PlexService) {
         let entries = items.prefix(Self.itemLimit).compactMap { Entry(item: $0, plexService: plexService) }
         let signature = entries.map(\.signature)
-        guard signature != publishedSignature else { return }
+        // The snapshot lives in Caches, so it can be purged under a running app.
+        let snapshotExists = TopShelfStore.snapshotURL.map {
+            FileManager.default.fileExists(atPath: $0.path(percentEncoded: false))
+        } ?? false
+        guard signature != publishedSignature || !snapshotExists else { return }
         publishedSignature = signature
 
         writeTask?.cancel()

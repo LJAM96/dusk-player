@@ -37,10 +37,16 @@ enum TopShelfStore {
 
     /// nil when the binary is not entitled to the App Group (e.g. a build
     /// signed with a profile that predates the capability).
+    ///
+    /// Must stay under `Library/Caches`: on an Apple TV that is the only
+    /// writable place in the App Group container too (tvOS creates just
+    /// `Library/Caches` and `Library/Preferences`, and any other path fails
+    /// with a permission error). The simulator does not enforce this. The
+    /// system may purge it; the app rewrites it on the next Home load.
     static var directory: URL? {
         FileManager.default
             .containerURL(forSecurityApplicationGroupIdentifier: appGroupIdentifier)?
-            .appending(path: "Library/Application Support/TopShelf", directoryHint: .isDirectory)
+            .appending(path: "Library/Caches/TopShelf", directoryHint: .isDirectory)
     }
 
     static var snapshotURL: URL? {
