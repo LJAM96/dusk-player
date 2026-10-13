@@ -2,8 +2,8 @@ import Foundation
 import Testing
 @testable import Dusk
 
-/// Pure entitlement rules: which level is in force, what counts as support,
-/// and when a subscription icon has to go.
+/// Pure entitlement rules: whether the subscription is in force, what counts
+/// as support, and when a subscription icon has to go.
 @Suite("Supporter entitlements")
 struct SupporterEntitlementsTests {
     private let now = Date(timeIntervalSince1970: 1_800_000_000)
@@ -31,164 +31,119 @@ struct SupporterEntitlementsTests {
     private func reverts(_ icon: DuskAppIcon, _ result: SupporterEntitlements) -> Bool {
         SupporterEntitlements.shouldRevertIcon(
             icon,
-            activeTier: result.activeTier,
+            hasActiveSubscription: result.hasActiveSubscription,
             hasIconTip: result.hasIconTip,
             lastKnownSubscriptionExpiration: result.latestSubscriptionExpiration,
-            lastKnownDirectorsCutExpiration: result.latestDirectorsCutExpiration,
             now: now
         )
     }
 
     // MARK: Catalog
 
-    @Test func catalogMapsProductsToLevels() {
-        #expect(SupporterProduct.monthly.tier == .frontRow)
-        #expect(SupporterProduct.yearly.tier == .frontRow)
-        #expect(SupporterProduct.directorsCutMonthly.tier == .directorsCut)
-        #expect(SupporterProduct.directorsCutYearly.tier == .directorsCut)
-        #expect(SupporterProduct.tipPatron.tier == nil)
+    @Test func catalogIsOneSubscriptionPlusTips() {
+        // The subscription IDs are the ones that shipped in 1.6: existing
+        // subscribers resolve without any migration.
+        #expect(SupporterProduct.monthly.rawValue == "supporter.monthly")
+        #expect(SupporterProduct.yearly.rawValue == "supporter.yearly")
+        #expect(SupporterProduct.allCases.filter(\.isSubscription) == [.monthly, .yearly])
+        #expect(SupporterProduct.allCases.filter(\.isYearly) == [.yearly])
         #expect(SupporterProduct.allCases.filter(\.isIconTip) == [.tipGenerous, .tipLegendary, .tipPatron])
-        #expect(SupporterProduct.directorsCutMonthly.rawValue == "directorscut.monthly")
-        #expect(SupporterProduct.directorsCutYearly.rawValue == "directorscut.yearly")
-        #expect(SupporterTier.directorsCut > SupporterTier.frontRow)
         #expect(SupporterProduct.allCases.map(\.sortOrder) == Array(0..<SupporterProduct.allCases.count))
     }
 
-    // MARK: Active level
+    // MARK: Active subscription
 
     @Test func nothingPurchased() {
         let result = SupporterEntitlements.resolve(current: [], history: [], now: now)
-        #expect(result.activeTier == nil)
+        #expect(!result.hasActiveSubscription)
         #expect(!result.hasAnySupport)
         #expect(result.historyWasEmpty)
     }
 
-    @Test func frontRowActive() {
-        let fr = record(.monthly)
-        let result = SupporterEntitlements.resolve(current: [fr], history: [fr], now: now)
-        #expect(result.activeTier == .frontRow)
-        #expect(result.activeProductID == "supporter.monthly")
-        #expect(result.hasAnySupport)
-        #expect(result.latestDirectorsCutExpiration == nil)
+    @Test func activeSubscriptionKeepsEveryIcon() {
+        for plan in [SupporterProduct.monthly, .yearly] {
+            let sub = record(plan, expires: 200)
+            let result = SupporterEntitlements.resolve(current: [sub], history: [sub], now: now)
+            #expect(result.hasActiveSubscription)
+            #expect(result.activeProductID == plan.rawValue)
+            #expect(result.hasAnySupport)
+            #expect(result.latestSubscriptionExpiration == now.addingTimeInterval(200 * day))
+            for icon in DuskAppIcon.allCases {
+                #expect(!reverts(icon, result))
+            }
+        }
     }
 
-    @Test func directorsCutActive() {
-        let dc = record(.directorsCutYearly, expires: 200)
-        let result = SupporterEntitlements.resolve(current: [dc], history: [dc], now: now)
-        #expect(result.activeTier == .directorsCut)
-        #expect(result.activeProductID == "directorscut.yearly")
-        #expect(result.latestDirectorsCutExpiration == now.addingTimeInterval(200 * day))
-    }
-
-    @Test func upgradeReplacesFrontRowImmediately() {
-        let fr = record(.yearly, expires: 100, upgraded: true)
-        let dc = record(.directorsCutMonthly, purchased: -1, expires: 29)
-        let result = SupporterEntitlements.resolve(current: [fr, dc], history: [fr, dc], now: now)
-        #expect(result.activeTier == .directorsCut)
-        #expect(result.activeProductID == "directorscut.monthly")
-    }
-
-    @Test func upgradedTransactionAloneGrantsNothing() {
-        let fr = record(.monthly, upgraded: true)
-        let result = SupporterEntitlements.resolve(current: [fr], history: [fr], now: now)
-        #expect(result.activeTier == nil)
-        #expect(result.hasAnySupport)
-    }
-
-    @Test func higherLevelWinsWhenBothAreCurrent() {
-        let fr = record(.yearly, expires: 300)
-        let dc = record(.directorsCutMonthly, expires: 10)
-        let result = SupporterEntitlements.resolve(current: [fr, dc], history: [fr, dc], now: now)
-        #expect(result.activeTier == .directorsCut)
-    }
-
-    @Test func pendingDowngradeKeepsDirectorsCutUntilRenewal() {
-        let dc = record(.directorsCutMonthly, expires: 12)
-        let result = SupporterEntitlements.resolve(current: [dc], history: [dc], now: now)
-        #expect(result.activeTier == .directorsCut)
-
-        let plan = SupporterRenewalPlan(
-            nextProductID: SupporterProduct.monthly.rawValue,
-            willAutoRenew: true,
-            renewalDate: now.addingTimeInterval(12 * day)
-        )
-        #expect(plan.pendingDowngrade(from: result.activeTier) == .frontRow)
+    @Test func grandfatheredSubscriberFromBefore17GetsEverything() {
+        // Subscribed in 1.6 (at the old price), auto-renewing ever since.
+        let original = record(.monthly, purchased: -400, expires: 12)
+        let result = SupporterEntitlements.resolve(current: [original], history: [original], now: now)
+        #expect(result.hasActiveSubscription)
+        #expect(result.earliestPurchase == now.addingTimeInterval(-400 * day))
         #expect(!reverts(.gilded, result))
-    }
-
-    @Test func downgradeTakesEffectAtRenewal() {
-        let dcExpired = record(.directorsCutMonthly, purchased: -40, expires: -10)
-        let fr = record(.monthly, purchased: -40, expires: 20)
-        let result = SupporterEntitlements.resolve(current: [fr], history: [dcExpired, fr], now: now)
-        #expect(result.activeTier == .frontRow)
-        #expect(reverts(.gilded, result))
         #expect(!reverts(.neon, result))
     }
 
-    @Test func renewalPlanOnlyReportsRealDowngrades() {
-        let toFrontRow = SupporterRenewalPlan(nextProductID: "supporter.yearly", willAutoRenew: true, renewalDate: now)
-        #expect(toFrontRow.pendingDowngrade(from: .frontRow) == nil) // crossgrade
-        #expect(toFrontRow.pendingDowngrade(from: nil) == nil)
+    @Test func upgradedTransactionAloneGrantsNothing() {
+        let sub = record(.monthly, upgraded: true)
+        let result = SupporterEntitlements.resolve(current: [sub], history: [sub], now: now)
+        #expect(!result.hasActiveSubscription)
+        #expect(result.hasAnySupport)
+    }
 
-        let cancelled = SupporterRenewalPlan(nextProductID: "supporter.monthly", willAutoRenew: false, renewalDate: now)
-        #expect(cancelled.pendingDowngrade(from: .directorsCut) == nil)
-
-        let upgrade = SupporterRenewalPlan(nextProductID: "directorscut.yearly", willAutoRenew: true, renewalDate: now)
-        #expect(upgrade.pendingDowngrade(from: .frontRow) == nil)
-        #expect(upgrade.nextTier == .directorsCut)
+    @Test func planSwitchTakesEffectAtRenewal() {
+        // Monthly ran out, yearly took over at the renewal.
+        let monthly = record(.monthly, purchased: -40, expires: -10)
+        let yearly = record(.yearly, purchased: -40, expires: 355)
+        let result = SupporterEntitlements.resolve(current: [yearly], history: [monthly, yearly], now: now)
+        #expect(result.activeProductID == "supporter.yearly")
+        #expect(!reverts(.gilded, result))
     }
 
     // MARK: Lapse & refunds
 
-    @Test func lapsedDirectorsCutKeepsSupporterButLocksAllIcons() {
-        let dc = record(.directorsCutMonthly, purchased: -60, expires: -2)
+    @Test func lapsedSubscriptionKeepsSupporterButLocksAllIcons() {
+        let sub = record(.monthly, purchased: -60, expires: -2)
         // Expired transactions can still show up in a stale current read.
-        let result = SupporterEntitlements.resolve(current: [dc], history: [dc], now: now)
-        #expect(result.activeTier == nil)
+        let result = SupporterEntitlements.resolve(current: [sub], history: [sub], now: now)
+        #expect(!result.hasActiveSubscription)
         #expect(result.hasAnySupport)
         #expect(result.earliestPurchase == now.addingTimeInterval(-60 * day))
+        #expect(result.latestSubscriptionExpiration == now.addingTimeInterval(-2 * day))
         #expect(reverts(.gilded, result))
         #expect(reverts(.neon, result))
         #expect(!reverts(.dusk, result))
     }
 
-    @Test func lapsedFrontRowLocksClassicIcons() {
-        let fr = record(.yearly, purchased: -400, expires: -35)
-        let result = SupporterEntitlements.resolve(current: [], history: [fr], now: now)
-        #expect(result.activeTier == nil)
-        #expect(result.hasAnySupport)
-        #expect(result.latestSubscriptionExpiration == now.addingTimeInterval(-35 * day))
-        #expect(reverts(.aurora, result))
-    }
-
     @Test func generousTipKeepsClassicIconsAfterALapse() {
-        let fr = record(.monthly, purchased: -60, expires: -30)
+        let sub = record(.yearly, purchased: -400, expires: -30)
         let tip = record(.tipGenerous, purchased: -90)
-        let result = SupporterEntitlements.resolve(current: [], history: [fr, tip], now: now)
+        let result = SupporterEntitlements.resolve(current: [], history: [sub, tip], now: now)
         #expect(!reverts(.aurora, result))
         #expect(reverts(.velvet, result))
     }
 
     @Test func coffeeTipDoesNotKeepIconsAfterALapse() {
-        let fr = record(.monthly, purchased: -60, expires: -30)
+        let sub = record(.monthly, purchased: -60, expires: -30)
         let tip = record(.tipCoffee, purchased: -90)
-        let result = SupporterEntitlements.resolve(current: [], history: [fr, tip], now: now)
+        let result = SupporterEntitlements.resolve(current: [], history: [sub, tip], now: now)
         #expect(reverts(.aurora, result))
     }
 
-    @Test func refundedDirectorsCutGrantsNothing() {
-        let dc = record(.directorsCutMonthly, expires: 20, revoked: true)
-        let result = SupporterEntitlements.resolve(current: [dc], history: [dc], now: now)
-        #expect(result.activeTier == nil)
+    @Test func refundedSubscriptionGrantsNothing() {
+        let sub = record(.monthly, expires: 20, revoked: true)
+        let result = SupporterEntitlements.resolve(current: [sub], history: [sub], now: now)
+        #expect(!result.hasActiveSubscription)
         #expect(!result.hasAnySupport)
         #expect(!result.historyWasEmpty)
-        #expect(result.latestDirectorsCutExpiration == nil)
+        #expect(result.latestSubscriptionExpiration == nil)
+        #expect(reverts(.gilded, result))
     }
 
-    @Test func tipsCountTowardSupportButNoLevel() {
+    @Test func tipsCountTowardSupportButNoSubscription() {
         let tips = [record(.tipCoffee), record(.tipPatron, quantity: 2)]
         let result = SupporterEntitlements.resolve(current: [], history: tips, now: now)
-        #expect(result.activeTier == nil)
+        #expect(!result.hasActiveSubscription)
         #expect(result.hasAnySupport)
         #expect(result.tipCount == 3)
         #expect(result.hasIconTip)
@@ -219,41 +174,40 @@ struct SupporterEntitlementsTests {
     @Test func revertRuleWaitsForTheKnownPeriodToEnd() {
         let future = now.addingTimeInterval(5 * day)
         let past = now.addingTimeInterval(-day)
-        func reverts(_ icon: DuskAppIcon, _ tier: SupporterTier?, iconTip: Bool = false, subscription: Date?, directorsCut: Date?) -> Bool {
+        func reverts(_ icon: DuskAppIcon, active: Bool = false, iconTip: Bool = false, expiration: Date?) -> Bool {
             SupporterEntitlements.shouldRevertIcon(
                 icon,
-                activeTier: tier,
+                hasActiveSubscription: active,
                 hasIconTip: iconTip,
-                lastKnownSubscriptionExpiration: subscription,
-                lastKnownDirectorsCutExpiration: directorsCut,
+                lastKnownSubscriptionExpiration: expiration,
                 now: now
             )
         }
-        // Exclusives follow Director's Cut.
-        #expect(!reverts(.gilded, .directorsCut, subscription: past, directorsCut: past))
-        #expect(!reverts(.gilded, nil, subscription: future, directorsCut: future))
-        #expect(reverts(.gilded, nil, subscription: past, directorsCut: past))
-        #expect(reverts(.gilded, .frontRow, subscription: future, directorsCut: nil))
-        #expect(reverts(.gilded, nil, iconTip: true, subscription: nil, directorsCut: nil))
-        // Classic alternates follow either level, or a tip from Generous up.
-        #expect(!reverts(.neon, .frontRow, subscription: past, directorsCut: nil))
-        #expect(!reverts(.neon, nil, subscription: future, directorsCut: nil))
-        #expect(reverts(.neon, nil, subscription: past, directorsCut: nil))
-        #expect(reverts(.neon, nil, subscription: nil, directorsCut: nil))
-        #expect(!reverts(.neon, nil, iconTip: true, subscription: past, directorsCut: nil))
+        // Exclusives follow the subscription only.
+        #expect(!reverts(.gilded, active: true, expiration: past))
+        #expect(!reverts(.gilded, expiration: future))
+        #expect(reverts(.gilded, expiration: past))
+        #expect(reverts(.gilded, expiration: nil))
+        #expect(reverts(.gilded, iconTip: true, expiration: nil))
+        // Classic alternates follow the subscription, or a tip from Generous up.
+        #expect(!reverts(.neon, active: true, expiration: past))
+        #expect(!reverts(.neon, expiration: future))
+        #expect(reverts(.neon, expiration: past))
+        #expect(reverts(.neon, expiration: nil))
+        #expect(!reverts(.neon, iconTip: true, expiration: past))
         // The primary icon never reverts.
-        #expect(!reverts(.dusk, nil, subscription: nil, directorsCut: nil))
+        #expect(!reverts(.dusk, expiration: nil))
     }
 
     // MARK: Icons
 
-    @Test func iconAccessByLevel() {
+    @Test func iconAccess() {
         for icon in DuskAppIcon.allCases {
-            #expect(icon.isUnlocked(hasIconAccess: false, hasDirectorsCut: false) == (icon == .dusk))
-            #expect(icon.isUnlocked(hasIconAccess: true, hasDirectorsCut: false) == !icon.requiresDirectorsCut)
-            #expect(icon.isUnlocked(hasIconAccess: true, hasDirectorsCut: true))
+            #expect(icon.isUnlocked(hasIconAccess: false, hasActiveSubscription: false) == (icon == .dusk))
+            #expect(icon.isUnlocked(hasIconAccess: true, hasActiveSubscription: false) == !icon.requiresSubscription)
+            #expect(icon.isUnlocked(hasIconAccess: true, hasActiveSubscription: true))
         }
-        #expect(DuskAppIcon.directorsCutIcons == [.velvet, .emerald, .gilded])
+        #expect(DuskAppIcon.subscriptionIcons == [.velvet, .emerald, .gilded])
         #expect(DuskAppIcon.supporterIcons.count == 7)
         #expect(DuskAppIcon.supporterIcons.first == .dusk)
     }
@@ -269,7 +223,7 @@ struct SupporterEntitlementsTests {
 }
 
 /// The store's cache rules on top of the snapshots: supporter status is
-/// monotonic, the active level and subscription icons follow the latest
+/// monotonic, the active subscription and its icons follow the latest
 /// snapshot.
 @Suite("Supporter store cache")
 @MainActor
@@ -285,27 +239,19 @@ struct SupporterStoreCacheTests {
     }
 
     private func entitlements(
-        tier: SupporterTier?,
-        dcExpiration: Date? = nil,
-        subscriptionExpiration: Date? = nil,
+        active: Bool,
+        expiration: Date? = nil,
         history: Bool = true,
         tips: Int = 0,
         iconTip: Bool = false
     ) -> SupporterEntitlements {
-        let subscriptionExpiration = subscriptionExpiration ?? dcExpiration
         var value = SupporterEntitlements()
-        value.activeTier = tier
-        value.activeProductID = switch tier {
-        case .frontRow: SupporterProduct.monthly.rawValue
-        case .directorsCut: SupporterProduct.directorsCutMonthly.rawValue
-        case nil: nil
-        }
-        value.activeExpirationDate = tier != nil ? subscriptionExpiration : nil
+        value.activeProductID = active ? SupporterProduct.monthly.rawValue : nil
+        value.activeExpirationDate = active ? expiration : nil
         value.hasAnySupport = history
         value.historyWasEmpty = !history
         value.earliestPurchase = history ? now.addingTimeInterval(-90 * day) : nil
-        value.latestSubscriptionExpiration = history ? subscriptionExpiration : nil
-        value.latestDirectorsCutExpiration = history ? dcExpiration : nil
+        value.latestSubscriptionExpiration = history ? expiration : nil
         value.tipCount = tips
         value.hasIconTip = iconTip
         return value
@@ -313,21 +259,21 @@ struct SupporterStoreCacheTests {
 
     @Test func supporterStatusSurvivesLapseAndEmptyReads() {
         let store = makeStore()
-        store.apply(entitlements(tier: .directorsCut, dcExpiration: now.addingTimeInterval(20 * day), tips: 2))
+        store.apply(entitlements(active: true, expiration: now.addingTimeInterval(20 * day), tips: 2))
         #expect(store.isSupporter)
-        #expect(store.hasDirectorsCut)
+        #expect(store.hasActiveSubscription)
 
-        store.apply(entitlements(tier: nil, history: false))
+        store.apply(entitlements(active: false, history: false))
         #expect(store.isSupporter)
         #expect(store.tipCount == 2)
         #expect(store.supporterSince != nil)
-        #expect(store.activeTier == nil)
+        #expect(!store.hasActiveSubscription)
     }
 
     @Test func transientEmptyReadDoesNotRevertIconMidPeriod() {
         let store = makeStore()
-        store.apply(entitlements(tier: .directorsCut, dcExpiration: now.addingTimeInterval(20 * day)))
-        store.apply(entitlements(tier: nil, history: false))
+        store.apply(entitlements(active: true, expiration: now.addingTimeInterval(20 * day)))
+        store.apply(entitlements(active: false, history: false))
         #expect(!store.shouldRevertIcon(.gilded, now: now))
         #expect(!store.shouldRevertIcon(.neon, now: now))
         #expect(store.shouldRevertIcon(.gilded, now: now.addingTimeInterval(21 * day)))
@@ -336,28 +282,20 @@ struct SupporterStoreCacheTests {
 
     @Test func lapseRevertsOnceThePeriodIsOver() {
         let store = makeStore()
-        store.apply(entitlements(tier: .directorsCut, dcExpiration: now.addingTimeInterval(-day)))
-        store.apply(entitlements(tier: nil, dcExpiration: now.addingTimeInterval(-day)))
-        #expect(store.isSupporter)
-        #expect(!store.hasDirectorsCut)
-        #expect(store.shouldRevertIcon(.gilded, now: now))
-        #expect(store.shouldRevertIcon(.neon, now: now))
-    }
-
-    @Test func frontRowLapseLocksClassicIcons() {
-        let store = makeStore()
-        store.apply(entitlements(tier: .frontRow, subscriptionExpiration: now.addingTimeInterval(-day)))
-        #expect(store.isUnlocked(.neon))
-        store.apply(entitlements(tier: nil, subscriptionExpiration: now.addingTimeInterval(-day)))
+        store.apply(entitlements(active: true, expiration: now.addingTimeInterval(-day)))
+        #expect(store.isUnlocked(.gilded))
+        store.apply(entitlements(active: false, expiration: now.addingTimeInterval(-day)))
         #expect(store.isSupporter)
         #expect(!store.hasIconAccess)
+        #expect(!store.isUnlocked(.gilded))
         #expect(!store.isUnlocked(.neon))
+        #expect(store.shouldRevertIcon(.gilded, now: now))
         #expect(store.shouldRevertIcon(.neon, now: now))
     }
 
     @Test func coffeeTipAloneUnlocksNoIcons() {
         let store = makeStore()
-        store.apply(entitlements(tier: nil, tips: 2))
+        store.apply(entitlements(active: false, tips: 2))
         #expect(store.isSupporter)
         #expect(!store.hasIconAccess)
         #expect(!store.isUnlocked(.neon))
@@ -366,8 +304,8 @@ struct SupporterStoreCacheTests {
 
     @Test func generousTipKeepsClassicIconsAfterALapse() {
         let store = makeStore()
-        store.apply(entitlements(tier: .directorsCut, dcExpiration: now.addingTimeInterval(-day), tips: 1, iconTip: true))
-        store.apply(entitlements(tier: nil, dcExpiration: now.addingTimeInterval(-day), tips: 1, iconTip: true))
+        store.apply(entitlements(active: true, expiration: now.addingTimeInterval(-day), tips: 1, iconTip: true))
+        store.apply(entitlements(active: false, expiration: now.addingTimeInterval(-day), tips: 1, iconTip: true))
         #expect(store.hasIconAccess)
         #expect(store.isUnlocked(.neon))
         #expect(!store.shouldRevertIcon(.neon, now: now))
@@ -375,31 +313,11 @@ struct SupporterStoreCacheTests {
         #expect(store.shouldRevertIcon(.velvet, now: now))
     }
 
-    @Test func downgradeToFrontRowLocksExclusives() {
-        let store = makeStore()
-        store.apply(entitlements(tier: .directorsCut, dcExpiration: now.addingTimeInterval(-60)))
-        store.apply(entitlements(
-            tier: .frontRow,
-            dcExpiration: now.addingTimeInterval(-60),
-            subscriptionExpiration: now.addingTimeInterval(30 * day)
-        ))
-        #expect(store.activeTier == .frontRow)
-        #expect(store.hasActiveSubscription)
-        #expect(!store.hasDirectorsCut)
-        #expect(store.shouldRevertIcon(.gilded, now: now))
-        #expect(!store.shouldRevertIcon(.goldenHour, now: now))
-        #expect(store.isUnlocked(.goldenHour))
-        #expect(!store.isUnlocked(.gilded))
-    }
-
     @Test func refundReadOverridesCachedPeriod() {
         let store = makeStore()
-        store.apply(entitlements(tier: .directorsCut, dcExpiration: now.addingTimeInterval(20 * day)))
-        // History present but the Director's Cut transaction was revoked.
-        var refunded = entitlements(tier: nil)
-        refunded.latestDirectorsCutExpiration = nil
-        refunded.latestSubscriptionExpiration = nil
-        store.apply(refunded)
+        store.apply(entitlements(active: true, expiration: now.addingTimeInterval(20 * day)))
+        // History present but the subscription transaction was revoked.
+        store.apply(entitlements(active: false))
         #expect(store.shouldRevertIcon(.gilded, now: now))
         #expect(store.shouldRevertIcon(.neon, now: now))
     }
@@ -411,16 +329,16 @@ struct SupporterStoreCacheTests {
         let expiration = now.addingTimeInterval(10 * day)
 
         let first = SupporterStore(defaults: defaults)
-        first.apply(entitlements(tier: .directorsCut, dcExpiration: expiration, tips: 1, iconTip: true))
+        first.apply(entitlements(active: true, expiration: expiration, tips: 1, iconTip: true))
 
         let relaunched = SupporterStore(defaults: defaults)
         #expect(relaunched.isSupporter)
         #expect(relaunched.tipCount == 1)
         #expect(relaunched.hasIconTip)
-        #expect(relaunched.lastKnownDirectorsCutExpiration == expiration)
         #expect(relaunched.lastKnownSubscriptionExpiration == expiration)
-        // The level itself is never cached: it waits for a live read.
-        #expect(relaunched.activeTier == nil)
+        // The subscription itself is never cached: it waits for a live read,
+        // but the cached period keeps the icon in the meantime.
+        #expect(!relaunched.hasActiveSubscription)
         #expect(!relaunched.shouldRevertIcon(.gilded, now: now))
     }
 }

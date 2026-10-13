@@ -32,8 +32,8 @@ struct SettingsTVView: View {
                     TVSettingsActionRow(
                         title: supporterStore.isSupporter ? "You're a Supporter ❤️" : "Support Dusk",
                         tint: Color.duskTextPrimary,
-                        showsChevron: supporterStore.activeTier == nil,
-                        detail: supporterStore.activeTier?.displayName
+                        showsChevron: !supporterStore.hasActiveSubscription,
+                        detail: supporterStore.hasActiveSubscription ? "Subscribed" : nil
                     ) {
                         showsSupporterSheet = true
                     }

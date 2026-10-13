@@ -2,8 +2,8 @@ import SwiftUI
 
 #if os(iOS)
 /// Grid picker for the alternate app icons, opened from Settings → Appearance.
-/// Two groups: the classic alternates (any subscription, or a tip from Generous up), and the Director's Cut
-/// exclusives. Locked tiles open the supporter sheet instead of applying.
+/// Two groups: the classic alternates (an active subscription, or a tip from Generous up), and the
+/// subscriber exclusives. Locked tiles open the supporter sheet instead of applying.
 struct AppIconPickerView: View {
     @Environment(SupporterStore.self) private var store
     @Environment(AnalyticsClient.self) private var analytics: AnalyticsClient?
@@ -37,11 +37,11 @@ struct AppIconPickerView: View {
                         )
 
                         iconGroup(
-                            title: "Director's Cut Exclusives",
-                            icons: DuskAppIcon.directorsCutIcons,
-                            footnote: store.hasDirectorsCut
-                                ? "Included with your Director's Cut subscription. If it ends, Dusk switches back to the default icon."
-                                : "Velvet, Emerald and Gilded unlock while a Director's Cut subscription is active."
+                            title: "Subscriber Exclusives",
+                            icons: DuskAppIcon.subscriptionIcons,
+                            footnote: store.hasActiveSubscription
+                                ? "Included with your subscription. If it ends, Dusk switches back to the default icon."
+                                : "Velvet, Emerald and Gilded unlock while a Dusk Supporter subscription is active. Tips don't include them."
                         )
                     }
                     .padding(20)
@@ -60,7 +60,7 @@ struct AppIconPickerView: View {
             }
         }
         .onAppear { currentIcon = DuskAppIcon.current }
-        .onChange(of: store.activeTier) { _, _ in currentIcon = DuskAppIcon.current }
+        .onChange(of: store.hasActiveSubscription) { _, _ in currentIcon = DuskAppIcon.current }
         .sheet(isPresented: $showsSupporterSheet) {
             SupporterView(context: .settings)
         }

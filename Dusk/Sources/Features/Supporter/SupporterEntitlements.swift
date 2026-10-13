@@ -1,28 +1,5 @@
 import Foundation
 
-/// The two subscription levels in the "Dusk Supporter" App Store group.
-/// A higher raw value is the higher level of service. (App Store Connect
-/// numbers levels the other way round: Director's Cut is level 1, Front Row
-/// level 2.) StoreKit applies a move up immediately as an upgrade and a move
-/// down at the next renewal.
-enum SupporterTier: Int, CaseIterable, Comparable, Identifiable {
-    case frontRow = 1
-    case directorsCut = 2
-
-    var id: Int { rawValue }
-
-    var displayName: String {
-        switch self {
-        case .frontRow: "Front Row"
-        case .directorsCut: "Director's Cut"
-        }
-    }
-
-    static func < (lhs: SupporterTier, rhs: SupporterTier) -> Bool {
-        lhs.rawValue < rhs.rawValue
-    }
-}
-
 /// The StoreKit fields entitlement resolution needs, copied out of a verified
 /// `Transaction` so the rules can be exercised without the App Store.
 struct SupporterTransactionRecord: Equatable {
@@ -41,8 +18,7 @@ struct SupporterTransactionRecord: Equatable {
 /// lives in `SupporterStore`, which only ever lets a snapshot add evidence on
 /// top of its cache. Icon access is not monotonic (see `shouldRevertIcon`).
 struct SupporterEntitlements: Equatable {
-    /// The highest subscription level currently in force, if any.
-    var activeTier: SupporterTier?
+    /// The subscription currently in force, if any.
     var activeProductID: String?
     var activeExpirationDate: Date?
     /// Any verified, unrevoked supporter purchase exists in the history.
@@ -53,12 +29,9 @@ struct SupporterEntitlements: Equatable {
     var hasIconTip = false
     /// Most recent unrevoked tip purchase (snoozes the supporter prompt).
     var latestTipPurchase: Date?
-    /// Latest expiration among unrevoked subscription transactions of either
-    /// level in the history. Nil when the history has none.
-    var latestSubscriptionExpiration: Date?
-    /// Latest expiration among unrevoked Director's Cut transactions in the
+    /// Latest expiration among unrevoked subscription transactions in the
     /// history. Nil when the history has none (or none survived a refund).
-    var latestDirectorsCutExpiration: Date?
+    var latestSubscriptionExpiration: Date?
     /// True when the history read produced no recognised transactions at all.
     /// An empty read is indistinguishable from an offline/transient failure,
     /// so callers must not let it erase cached knowledge.
@@ -71,24 +44,18 @@ struct SupporterEntitlements: Equatable {
     ) -> SupporterEntitlements {
         var result = SupporterEntitlements()
 
-        // Within a group StoreKit keeps the upgraded-from transaction around
-        // with `isUpgraded`; it no longer grants access. A pending downgrade
-        // is not a transaction yet, so the higher level stays in force until
-        // it renews into the lower one.
+        // StoreKit can keep an upgraded-from transaction around with
+        // `isUpgraded`; it no longer grants access.
         let active = current.filter { record in
-            guard SupporterProduct(rawValue: record.productID)?.tier != nil else { return false }
+            guard SupporterProduct(rawValue: record.productID)?.isSubscription == true else { return false }
             if record.revocationDate != nil || record.isUpgraded { return false }
             if let expiration = record.expirationDate, expiration <= now { return false }
             return true
         }
         let best = active.max { lhs, rhs in
-            let lhsTier = SupporterProduct(rawValue: lhs.productID)?.tier ?? .frontRow
-            let rhsTier = SupporterProduct(rawValue: rhs.productID)?.tier ?? .frontRow
-            if lhsTier != rhsTier { return lhsTier < rhsTier }
-            return (lhs.expirationDate ?? .distantFuture) < (rhs.expirationDate ?? .distantFuture)
+            (lhs.expirationDate ?? .distantFuture) < (rhs.expirationDate ?? .distantFuture)
         }
         if let best {
-            result.activeTier = SupporterProduct(rawValue: best.productID)?.tier
             result.activeProductID = best.productID
             result.activeExpirationDate = best.expirationDate
         }
@@ -100,7 +67,7 @@ struct SupporterEntitlements: Equatable {
             result.hasAnySupport = true
             let purchaseDate = record.originalPurchaseDate
             result.earliestPurchase = min(result.earliestPurchase ?? purchaseDate, purchaseDate)
-            if product.tier == nil {
+            if !product.isSubscription {
                 result.tipCount += max(record.purchasedQuantity, 1)
                 // Every consumable purchase is its own transaction, so the
                 // original purchase date is that tip's date.
@@ -109,15 +76,9 @@ struct SupporterEntitlements: Equatable {
             if product.isIconTip {
                 result.hasIconTip = true
             }
-            if product.tier != nil, let expiration = record.expirationDate {
+            if product.isSubscription, let expiration = record.expirationDate {
                 result.latestSubscriptionExpiration = max(
                     result.latestSubscriptionExpiration ?? expiration,
-                    expiration
-                )
-            }
-            if product.tier == .directorsCut, let expiration = record.expirationDate {
-                result.latestDirectorsCutExpiration = max(
-                    result.latestDirectorsCutExpiration ?? expiration,
                     expiration
                 )
             }
@@ -126,27 +87,24 @@ struct SupporterEntitlements: Equatable {
         return result
     }
 
+    var hasActiveSubscription: Bool { activeProductID != nil }
+
     /// Whether the app icon that is currently set must be switched back to
     /// the default. Subscription perks only last while the subscription does:
-    /// a Director's Cut exclusive needs Director's Cut, a classic alternate
-    /// needs either level or a tip from Generous up (one-time, kept). Only
-    /// reverts once the App Store no longer shows the level *and* the last
-    /// known period of it has run out, so a transient empty entitlement read
-    /// mid-period never flips someone's icon.
+    /// Velvet, Emerald and Gilded need it, a classic alternate needs it or a
+    /// tip from Generous up (one-time, kept). Only reverts once the App Store
+    /// no longer shows a subscription *and* the last known period has run
+    /// out, so a transient empty entitlement read mid-period never flips
+    /// someone's icon.
     static func shouldRevertIcon(
         _ icon: DuskAppIcon,
-        activeTier: SupporterTier?,
+        hasActiveSubscription: Bool,
         hasIconTip: Bool,
         lastKnownSubscriptionExpiration: Date?,
-        lastKnownDirectorsCutExpiration: Date?,
         now: Date = Date()
     ) -> Bool {
-        guard icon.requiresSupporter else { return false }
-        if icon.requiresDirectorsCut {
-            guard activeTier != .directorsCut else { return false }
-            return lastKnownDirectorsCutExpiration.map { $0 <= now } ?? true
-        }
-        guard activeTier == nil, !hasIconTip else { return false }
+        guard icon.requiresSupporter, !hasActiveSubscription else { return false }
+        if !icon.requiresSubscription, hasIconTip { return false }
         return lastKnownSubscriptionExpiration.map { $0 <= now } ?? true
     }
 }
@@ -155,18 +113,8 @@ struct SupporterEntitlements: Equatable {
 /// subscription status' renewal info.
 struct SupporterRenewalPlan: Equatable {
     /// Product the subscription renews into (differs from the active product
-    /// after a downgrade or a monthly/yearly switch).
+    /// after a monthly/yearly switch).
     var nextProductID: String?
     var willAutoRenew: Bool
     var renewalDate: Date?
-
-    var nextTier: SupporterTier? {
-        nextProductID.flatMap { SupporterProduct(rawValue: $0)?.tier }
-    }
-
-    /// A move to a lower level that starts at the next renewal.
-    func pendingDowngrade(from activeTier: SupporterTier?) -> SupporterTier? {
-        guard willAutoRenew, let activeTier, let nextTier, nextTier < activeTier else { return nil }
-        return nextTier
-    }
 }

@@ -5,7 +5,7 @@ import Testing
 @testable import Dusk
 
 /// End-to-end purchase flows against the local `Dusk.storekit` configuration:
-/// buy, upgrade, downgrade, lapse, restore. Serialized because the StoreKit
+/// buy, switch plans, lapse, restore, refund. Serialized because the StoreKit
 /// test environment is shared process state.
 @Suite("Supporter StoreKit flows", .serialized)
 @MainActor
@@ -56,79 +56,58 @@ final class SupporterStoreKitTests {
         try session.expireSubscription(productIdentifier: productID)
     }
 
-    @Test func catalogLoadsBothLevels() async throws {
+    @Test func catalogHasOneSubscriptionWithTwoPlans() async throws {
         let store = await makeStore()
         #expect(!store.productsUnavailable)
-        #expect(store.products(for: .frontRow).map(\.id) == ["supporter.monthly", "supporter.yearly"])
-        #expect(store.products(for: .directorsCut).map(\.id) == ["directorscut.monthly", "directorscut.yearly"])
-        #expect(store.products(for: .directorsCut).map(\.price) == [Decimal(string: "4.99"), Decimal(string: "39.99")])
+        #expect(store.subscriptionProducts.map(\.id) == ["supporter.monthly", "supporter.yearly"])
+        #expect(store.subscriptionProducts.map(\.price) == [Decimal(string: "2.99"), Decimal(string: "24.99")])
         #expect(store.tipProducts.count == 4)
 
-        let frontRow = try product(.monthly, in: store)
-        let directorsCut = try product(.directorsCutMonthly, in: store)
-        #expect(frontRow.subscription?.subscriptionGroupID == directorsCut.subscription?.subscriptionGroupID)
-        #expect(frontRow.displayName == "Front Row Monthly")
-        // App Store levels count down: Director's Cut (1) outranks Front Row (2).
-        #expect(directorsCut.subscription?.groupLevel == 1)
-        #expect(frontRow.subscription?.groupLevel == 2)
-        // Family Sharing: on for Director's Cut, off for Front Row (as in App Store Connect).
-        #expect(directorsCut.isFamilyShareable)
-        #expect(!frontRow.isFamilyShareable)
+        let monthly = try product(.monthly, in: store)
+        let yearly = try product(.yearly, in: store)
+        #expect(monthly.displayName == "Dusk Supporter Monthly")
+        // Same group, same level: monthly <-> yearly is a crossgrade.
+        #expect(monthly.subscription?.subscriptionGroupID == yearly.subscription?.subscriptionGroupID)
+        #expect(monthly.subscription?.groupLevel == 1)
+        #expect(yearly.subscription?.groupLevel == 1)
+        // Family Sharing stays off, as for the plans that shipped in 1.6.
+        #expect(!monthly.isFamilyShareable)
+        #expect(!yearly.isFamilyShareable)
     }
 
-    @Test func buyUpgradeAndDowngrade() async throws {
+    @Test func subscriptionUnlocksEveryIconAndSwitchesPlanAtRenewal() async throws {
         let store = await makeStore()
         #expect(!store.isSupporter)
+        #expect(!store.isUnlocked(.neon))
 
-        // Buy Front Row.
         await store.purchase(try product(.monthly, in: store))
-        #expect(store.activeTier == .frontRow)
+        #expect(store.hasActiveSubscription)
         #expect(store.isSupporter)
-        #expect(!store.hasDirectorsCut)
-
-        // Upgrade: Director's Cut applies immediately.
-        await store.purchase(try product(.directorsCutMonthly, in: store))
-        #expect(await refresh(store) { $0.activeTier == .directorsCut })
-        #expect(store.activeProductID == "directorscut.monthly")
+        #expect(store.isUnlocked(.neon))
         #expect(store.isUnlocked(.gilded))
 
-        // Downgrade: scheduled for the next renewal, Director's Cut stays.
-        await store.purchase(try product(.monthly, in: store))
-        #expect(await refresh(store) { $0.pendingDowngradeTier == .frontRow })
-        #expect(store.activeTier == .directorsCut)
+        // Switching to yearly is scheduled for the next renewal.
+        await store.purchase(try product(.yearly, in: store))
+        #expect(await refresh(store) { $0.renewalPlan?.nextProductID == "supporter.yearly" })
+        #expect(store.activeProductID == "supporter.monthly")
         #expect(!store.shouldRevertIcon(.gilded))
 
-        // Renewal moves to Front Row and locks the exclusives.
-        try session.forceRenewalOfSubscription(productIdentifier: "directorscut.monthly")
-        #expect(await refresh(store) { $0.activeTier == .frontRow })
-        #expect(!store.isUnlocked(.velvet))
-        #expect(store.isUnlocked(.neon))
+        try session.forceRenewalOfSubscription(productIdentifier: "supporter.monthly")
+        #expect(await refresh(store) { $0.activeProductID == "supporter.yearly" })
+        #expect(store.isUnlocked(.velvet))
     }
 
-    @Test func directorsCutLapseRevertsExclusives() async throws {
+    @Test func lapseLocksIconsAndOnlyAGenerousTipBringsTheClassicsBack() async throws {
         let store = await makeStore()
-        await store.purchase(try product(.directorsCutYearly, in: store))
-        #expect(store.activeTier == .directorsCut)
+        await store.purchase(try product(.yearly, in: store))
         #expect(!store.shouldRevertIcon(.gilded))
 
-        try lapse("directorscut.yearly")
-        #expect(await refresh(store) { $0.activeTier == nil })
+        try lapse("supporter.yearly")
+        #expect(await refresh(store) { !$0.hasActiveSubscription })
         #expect(store.isSupporter)
         #expect(!store.isUnlocked(.gilded))
-        #expect(!store.isUnlocked(.aurora))
-        #expect(store.shouldRevertIcon(.gilded))
-        #expect(store.shouldRevertIcon(.aurora))
-    }
-
-    @Test func frontRowLapseLocksIconsUntilAGenerousTip() async throws {
-        let store = await makeStore()
-        await store.purchase(try product(.monthly, in: store))
-        #expect(store.isUnlocked(.neon))
-
-        try lapse("supporter.monthly")
-        #expect(await refresh(store) { $0.activeTier == nil })
-        #expect(store.isSupporter)
         #expect(!store.isUnlocked(.neon))
+        #expect(store.shouldRevertIcon(.gilded))
         #expect(store.shouldRevertIcon(.neon))
 
         // The Coffee tip is a thank-you only.
@@ -136,17 +115,19 @@ final class SupporterStoreKitTests {
         #expect(store.tipCount == 1)
         #expect(!store.isUnlocked(.neon))
 
-        // Generous and up are one-time purchases that keep the classic icons.
+        // Generous and up are one-time purchases that keep the classic icons,
+        // never the subscriber exclusives.
         await store.purchase(try product(.tipGenerous, in: store))
         #expect(store.hasIconTip)
         #expect(store.isUnlocked(.neon))
         #expect(!store.shouldRevertIcon(.neon))
         #expect(!store.isUnlocked(.velvet))
+        #expect(store.shouldRevertIcon(.velvet))
     }
 
     @Test func restoreRecoversStatusOnAFreshInstall() async throws {
         let buyer = await makeStore()
-        await buyer.purchase(try product(.directorsCutMonthly, in: buyer))
+        await buyer.purchase(try product(.monthly, in: buyer))
         await buyer.purchase(try product(.tipCoffee, in: buyer))
         #expect(buyer.tipCount == 1)
 
@@ -159,18 +140,20 @@ final class SupporterStoreKitTests {
 
         await fresh.restorePurchases()
         #expect(fresh.isSupporter)
-        #expect(fresh.activeTier == .directorsCut)
+        #expect(fresh.activeProductID == "supporter.monthly")
+        #expect(fresh.isUnlocked(.emerald))
         #expect(fresh.tipCount == 1)
         #expect(fresh.supporterSince != nil)
     }
 
-    @Test func refundRemovesDirectorsCut() async throws {
+    @Test func refundRemovesTheSubscription() async throws {
         let store = await makeStore()
-        await store.purchase(try product(.directorsCutMonthly, in: store))
-        let transaction = try #require(session.allTransactions().first { $0.productIdentifier == "directorscut.monthly" })
+        await store.purchase(try product(.monthly, in: store))
+        let transaction = try #require(session.allTransactions().first { $0.productIdentifier == "supporter.monthly" })
 
         try session.refundTransaction(identifier: UInt(transaction.identifier))
-        #expect(await refresh(store) { $0.activeTier == nil })
+        #expect(await refresh(store) { !$0.hasActiveSubscription })
         #expect(store.shouldRevertIcon(.gilded))
+        #expect(store.shouldRevertIcon(.neon))
     }
 }

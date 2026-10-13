@@ -10,9 +10,8 @@ import SwiftUI
 /// the supporter UI there only showcases the variants.
 ///
 /// Access comes in three steps: the primary icon is free, the classic
-/// alternates come with an active subscription of either level or a tip from
-/// Generous up, and
-/// Velvet/Emerald/Gilded only with an active Director's Cut. `SupporterStore`
+/// alternates come with an active subscription or a tip from Generous up, and
+/// Velvet/Emerald/Gilded only with an active subscription. `SupporterStore`
 /// switches back to the primary icon when a subscription lapses.
 enum DuskAppIcon: String, CaseIterable, Identifiable {
     case dusk
@@ -79,23 +78,23 @@ enum DuskAppIcon: String, CaseIterable, Identifiable {
     /// Only the primary icon is free; every alternate is a supporter perk.
     var requiresSupporter: Bool { self != .dusk }
 
-    /// Exclusive to an active Director's Cut subscription.
-    var requiresDirectorsCut: Bool {
+    /// Exclusive to an active subscription; no tip unlocks these.
+    var requiresSubscription: Bool {
         switch self {
         case .velvet, .emerald, .gilded: true
         default: false
         }
     }
 
-    /// The primary icon and the classic alternates (any subscription, or a tip
-    /// from Generous up).
-    static var supporterIcons: [DuskAppIcon] { allCases.filter { !$0.requiresDirectorsCut } }
+    /// The primary icon and the classic alternates (an active subscription, or
+    /// a tip from Generous up).
+    static var supporterIcons: [DuskAppIcon] { allCases.filter { !$0.requiresSubscription } }
 
-    /// Icons that only stay unlocked while Director's Cut is active.
-    static var directorsCutIcons: [DuskAppIcon] { allCases.filter(\.requiresDirectorsCut) }
+    /// Icons that only stay unlocked while a subscription is active.
+    static var subscriptionIcons: [DuskAppIcon] { allCases.filter(\.requiresSubscription) }
 
-    func isUnlocked(hasIconAccess: Bool, hasDirectorsCut: Bool) -> Bool {
-        if requiresDirectorsCut { return hasDirectorsCut }
+    func isUnlocked(hasIconAccess: Bool, hasActiveSubscription: Bool) -> Bool {
+        if requiresSubscription { return hasActiveSubscription }
         return !requiresSupporter || hasIconAccess
     }
 
@@ -117,6 +116,6 @@ enum DuskAppIcon: String, CaseIterable, Identifiable {
 
 extension SupporterStore {
     func isUnlocked(_ icon: DuskAppIcon) -> Bool {
-        icon.isUnlocked(hasIconAccess: hasIconAccess, hasDirectorsCut: hasDirectorsCut)
+        icon.isUnlocked(hasIconAccess: hasIconAccess, hasActiveSubscription: hasActiveSubscription)
     }
 }

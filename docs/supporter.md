@@ -1,8 +1,8 @@
 # Supporter Tier (In-App Purchases)
 
 Dusk stays fully free; the supporter tier is an optional tip jar with cosmetic
-perks. This doc covers the StoreKit flow, the two subscription levels, the
-prompt gating, the alternate app icons, and the App Store Connect setup.
+perks. This doc covers the StoreKit flow, the one subscription, the prompt
+gating, the alternate app icons, and the App Store Connect setup.
 
 ## Product Catalog
 
@@ -11,20 +11,23 @@ mirrored in the local test config `Dusk/Support/Dusk.storekit`. App Store
 Connect must define the same IDs (full metadata in
 [App Store Connect](#app-store-connect)):
 
-- **Front Row** (lower level): `supporter.monthly` $1.99/month,
-  `supporter.yearly` $14.99/year — auto-renewable, group "Dusk Supporter".
-  These IDs predate the levels; only display/reference names changed.
-- **Director's Cut** (higher level): `directorscut.monthly` $4.99/month,
-  `directorscut.yearly` $39.99/year — same group.
+- **Dusk Supporter** subscription: `supporter.monthly` $2.99/month,
+  `supporter.yearly` $24.99/year — auto-renewable, both on level 1 of group
+  "Dusk Supporter". These are the IDs that shipped in 1.6 (then $1.99 /
+  $14.99), so existing subscribers keep working with no migration and get
+  every subscription perk; App Store Connect keeps their old price (see
+  [Grandfathering](#grandfathering-existing-subscribers)).
 - `tip.{coffee,generous,legendary,patron}` — consumables at
   $2.99 / $9.99 / $19.99 / $49.99
 
-Both levels live in **one** subscription group so StoreKit owns level changes:
-an upgrade (Front Row → Director's Cut) starts immediately with a prorated
-credit, a downgrade starts at the next renewal, and monthly ↔ yearly within a
-level is a crossgrade. In the group, App Store levels count down: Director's
-Cut = level 1, Front Row = level 2 (`groupNumber` in `Dusk.storekit`). In code,
-`SupporterTier` orders the other way (`directorsCut > frontRow`).
+Monthly and yearly share one level, so switching between them is a crossgrade
+that StoreKit applies at the next renewal. On iOS the switch goes through
+Manage Subscription; tvOS lists both plans as rows (the other plan's row
+schedules the switch and then shows "Starts <date>").
+
+History: 1.7 development briefly had two levels (Front Row = `supporter.*`,
+Director's Cut = `directorscut.*`). That never shipped and is gone; the
+`directorscut.*` products are not in the app or `Dusk.storekit`.
 
 Prices are the agreed USD reference prices; App Store Connect is the source of
 truth for storefront pricing, and `Dusk.storekit` must mirror it so local
@@ -32,10 +35,9 @@ testing matches production.
 
 Tips are deliberately **consumables** so they can be purchased repeatedly
 ("support again"). Tip display names/descriptions shown in the sheet come from
-StoreKit product metadata (fallbacks for empty names only). Subscription rows
-sit inside a tier card titled with the level, so on iOS they are labeled
-"Monthly"/"Yearly" and the perks per level are app copy; tvOS rows use the
-StoreKit display name.
+StoreKit product metadata (fallbacks for empty names only). The iOS
+subscription card is app copy ("Dusk Supporter", perks) with StoreKit prices on
+its two buttons; tvOS rows use the StoreKit display name.
 
 ## Supporter Status Rules
 
@@ -46,34 +48,28 @@ other services) owns all state:
   title) is monotonic: any verified purchase sets
   it, `refreshEntitlements()` only ever upgrades it, and the UserDefaults cache
   is never downgraded by an empty/transient history read. **Perks are not:**
-  everything a subscription unlocks is only available while that subscription
-  is active — the six classic icons with either level, the three exclusives
-  with Director's Cut. **Tips:** Generous, Legendary and Patron
+  everything the subscription unlocks is only available while it is active —
+  the six classic icons and the three subscriber exclusives alike. **Tips:** Generous, Legendary and Patron
   (`SupporterProduct.isIconTip`) are one-time purchases that unlock the six
   classic icons for good (`hasIconTip`, monotonic and cached like `tipCount`);
   the Coffee tip is a thank-you only and unlocks nothing. No tip ever unlocks
-  the Director's Cut exclusives. "Yours to keep" is fine for those tips (iOS
+  the subscriber exclusives (Velvet, Emerald, Gilded). "Yours to keep" is fine for those tips (iOS
   tip rows show "Includes the six alternate icons, yours to keep"; tvOS says
   it in the tip section footer) — never write "forever", "for good" or "keep
   after cancelling" for subscription perks anywhere (sheet, picker, StoreKit /
   App Store Connect texts, review notes).
-- The **active level** (`activeTier`, `activeProductID`) is *not* monotonic:
-  it comes from `Transaction.currentEntitlements` on every read. The pure
-  resolution is `SupporterEntitlements.resolve` (`SupporterEntitlements.swift`):
-  ignores revoked, expired and `isUpgraded` transactions and picks the highest
-  level. A pending downgrade is not a transaction yet, so Director's Cut stays
-  in force until it renews into Front Row. `renewalPlan` (from the
-  transaction's `subscriptionStatus` renewal info) exposes the pending
-  downgrade / cancellation for the sheet's status line.
+- The **active subscription** (`hasActiveSubscription`, `activeProductID`)
+  is *not* monotonic: it comes from `Transaction.currentEntitlements` on every
+  read. The pure resolution is `SupporterEntitlements.resolve`
+  (`SupporterEntitlements.swift`): ignores revoked, expired and `isUpgraded`
+  transactions. `renewalPlan` (from the transaction's `subscriptionStatus`
+  renewal info) exposes a scheduled plan switch / cancellation for the status
+  line.
 - Lifetime evidence (`isSupporter`, `supporterSince`, `tipCount`,
   `hasIconTip`) comes from
   `Transaction.all`.
-- **Family Sharing** is on for Director's Cut only. Family members see the
-  shared transaction (`ownershipType == .familyShared`) in both reads, so they
-  get Director's Cut (incl. all its icons) while it is shared and — like any
-  verified transaction — get the monotonic supporter status. Leaving the
-  family revokes the transaction (`revocationDate`), which drops the level and
-  its icons.
+- **Family Sharing** is off for the subscription (as in 1.6). Turning it on
+  later is possible but can't be undone.
 - Entitlements are re-read on every transaction update, after purchases and
   restores, when the app becomes active (`sceneDidBecomeActive()` from
   `DuskApp`), and one second after the active period's expiration date if the
@@ -95,17 +91,18 @@ credentials — only call it from an explicit user action.
   for pitch, thank-you, and the prompts (`SupporterViewContext.prompt(number:)`
   adds a "Maybe Later" glass button and adapts the headline per prompt). iOS renders custom purchase rows; tvOS reuses
   `TVSettingsSection`/`TVSettingsActionRow` so focus behavior matches Settings.
-  Subscriptions render as two tier cards (iOS `SupporterTierCard`) / two
-  settings sections (tvOS): Front Row and Director's Cut, each with what it
-  gets and its monthly/yearly rows. Both stay visible while subscribed: the
-  current plan is marked and disabled, the other level's rows become the
-  upgrade/downgrade path (with a note on when it applies), and a scheduled
-  downgrade shows "Starts <date>" on its row. A status line under the header
-  shows level + renews/ends/switches date. Manage Subscription appears while
-  a subscription is active (iOS only, via `manageSubscriptionsSheet`; tvOS
-  footer points to the system Settings path).
-- App Review 3.1.2 requirements, keep them when restyling: every plan row
-  shows title (level + Monthly/Yearly), price and period; right under the
+  Under a "Recurring" heading the subscription is one card (iOS
+  `SupporterSubscriptionCard`, modelled on MealMate's): "Dusk Supporter", its
+  perks (all nine icons, the three subscriber exclusives shown as thumbnails),
+  then two price buttons ("$2.99 / month", "$24.99 / year") and "Yearly saves
+  N%". While subscribed the card shows an Active badge, the plan status
+  (Monthly/Yearly · renews / ends / switches on <date>) and Manage
+  Subscription instead of the buttons. tvOS shows a "Recurring" settings
+  section with the two plans as rows (current plan marked and disabled).
+  The header shows the same status line. Manage Subscription is iOS only (via
+  `manageSubscriptionsSheet`; tvOS footer points to the system Settings path).
+- App Review 3.1.2 requirements, keep them when restyling: every purchase
+  button/row shows price and period (and the card names the subscription); right under the
   plans comes the auto-renewal disclosure and the **Privacy Policy** and
   **Terms of Use (EULA)** links (iOS buttons; tvOS can't open URLs, so its
   Manage footer spells both addresses out).
@@ -115,11 +112,11 @@ credentials — only call it from an explicit user action.
   `AppIconPickerView`. tvOS keeps purchases available from this explicit
   Settings entry point but never presents automatic supporter prompts.
 - `SupporterIconShowcase` (in `SupporterView.swift`) previews all icons inside
-  the sheet — the classic set, a hairline, then the Director's Cut exclusives
-  (locked unless Director's Cut is active); on iOS unlocked tiles apply
+  the sheet — the classic set, a hairline, then the subscriber exclusives
+  (locked unless the subscription is active); on iOS unlocked tiles apply
   directly. tvOS can't scroll the non-focusable strip, so it shows the
   exclusives as a second labeled row. `AppIconPickerView` groups the same way ("Supporter Icons" /
-  "Director's Cut Exclusives"); locked tiles open the supporter sheet.
+  "Subscriber Exclusives"); locked tiles open the supporter sheet.
 
 ## Prompt Schedule
 
@@ -134,7 +131,7 @@ presenter. All intervals are constants at the top of `SupporterPromptSchedule`:
 | Gap after prompt 1 / 2 / 3+ (dismissed, nothing bought) | 60 / 120 / 180 days, then every 180 days |
 | Usage between prompts | ≥ 5 distinct usage days since the previous prompt |
 | After any tip (Coffee included) | snoozed 365 days from that purchase |
-| Active subscription (either level, incl. Family Sharing) | never |
+| Active subscription | never |
 | After a subscription ends | earliest 30 days after its expiry, then the normal gaps |
 
 - The pure rule is `SupporterPromptSchedule.shouldShow(_ State:now:)`
@@ -185,19 +182,20 @@ exist to catch bugs this feature is prone to:
   primary mark's alpha, recolored), with the shared `icon.json`. Previews are
   flattened 512px `IconPreview*` imagesets in `Assets.xcassets`, shared with tvOS.
 - Access (`DuskAppIcon.isUnlocked`): the primary "Dusk" icon is free; the six
-  classic alternates need an active subscription of either level or a tip from
-  Generous up (`SupporterStore.hasIconAccess`); three jewel-tone icons with a gold accent
-  only while Director's Cut is active (`requiresDirectorsCut`):
+  classic alternates need an active subscription or a tip from Generous up
+  (`SupporterStore.hasIconAccess`); three jewel-tone icons with a gold accent
+  only while the subscription is active (`requiresSubscription`):
   **Velvet** (cinema red, gold tip), **Emerald** (deep green, gold tip) and
   **Gilded** (polished gold on black lacquer).
-- **Lapse:** when the subscription that covers the current icon is no longer
-  active (Director's Cut for the exclusives; any level — and no tip from
-  Generous up — for the classic alternates), `SupporterStore` switches back to the primary icon after
-  an entitlement read — no in-app UI (iOS itself shows its standard one-line
+- **Lapse:** when the subscription is no longer active and the current icon
+  isn't otherwise covered (the exclusives never are; the classic alternates are
+  by a tip from Generous up), `SupporterStore.enforceIconAccess()` switches
+  back to the primary icon after an entitlement read — at launch, on every
+  return to the foreground, on transaction updates and one second after the
+  period ends while the app is open. No in-app UI (iOS itself shows its standard one-line
   "icon changed" alert; no public API suppresses it). Guard against transient
-  empty reads: the store caches the last known subscription and Director's Cut
-  expirations (`supporterSubscriptionExpiration`,
-  `supporterDirectorsCutExpiration`) and only reverts once that date has
+  empty reads: the store caches the last known subscription expiration
+  (`supporterSubscriptionExpiration`) and only reverts once that date has
   passed (`SupporterEntitlements.shouldRevertIcon`); a non-empty history read
   overrides the cache so refunds revert immediately.
   `setAlternateIconName` fails while the app is inactive; the next activation
@@ -213,18 +211,16 @@ exist to catch bugs this feature is prone to:
 - Build both targets (compile-only, per `AGENTS.md`).
 - `DuskTests` / `DuskTests-tvOS` (unit-test bundles hosted by the apps, wired
   into the `Dusk` / `Dusk-tvOS` schemes' Test action):
-  - `SupporterEntitlementsTests` — pure rules: level resolution (active,
-    upgrade with `isUpgraded`, pending downgrade, renewal into Front Row,
-    lapse, refund, tips), the icon revert rule (exclusives, classic icons,
-    Coffee vs. Generous-and-up tips), icon access, and the store's cache.
+  - `SupporterEntitlementsTests` — pure rules: subscription resolution
+    (active, a 1.6 subscriber, `isUpgraded`, plan switch at renewal, lapse,
+    refund, tips), the icon revert rule (exclusives, classic icons, Coffee vs.
+    Generous-and-up tips), icon access, and the store's cache.
   - `SupporterStoreKitTests` — StoreKitTest (`SKTestSession` with
-    `Dusk.storekit`, copied into the test bundle): catalog/levels/Family
-    Sharing, buy → upgrade → scheduled downgrade → forced renewal into Front
-    Row, Director's Cut lapse (auto-renew off + expire; expiring alone leaves
-    an auto-renewing test subscription in force), Front Row lapse then a Coffee
-    tip (still locked) and a Generous tip (unlocked),
-    restore on a fresh install,
-    refund. Serialized: the StoreKit test
+    `Dusk.storekit`, copied into the test bundle): catalog/level/prices/Family
+    Sharing, buy monthly → scheduled switch to yearly → forced renewal, lapse
+    (auto-renew off + expire; expiring alone leaves an auto-renewing test
+    subscription in force) then a Coffee tip (still locked) and a Generous tip
+    (classics back, exclusives locked), restore on a fresh install, refund. Serialized: the StoreKit test
     environment is shared state. Trap: the first run right after the app
     is (re)installed on a simulator can still hit the real sandbox (App Store
     Connect products, Apple Account sign-in on purchase) — run it again.
@@ -233,7 +229,7 @@ exist to catch bugs this feature is prone to:
   manager can grant/refund/expire test purchases, including testing that a
   refunded-free install still resolves supporter status from history.
 - App Store Connect prerequisites before release: the products and group
-  levels below, and privacy policy (`SettingsSupport.privacyPolicyURL`) and
+  level below, and privacy policy (`SettingsSupport.privacyPolicyURL`) and
   terms links resolving — both are App Review requirements for subscriptions.
 
 ## App Store Connect
@@ -243,63 +239,59 @@ App Store Connect derive the other storefronts as for the existing products.
 
 ### Subscription group "Dusk Supporter" (existing)
 
-Reorder the levels so Director's Cut sits above Front Row:
+One level only:
 
 | Level | Products |
 | ----- | -------- |
-| 1 (highest) | `directorscut.monthly`, `directorscut.yearly` |
-| 2 | `supporter.monthly`, `supporter.yearly` |
+| 1 | `supporter.monthly`, `supporter.yearly` |
 
-Products on the same level crossgrade (monthly ↔ yearly); moving to level 1 is
-an upgrade (immediate, prorated refund of the remaining period), to level 2 a
-downgrade (at the next renewal).
+### Subscription products (existing — edit)
 
-### Existing products — rename only (IDs, prices, everything else unchanged)
-
-| Product ID | Reference name | Display name EN | Display name DE |
-| ---------- | -------------- | --------------- | --------------- |
-| `supporter.monthly` | Front Row Monthly | Front Row Monthly | Front Row monatlich |
-| `supporter.yearly` | Front Row Yearly | Front Row Yearly | Front Row jährlich |
-
-Descriptions: EN stays "Ongoing support, cancel anytime." (or the current
-App Store Connect text); DE "Laufende Unterstützung, jederzeit kündbar."
-
-### New products
-
-| | `directorscut.monthly` | `directorscut.yearly` |
+| | `supporter.monthly` | `supporter.yearly` |
 | --- | --- | --- |
-| Type | Auto-renewable subscription | Auto-renewable subscription |
-| Group / level | Dusk Supporter / level 1 | Dusk Supporter / level 1 |
+| Level | 1 | 1 |
 | Duration | 1 month | 1 year |
-| Price (USD) | $4.99 | $39.99 |
-| Reference name | Director's Cut Monthly | Director's Cut Yearly |
-| Display name EN | Director's Cut Monthly | Director's Cut Yearly |
-| Description EN | Top-tier support + 3 exclusive app icons. | Top-tier support + 3 exclusive app icons. |
-| Display name DE | Director's Cut monatlich | Director's Cut jährlich |
-| Description DE | Größte Unterstützung + 3 exklusive Icons. | Größte Unterstützung + 3 exklusive Icons. |
-| Family Sharing | **On** | **On** |
+| Price (USD) | $2.99 (was $1.99) | $24.99 (was $14.99) |
+| Reference name | Dusk Supporter Monthly | Dusk Supporter Yearly |
+| Display name EN | Dusk Supporter Monthly | Dusk Supporter Yearly |
+| Description EN | Supports Dusk + all 9 alternate app icons. | Supports Dusk + all 9 alternate app icons. |
+| Display name DE | Dusk Supporter monatlich | Dusk Supporter jährlich |
+| Description DE | Unterstützt Dusk + alle 9 alternativen Icons. | Unterstützt Dusk + alle 9 alternativen Icons. |
+| Family Sharing | Off (unchanged) | Off (unchanged) |
 | Introductory / promotional offers | None | None |
 
 Display names ≤ 30 and descriptions ≤ 45 characters (App Store Connect
-limits). Availability: all storefronts where the app is sold, same as Front Row.
-Both Director's Cut products are final in App Store Connect. Family Sharing is
-on for Director's Cut and stays **off** for Front Row (`supporter.*`);
-`Dusk.storekit` mirrors that (`familyShareable`). Note that Family Sharing can't
-be switched off again once enabled for a product.
+limits).
 
-### Review notes (for both new products)
+### Grandfathering existing subscribers
 
-> Dusk is a free Plex client; all features stay free. Subscriptions are an
-> optional way to support development. "Director's Cut" is the higher level of
-> the existing "Dusk Supporter" group (above "Front Row"). It unlocks three
-> additional, exclusive alternate app icons (Velvet, Emerald and Gilded) on
-> iPhone and iPad while active. Both levels unlock the six standard alternate
-> icons while the subscription is active; when it ends, the app switches back
-> to the default icon. To review: Settings → "Support Dusk" (top row) opens the
-> supporter sheet; Settings → Appearance → App Icon shows the icons. No Plex
-> account is needed to view the purchase sheet after signing in with the demo
-> account provided in the app review information. On Apple TV the same sheet
-> is under Settings → Support; alternate icons are not available on tvOS.
+Apple only lets a price rise renew without the subscriber's consent if it is at
+most once a year and no more than US$5 **and** 50% (monthly) / US$50 **and**
+50% (yearly), and only where local law allows it. $1.99 → $2.99 is +50.3% and
+$14.99 → $24.99 is +66.7%, so both would need every subscriber's consent,
+and anyone who doesn't agree is cancelled at the next renewal. So: when
+scheduling the new prices, choose **"Keep current price for existing
+subscribers"** for both products. Existing subscribers keep $1.99 / $14.99
+and every perk; only new subscriptions pay $2.99 / $24.99.
+
+### Director's Cut products (never released — remove)
+
+`directorscut.monthly` and `directorscut.yearly` are no longer used. Delete
+them if App Store Connect allows it (never approved / never submitted with a
+build); otherwise remove them from sale. Their IDs can't be reused either way.
+
+### Review notes (both subscription products)
+
+> Dusk is a free Plex client; all features stay free. The "Dusk Supporter"
+> subscription (monthly or yearly) is an optional way to support development.
+> While it is active it unlocks nine alternate app icons on iPhone and iPad,
+> including three subscriber exclusives (Velvet, Emerald and Gilded); when it
+> ends, the app switches back to the default icon. To review: Settings →
+> "Support Dusk" (top row) opens the supporter sheet; Settings → Appearance →
+> App Icon shows the icons. No Plex account is needed to view the purchase
+> sheet after signing in with the demo account provided in the app review
+> information. On Apple TV the same sheet is under Settings → Support;
+> alternate icons are not available on tvOS.
 
 Screenshot for review: the supporter sheet on iPhone (flatten to JPEG —
 App Store Connect rejects Simulator PNGs with an alpha channel).

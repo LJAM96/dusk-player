@@ -161,19 +161,7 @@ struct SupporterView: View {
                     .font(.caption)
                     .foregroundStyle(Color.duskTextSecondary)
             }
-
-            if let subscriptionStatusText {
-                Text(subscriptionStatusText)
-                    .font(.caption.weight(.semibold))
-                    .foregroundStyle(Color.duskTextPrimary)
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 6)
-                    .background(Color.duskSurface, in: Capsule())
-                    .overlay {
-                        Capsule().strokeBorder(Color.duskAccent.opacity(0.35), lineWidth: 1)
-                    }
-                    .padding(.top, 2)
-            }
+            // The plan status lives on the subscription card.
         }
     }
 
@@ -202,18 +190,21 @@ struct SupporterView: View {
             }
         } else {
             VStack(alignment: .leading, spacing: 24) {
-                if !store.subscriptionProducts.isEmpty {
+                if !store.subscriptionProducts.isEmpty || store.hasActiveSubscription {
                     VStack(alignment: .leading, spacing: 10) {
-                        sectionLabel(store.hasActiveSubscription ? "Your Subscription" : "Recurring")
+                        sectionLabel("Recurring")
 
-                        VStack(spacing: 14) {
-                            ForEach(SupporterTier.allCases) { tier in
-                                let products = store.products(for: tier)
-                                if !products.isEmpty {
-                                    tierCard(tier, products: products)
-                                }
+                        SupporterSubscriptionCard(
+                            status: subscriptionStatusText,
+                            purchase: { product in
+                                report(.supporterPurchaseTapped, ["product": .string(product.id)])
+                                Task { await store.purchase(product) }
+                            },
+                            manage: {
+                                report(.supporterManageSubscriptionTapped)
+                                showsManageSubscriptions = true
                             }
-                        }
+                        )
 
                         Text(subscriptionFootnote)
                             .font(.caption)
@@ -250,41 +241,6 @@ struct SupporterView: View {
             .foregroundStyle(Color.duskTextSecondary)
     }
 
-    private func tierCard(_ tier: SupporterTier, products: [Product]) -> some View {
-        SupporterTierCard(
-            tier: tier,
-            isCurrent: store.activeTier == tier,
-            note: tierNote(for: tier)
-        ) {
-            ForEach(products, id: \.id) { product in
-                SupporterPlanRow(
-                    title: SupporterProduct(rawValue: product.id)?.isYearly == true ? "Yearly" : "Monthly",
-                    price: product.displayPrice,
-                    priceSuffix: priceSuffix(for: product),
-                    state: planRowState(for: product),
-                    isHighlighted: SupporterProduct(rawValue: product.id)?.isYearly == true
-                ) {
-                    report(.supporterPurchaseTapped, ["product": .string(product.id)])
-                    Task { await store.purchase(product) }
-                }
-                .disabled(store.purchasingProductID != nil || store.activeProductID == product.id)
-            }
-        }
-    }
-
-    private func planRowState(for product: Product) -> SupporterPlanRow.RowState {
-        if store.purchasingProductID == product.id { return .purchasing }
-        if store.activeProductID == product.id { return .current }
-        if let plan = store.renewalPlan,
-           plan.willAutoRenew,
-           plan.nextProductID == product.id,
-           plan.nextProductID != store.activeProductID,
-           let date = plan.renewalDate {
-            return .scheduled(date.formatted(date: .abbreviated, time: .omitted))
-        }
-        return .available
-    }
-
     private func productSection(title: String, footnote: String, products: [Product]) -> some View {
         VStack(alignment: .leading, spacing: 10) {
             sectionLabel(title)
@@ -319,7 +275,9 @@ struct SupporterView: View {
                 .multilineTextAlignment(.center)
 
             #if os(iOS)
-            if store.hasActiveSubscription {
+            // The subscription card carries Manage Subscription; this is the
+            // fallback while the products can't load.
+            if store.hasActiveSubscription && store.subscriptionProducts.isEmpty {
                 Button("Manage Subscription") {
                     report(.supporterManageSubscriptionTapped)
                     showsManageSubscriptions = true
@@ -537,15 +495,9 @@ struct SupporterView: View {
                     .padding(.leading, TVSettingsMetrics.contentInset)
             }
         } else {
-            ForEach(SupporterTier.allCases) { tier in
-                let products = store.products(for: tier)
-                if !products.isEmpty {
-                    TVSettingsSection(
-                        title: store.activeTier == tier ? "\(tier.displayName) · Current" : tier.displayName,
-                        footer: tvTierFooter(for: tier)
-                    ) {
-                        tvProductRows(products)
-                    }
+            if !store.subscriptionProducts.isEmpty {
+                TVSettingsSection(title: "Recurring", footer: tvSubscriptionFooter) {
+                    tvProductRows(store.subscriptionProducts)
                 }
             }
 
@@ -588,10 +540,12 @@ struct SupporterView: View {
         }
     }
 
-    private func tvTierFooter(for tier: SupporterTier) -> String {
-        var text = tierPerksSentence(for: tier)
-        if let note = tierNote(for: tier) {
-            text += " " + note
+    private var tvSubscriptionFooter: String {
+        var text = store.hasActiveSubscription
+            ? "Thank you for subscribing. Your subscription includes all nine alternate app icons on iPhone and iPad, Velvet, Emerald and Gilded too."
+            : "Dusk Supporter, monthly or yearly: all nine alternate app icons on iPhone and iPad while your subscription is active, including the subscriber-exclusive Velvet, Emerald and Gilded. Cancel anytime."
+        if store.hasActiveSubscription {
+            text += " Switching between monthly and yearly takes effect at your next renewal."
         }
         return text
     }
@@ -607,7 +561,7 @@ struct SupporterView: View {
 
     #if os(tvOS)
     private var tvManageFooter: String {
-        "Everything in Dusk stays free either way. \(Self.renewalDisclosure) Upgrades start right away; switching down takes effect at the next renewal. \(Self.subscriptionPerksNote) Manage or cancel subscriptions in Settings → Users & Accounts → Subscriptions. Privacy Policy: getdusk.app/privacy · Terms of Use (EULA): apple.com/legal/internet-services/itunes/dev/stdeula"
+        "Everything in Dusk stays free either way. \(Self.renewalDisclosure) \(Self.subscriptionPerksNote) Manage or cancel subscriptions in Settings → Users & Accounts → Subscriptions. Privacy Policy: getdusk.app/privacy · Terms of Use (EULA): apple.com/legal/internet-services/itunes/dev/stdeula"
     }
 
     /// Plain-text equivalent of the iOS plan-row state for the tvOS detail column.
@@ -623,14 +577,6 @@ struct SupporterView: View {
         return nil
     }
 
-    private func tierPerksSentence(for tier: SupporterTier) -> String {
-        switch tier {
-        case .frontRow:
-            "Six alternate app icons on iPhone and iPad while your subscription is active."
-        case .directorsCut:
-            "Everything in Front Row, plus the exclusive Velvet, Emerald and Gilded icons on iPhone and iPad while it's active — and the biggest boost for Dusk's development."
-        }
-    }
     #endif
 
     private var headlineText: String {
@@ -669,10 +615,8 @@ struct SupporterView: View {
 
     private func fallbackName(for product: Product) -> String {
         switch SupporterProduct(rawValue: product.id) {
-        case .monthly: "Front Row Monthly"
-        case .yearly: "Front Row Yearly"
-        case .directorsCutMonthly: "Director's Cut Monthly"
-        case .directorsCutYearly: "Director's Cut Yearly"
+        case .monthly: "Dusk Supporter Monthly"
+        case .yearly: "Dusk Supporter Yearly"
         case .tipCoffee: "Coffee Tip"
         case .tipGenerous: "Generous Tip"
         case .tipLegendary: "Legendary Tip"
@@ -693,35 +637,22 @@ struct SupporterView: View {
         return "\(product.displayPrice) / \(supporterProduct.isYearly ? "year" : "month")"
     }
 
-    /// One line about the active subscription: level plus what happens next.
+    /// One line about the active subscription: plan plus what happens next.
     private var subscriptionStatusText: String? {
-        guard let tier = store.activeTier else { return nil }
-        let plan = store.renewalPlan
-        let date = (plan?.renewalDate ?? store.activeExpirationDate)?
+        guard let productID = store.activeProductID else { return nil }
+        let plan = SupporterProduct(rawValue: productID)?.isYearly == true ? "Yearly" : "Monthly"
+        let renewal = store.renewalPlan
+        let date = (renewal?.renewalDate ?? store.activeExpirationDate)?
             .formatted(date: .abbreviated, time: .omitted)
-        if let downgrade = store.pendingDowngradeTier, let date {
-            return "\(tier.displayName) · switches to \(downgrade.displayName) on \(date)"
+        guard let date else { return plan }
+        if let renewal, !renewal.willAutoRenew {
+            return "\(plan) · ends on \(date)"
         }
-        if let plan, !plan.willAutoRenew, let date {
-            return "\(tier.displayName) · ends on \(date)"
+        if let next = renewal?.nextProductID, next != productID,
+           let nextProduct = SupporterProduct(rawValue: next) {
+            return "\(plan) · switches to \(nextProduct.isYearly ? "yearly" : "monthly") on \(date)"
         }
-        if let date {
-            return "\(tier.displayName) · renews on \(date)"
-        }
-        return tier.displayName
-    }
-
-    /// Context under a tier card while a subscription is active: how moving
-    /// to this level would work.
-    private func tierNote(for tier: SupporterTier) -> String? {
-        guard let active = store.activeTier, active != tier else { return nil }
-        if tier > active {
-            return "Upgrading starts right away; the App Store credits what's left of your current period."
-        }
-        if store.pendingDowngradeTier == tier {
-            return "Your switch to \(tier.displayName) is scheduled for the next renewal."
-        }
-        return "Switching to \(tier.displayName) takes effect at your next renewal."
+        return "\(plan) · renews on \(date)"
     }
 
     /// Auto-renewal disclosure for the subscription offer (App Review 3.1.2).
@@ -734,11 +665,7 @@ struct SupporterView: View {
     private static let subscriptionPerksNote = "Subscription perks are available while the subscription is active."
 
     private var subscriptionFootnote: String {
-        // While subscribed, each card already explains how its switch applies.
-        let switching = store.hasActiveSubscription
-            ? ""
-            : " Upgrades start right away; switching down takes effect at the next renewal."
-        return Self.renewalDisclosure + switching + " \(Self.subscriptionPerksNote) Cancel anytime in your App Store settings."
+        Self.renewalDisclosure + " \(Self.subscriptionPerksNote) Cancel anytime in your App Store settings."
     }
 }
 
@@ -820,29 +747,40 @@ private struct SupporterProductRow: View {
 }
 #endif
 
-// MARK: - iOS tier card
+// MARK: - iOS subscription card
 
 #if !os(tvOS)
-/// One subscription level: name, what it gets you, and its monthly/yearly
-/// plan rows. Director's Cut gets a warm coral-to-gold hairline so the two
-/// levels read as distinct at a glance without a pushy badge.
-private struct SupporterTierCard<Rows: View>: View {
-    let tier: SupporterTier
-    let isCurrent: Bool
-    let note: String?
-    @ViewBuilder let rows: Rows
+/// The one subscription: what it includes, then its two billing periods side
+/// by side. While subscribed (a plan from before 1.7 included — same product
+/// IDs) it shows the plan status and Manage Subscription instead; switching
+/// between monthly and yearly goes through Manage Subscription.
+private struct SupporterSubscriptionCard: View {
+    let status: String?
+    let purchase: (Product) -> Void
+    let manage: () -> Void
+
+    @Environment(SupporterStore.self) private var store
 
     private let shape = RoundedRectangle(cornerRadius: 22, style: .continuous)
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 14) {
+        VStack(alignment: .leading, spacing: 16) {
             HStack(alignment: .firstTextBaseline, spacing: 8) {
-                Text(tier.displayName)
-                    .font(.headline.weight(.bold))
-                    .foregroundStyle(Color.duskTextPrimary)
+                VStack(alignment: .leading, spacing: 3) {
+                    Text("Dusk Supporter")
+                        .font(.headline.weight(.bold))
+                        .foregroundStyle(Color.duskTextPrimary)
 
-                if isCurrent {
-                    Text("Current")
+                    Text(subtitle)
+                        .font(.subheadline)
+                        .foregroundStyle(Color.duskTextSecondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+
+                Spacer(minLength: 8)
+
+                if store.hasActiveSubscription {
+                    Text("Active")
                         .font(.caption2.weight(.bold))
                         .textCase(.uppercase)
                         .tracking(0.5)
@@ -851,74 +789,29 @@ private struct SupporterTierCard<Rows: View>: View {
                         .padding(.vertical, 3)
                         .background(Color.duskAccent.opacity(0.14), in: Capsule())
                 }
-
-                Spacer(minLength: 0)
             }
 
-            Text(tagline)
-                .font(.subheadline)
-                .foregroundStyle(Color.duskTextSecondary)
-                .fixedSize(horizontal: false, vertical: true)
-
-            VStack(alignment: .leading, spacing: 8) {
-                ForEach(perks, id: \.self) { perk in
-                    perkRow(perk)
-                }
-
-                if tier == .directorsCut {
-                    exclusiveIconsPerk
-                }
+            VStack(alignment: .leading, spacing: 9) {
+                perkRow("All nine alternate app icons")
+                exclusiveIconsPerk
+                perkRow("Keeps Dusk free, ad-free and independent")
             }
 
-            VStack(spacing: 8) {
-                rows
-            }
-
-            if let note {
-                Text(note)
-                    .font(.caption)
-                    .foregroundStyle(Color.duskTextSecondary)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
+            actions
         }
         .padding(18)
         .background(Color.duskSurface, in: shape)
         .overlay {
-            switch tier {
-            case .frontRow:
-                shape.strokeBorder(
-                    isCurrent ? Color.duskAccent.opacity(0.45) : Color.primary.opacity(0.05),
-                    lineWidth: 1
-                )
-            case .directorsCut:
-                shape.strokeBorder(
-                    LinearGradient(
-                        colors: [Color.duskAccent.opacity(isCurrent ? 0.9 : 0.55), gold.opacity(isCurrent ? 0.9 : 0.55)],
-                        startPoint: .topLeading,
-                        endPoint: .bottomTrailing
-                    ),
-                    lineWidth: 1
-                )
-            }
+            shape.strokeBorder(
+                store.hasActiveSubscription ? Color.duskAccent.opacity(0.45) : Color.primary.opacity(0.05),
+                lineWidth: 1
+            )
         }
     }
 
-    private var gold: Color { Color(red: 0.91, green: 0.72, blue: 0.36) }
-
-    private var tagline: String {
-        switch tier {
-        case .frontRow: "The classic supporter seat."
-        case .directorsCut: "For the biggest fans — the most support for Dusk's development."
-        }
-    }
-
-    private var perks: [String] {
-        switch tier {
-        case .frontRow:
-            ["Six alternate app icons", "Cancel anytime"]
-        case .directorsCut:
-            ["Everything in Front Row"]
-        }
+    private var subtitle: String {
+        guard store.hasActiveSubscription else { return "Monthly or yearly. Cancel anytime." }
+        return status ?? "Thank you for subscribing."
     }
 
     private func perkRow(_ text: String) -> some View {
@@ -930,6 +823,7 @@ private struct SupporterTierCard<Rows: View>: View {
             Text(text)
                 .font(.footnote)
                 .foregroundStyle(Color.duskTextPrimary)
+                .fixedSize(horizontal: false, vertical: true)
         }
     }
 
@@ -939,12 +833,12 @@ private struct SupporterTierCard<Rows: View>: View {
                 .font(.caption.weight(.bold))
                 .foregroundStyle(Color.duskAccent)
 
-            Text("Three exclusive icons")
+            Text("Three subscriber exclusives")
                 .font(.footnote)
                 .foregroundStyle(Color.duskTextPrimary)
 
             HStack(spacing: 5) {
-                ForEach(DuskAppIcon.directorsCutIcons) { icon in
+                ForEach(DuskAppIcon.subscriptionIcons) { icon in
                     Image(icon.previewImageName)
                         .resizable()
                         .scaledToFit()
@@ -959,80 +853,69 @@ private struct SupporterTierCard<Rows: View>: View {
             }
         }
     }
-}
-
-/// A monthly or yearly plan inside a tier card.
-private struct SupporterPlanRow: View {
-    enum RowState: Equatable {
-        case available
-        case purchasing
-        case current
-        /// The subscription renews into this plan on the given (formatted) date.
-        case scheduled(String)
-    }
-
-    let title: String
-    let price: String
-    let priceSuffix: String?
-    let state: RowState
-    /// Accent border used to gently spotlight the yearly option.
-    let isHighlighted: Bool
-    let action: () -> Void
-
-    private let shape = RoundedRectangle(cornerRadius: 14, style: .continuous)
-
-    var body: some View {
-        Button(action: action) {
-            HStack(spacing: 12) {
-                Text(title)
-                    .font(.subheadline.weight(.semibold))
-                    .foregroundStyle(Color.duskTextPrimary)
-
-                Spacer()
-
-                trailing
-            }
-            .padding(.horizontal, 14)
-            .padding(.vertical, 12)
-            .background(Color.primary.opacity(0.04), in: shape)
-            .overlay {
-                shape.strokeBorder(
-                    isHighlighted && state == .available ? Color.duskAccent.opacity(0.35) : Color.primary.opacity(0.05),
-                    lineWidth: 1
-                )
-            }
-            .contentShape(shape)
-        }
-        .buttonStyle(.plain)
-    }
 
     @ViewBuilder
-    private var trailing: some View {
-        switch state {
-        case .purchasing:
-            ProgressView()
+    private var actions: some View {
+        if store.hasActiveSubscription {
+            Button("Manage Subscription", action: manage)
+                .font(.subheadline.weight(.semibold))
+                .buttonStyle(.bordered)
+                .buttonBorderShape(.capsule)
                 .tint(Color.duskAccent)
-        case .current:
-            Label("Current Plan", systemImage: "checkmark.circle.fill")
-                .font(.footnote.weight(.semibold))
-                .foregroundStyle(Color.duskAccent)
-        case .scheduled(let date):
-            Text("Starts \(date)")
-                .font(.footnote.weight(.semibold))
-                .foregroundStyle(Color.duskTextSecondary)
-        case .available:
-            HStack(alignment: .firstTextBaseline, spacing: 4) {
-                Text(price)
-                    .font(.callout.weight(.semibold))
-                    .foregroundStyle(Color.duskTextPrimary)
+        } else if !store.subscriptionProducts.isEmpty {
+            VStack(alignment: .leading, spacing: 8) {
+                ViewThatFits(in: .horizontal) {
+                    HStack(spacing: 10) { priceButtons }
+                    VStack(spacing: 8) { priceButtons }
+                }
 
-                if let priceSuffix {
-                    Text(priceSuffix)
-                        .font(.caption2)
+                if let savings {
+                    Text(savings)
+                        .font(.footnote)
                         .foregroundStyle(Color.duskTextSecondary)
                 }
             }
         }
+    }
+
+    @ViewBuilder
+    private var priceButtons: some View {
+        ForEach(store.subscriptionProducts, id: \.id) { product in
+            let isYearly = SupporterProduct(rawValue: product.id)?.isYearly == true
+            Button {
+                purchase(product)
+            } label: {
+                ZStack {
+                    Text("\(product.displayPrice) / \(isYearly ? "year" : "month")")
+                        .monospacedDigit()
+                        .opacity(store.purchasingProductID == product.id ? 0 : 1)
+
+                    if store.purchasingProductID == product.id {
+                        ProgressView()
+                            .controlSize(.small)
+                    }
+                }
+                .font(.subheadline.weight(.semibold))
+                .frame(maxWidth: .infinity)
+            }
+            .buttonStyle(.bordered)
+            .buttonBorderShape(.capsule)
+            .controlSize(.large)
+            .tint(Color.duskAccent)
+            .disabled(store.purchasingProductID != nil)
+            .accessibilityLabel("Dusk Supporter \(isYearly ? "Yearly" : "Monthly"), \(product.displayPrice) per \(isYearly ? "year" : "month")")
+        }
+    }
+
+    /// "Yearly saves 30%." from the monthly and yearly prices.
+    private var savings: String? {
+        let products = store.subscriptionProducts
+        guard let monthly = products.first(where: { $0.id == SupporterProduct.monthly.rawValue }),
+              let yearly = products.first(where: { $0.id == SupporterProduct.yearly.rawValue }),
+              monthly.price > 0 else { return nil }
+        let ratio = (yearly.price / (monthly.price * 12) as NSDecimalNumber).doubleValue
+        let percent = Int(((1 - ratio) * 100).rounded())
+        return percent > 0 ? "Yearly saves \(percent)%." : nil
     }
 }
 #endif
@@ -1040,7 +923,7 @@ private struct SupporterPlanRow: View {
 // MARK: - Icon showcase
 
 /// Horizontal strip of every app icon variant: the supporter icons, then the
-/// Director's Cut exclusives after a hairline. Inside the supporter sheet it
+/// subscriber exclusives after a hairline. Inside the supporter sheet it
 /// advertises the perks before purchase; on iOS unlocked tiles double as a
 /// quick picker (tap to apply). tvOS shows it as a static showcase since
 /// alternate icons only apply on iPhone and iPad.
@@ -1088,7 +971,7 @@ struct SupporterIconShowcase: View {
                 }
             }
 
-            Text("Director's Cut Exclusives")
+            Text("Subscriber Exclusives")
                 .font(DuskFont.groupHeader(ios: .footnote.weight(.semibold)))
                 .textCase(.uppercase)
                 .tracking(0.6)
@@ -1096,7 +979,7 @@ struct SupporterIconShowcase: View {
                 .padding(.top, 8)
 
             HStack(alignment: .top, spacing: Self.tileSpacing) {
-                ForEach(DuskAppIcon.directorsCutIcons) { icon in
+                ForEach(DuskAppIcon.subscriptionIcons) { icon in
                     tile(for: icon)
                 }
             }
@@ -1112,7 +995,7 @@ struct SupporterIconShowcase: View {
                         .frame(width: 1, height: tileSize * 0.8)
                         .padding(.top, tileSize * 0.1)
 
-                    ForEach(DuskAppIcon.directorsCutIcons) { icon in
+                    ForEach(DuskAppIcon.subscriptionIcons) { icon in
                         tile(for: icon)
                     }
                 }
@@ -1135,7 +1018,7 @@ struct SupporterIconShowcase: View {
         }
         #if os(iOS)
         .onAppear { currentIcon = DuskAppIcon.current }
-        .onChange(of: store.activeTier) { _, _ in
+        .onChange(of: store.hasActiveSubscription) { _, _ in
             // Picks up the silent switch back to the default icon on lapse.
             currentIcon = DuskAppIcon.current
         }
@@ -1149,7 +1032,7 @@ struct SupporterIconShowcase: View {
 
             Text(icon.displayName)
                 .font(DuskFont.cardSubtitle(ios: .caption2))
-                .foregroundStyle(icon.requiresDirectorsCut ? Color.duskTextPrimary : Color.duskTextSecondary)
+                .foregroundStyle(icon.requiresSubscription ? Color.duskTextPrimary : Color.duskTextSecondary)
                 .lineLimit(1)
         }
         #if os(iOS)
@@ -1188,21 +1071,21 @@ struct SupporterIconShowcase: View {
     }
 
     private var captionText: String {
-        let exclusives = "Velvet, Emerald and Gilded are Director's Cut exclusives"
+        let exclusives = "Velvet, Emerald and Gilded come with the subscription only"
         #if os(tvOS)
-        if store.hasDirectorsCut {
-            return "App icons are applied on iPhone and iPad — the Director's Cut exclusives included."
+        if store.hasActiveSubscription {
+            return "App icons are applied on iPhone and iPad — the subscriber exclusives included."
         }
         return store.hasIconAccess
             ? "App icons are applied on iPhone and iPad. \(exclusives)."
             : "Supporting unlocks the alternate app icons on iPhone and iPad. \(exclusives)."
         #else
-        if store.hasDirectorsCut {
+        if store.hasActiveSubscription {
             return "Tap an icon to apply it."
         }
         return store.hasIconAccess
             ? "Tap an icon to apply it. \(exclusives)."
-            : "An active subscription or a tip from Generous up unlocks six icons. \(exclusives)."
+            : "The subscription unlocks all nine icons, a tip from Generous up the six classic ones."
         #endif
     }
 
