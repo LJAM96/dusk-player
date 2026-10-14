@@ -115,16 +115,13 @@ final class TopShelfPublisher {
         TVTopShelfContentProvider.topShelfContentDidChange()
     }
 
-    /// Started items under Continue Watching, the not-yet-started next episodes
-    /// Plex puts in the same hub under Up Next, each in Home's order.
+    /// One Continue Watching section, exactly as Home shows it: started items
+    /// and next episodes mixed, in `ContinueWatchingMerge`'s order.
     private static func makeSnapshot(_ entries: [Entry]) -> TopShelfSnapshot {
-        let started = entries.filter { $0.item.progress != nil }
-        let upNext = entries.filter { $0.item.progress == nil }
-        let sections = [
-            TopShelfSnapshot.Section(title: "Continue Watching", items: started.map(\.item)),
-            TopShelfSnapshot.Section(title: "Up Next", items: upNext.map(\.item)),
-        ]
-        return TopShelfSnapshot(sections: sections.filter { !$0.items.isEmpty })
+        guard !entries.isEmpty else { return TopShelfSnapshot(sections: []) }
+        return TopShelfSnapshot(sections: [
+            TopShelfSnapshot.Section(title: "Continue Watching", items: entries.map(\.item)),
+        ])
     }
 }
 

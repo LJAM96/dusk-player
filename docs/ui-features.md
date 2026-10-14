@@ -557,9 +557,10 @@ in Dusk. Read this with `docs/codebase-map.md`, `STYLE.md`, and `docs/data-and-p
 
 - The `DuskTopShelf` app extension (tvOS only, bundle id
   `com.dusk-player.app.topshelf`) shows Continue Watching in the Top Shelf when
-  Dusk sits in the Home Screen's top row: sectioned content, 16:9 tiles,
-  "Continue Watching" (started items, with progress) and "Up Next" (Plex's
-  not-yet-started next episodes), each in Home's order, at most 10 items.
+  Dusk sits in the Home Screen's top row: sectioned content, 16:9 tiles, one
+  "Continue Watching" section that is Home's merged list as-is (started items
+  with progress and next episodes mixed, `ContinueWatchingMerge` order), at
+  most 10 items. No separate "Up Next" section; the app never splits them.
 - **The extension never talks to Plex.** `TopShelfPublisher`
   (`Dusk/Sources/TopShelf/`) is called from `HomeViewModel.publish` on every
   Continue Watching publish; it caches each tile's artwork with the app's own
