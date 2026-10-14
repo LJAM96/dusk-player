@@ -732,6 +732,10 @@ struct HomeCinematicHero: View {
     }
 
     private func rotateHeroIfNeeded() async {
+        #if DEBUG
+        // Screenshot mode holds the first slide so captures are deterministic.
+        if ScreenshotMode.isActive { return }
+        #endif
         guard autoRotates,
               heroItemIDs.count > 1,
               !accessibilityReduceMotion,

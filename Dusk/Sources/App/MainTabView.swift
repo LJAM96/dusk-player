@@ -79,6 +79,12 @@ struct MainTabView: View {
             #if !os(tvOS)
             .supporterPromptPresenter()
             #endif
+            #if DEBUG
+            .task(id: plexService.serverContentRevision) {
+                await applyScreenshotDestination()
+            }
+            .modifier(ScreenshotSheetPresenter())
+            #endif
             #if os(tvOS)
             // Re-checked whenever a server connects: a cold launch from the
             // Top Shelf delivers the link before the item's server is up.
@@ -395,6 +401,38 @@ struct MainTabView: View {
         }
     }
 }
+
+#if DEBUG
+private extension MainTabView {
+    /// Screenshot mode (`ScreenshotMode`): opens the requested screen once the
+    /// demo server and its libraries are in.
+    func applyScreenshotDestination() async {
+        guard ScreenshotMode.isActive else { return }
+        for _ in 0..<60 {
+            if let destination = await ScreenshotMode.consumeDestination(
+                plexService: plexService,
+                libraries: librariesViewModel?.libraries ?? [],
+                downloadManager: downloadManager
+            ) {
+                if selectedTab != destination.tab {
+                    selectedTab = destination.tab
+                }
+                setPath(NavigationPath(destination.routes), for: destination.tab)
+                ScreenshotMode.pendingSheet = destination.sheet
+                if let playID = destination.playID {
+                    await playback.playForScreenshot(
+                        id: playID,
+                        startPosition: destination.playOffsetMilliseconds.map { TimeInterval($0) / 1000 }
+                    )
+                }
+                return
+            }
+            try? await Task.sleep(for: .milliseconds(250))
+            if Task.isCancelled { return }
+        }
+    }
+}
+#endif
 
 #if os(tvOS)
 private struct TopShelfLinkAttempt: Equatable {

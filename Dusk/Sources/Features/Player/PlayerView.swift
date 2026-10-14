@@ -1300,6 +1300,9 @@ private struct PlayerSessionView: View {
         hudController.backwardSeekInterval = preferences.playerDoubleTapBackwardInterval.timeInterval
         hudController.forwardSeekInterval = preferences.playerDoubleTapForwardInterval.timeInterval
         hudController.syncControlsVisibility(viewModel.showControls)
+        #if DEBUG
+        ScreenshotMode.replayTVRemoteInputs(into: hudController)
+        #endif
     }
     #endif
 }

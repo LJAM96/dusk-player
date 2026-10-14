@@ -576,6 +576,20 @@ final class PlaybackCoordinator {
         )
     }
 
+    #if DEBUG
+    /// Screenshot mode (`ScreenshotMode`): starts at an exact position instead
+    /// of the item's resume point.
+    func playForScreenshot(id: PlexItemID, startPosition: TimeInterval?) async {
+        await beginPlayback(
+            id: id,
+            startPositionOverride: startPosition,
+            resumeOffsetMilliseconds: nil,
+            selectedMediaID: nil,
+            placeholder: nil
+        )
+    }
+    #endif
+
     /// An explicitly chosen media version stays on the server it was chosen
     /// from: another server's copy of the same title has entirely different
     /// versions, so falling back would silently play something else.

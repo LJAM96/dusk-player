@@ -39,6 +39,12 @@ struct SearchRootContent: View {
                     plexService: plexService,
                     seerrService: seerrService
                 )
+                #if DEBUG
+                if let query = ScreenshotMode.searchQuery, let viewModel {
+                    viewModel.query = query
+                    viewModel.searchDebounced()
+                }
+                #endif
             }
         }
     }

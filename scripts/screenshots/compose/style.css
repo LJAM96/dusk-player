@@ -1,0 +1,76 @@
+/* Base styles for composed App Store screenshots. Geometry comes inline from
+   compose.py; this file holds the look that is the same for every panel. */
+* { box-sizing: border-box; margin: 0; padding: 0; }
+html, body { background: #08090b; overflow: hidden; }
+#canvas {
+  position: absolute; left: 0; top: 0; overflow: hidden;
+  /* SF Pro via the system font; optical sizing picks the Display cut at
+     headline sizes. (-apple-system does not resolve in headless Chrome.) */
+  font-family: system-ui, BlinkMacSystemFont, "Helvetica Neue", sans-serif;
+  font-optical-sizing: auto;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: geometricPrecision;
+}
+.bg, .vignette, .stage { position: absolute; inset: 0; }
+/* Two render passes (see compose.py): the background alone, then devices and
+   copy on a transparent page. */
+html.pass-bg .stage, html.pass-bg .copy { display: none; }
+html.pass-fg, html.pass-fg body { background: transparent; }
+html.pass-fg .bg, html.pass-fg .vignette { display: none; }
+
+/* ---- copy ---------------------------------------------------------------- */
+.copy {
+  position: absolute; display: flex; flex-direction: column;
+  color: #f5f5f7;
+}
+.copy h1 {
+  font-size: var(--h); font-weight: 700; line-height: 1.06;
+  letter-spacing: -0.028em;
+  text-wrap: balance;
+}
+.copy p {
+  margin-top: var(--gap);
+  font-size: var(--s); font-weight: 500; line-height: 1.22;
+  letter-spacing: -0.012em;
+  color: #b3b5bd;
+  text-wrap: balance;
+}
+.brand {
+  position: absolute; left: 0; right: 0; bottom: calc(100% + var(--brandgap));
+  display: flex; align-items: center; justify-content: center; gap: 0.32em;
+  font-weight: 600; letter-spacing: -0.02em; color: #f5f5f7;
+}
+.brand img { display: block; }
+
+/* ---- devices --------------------------------------------------------------- */
+.stage { transform-style: flat; }
+.device { position: absolute; transform-style: preserve-3d; }
+.device > .slab, .device > .band, .device > .dim { position: absolute; inset: 0; }
+.device > .band { overflow: hidden; }
+.device > .button { position: absolute; }
+.device > .dim { transform: translateZ(0.5px); }
+.bezel { position: absolute; background: #050506; overflow: hidden; }
+.screen { position: absolute; overflow: hidden; background: #000; isolation: isolate; }
+.screen img { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+.glass {
+  position: absolute; inset: 0; pointer-events: none;
+  /* A whisper of glass: a faint diagonal sheen plus an inner hairline. */
+  background: linear-gradient(118deg, rgba(255,255,255,0.045) 0%, rgba(255,255,255,0.015) 32%, rgba(255,255,255,0) 46%);
+  box-shadow: inset 0 0 0 1px rgba(255,255,255,0.04);
+}
+.island { position: absolute; background: #000; }
+.camera {
+  position: absolute; border-radius: 50%;
+  background: radial-gradient(circle at 40% 38%, #2a3140 0%, #0b0d12 55%, #020203 100%);
+}
+.copy.side .brand { justify-content: flex-start; }
+
+/* ---- app icon grid ------------------------------------------------------- */
+.icon { position: absolute; }
+.icon-art { position: absolute; inset: 0; overflow: hidden; }
+.icon-art img { width: 100%; height: 100%; display: block; transform: scale(1.03); }
+.icon-rim { position: absolute; inset: 0; box-shadow: inset 0 0 0 1.5px rgba(255,255,255,0.10); }
+.icon-label {
+  position: absolute; left: -40%; right: -40%; text-align: center;
+  font-weight: 500; letter-spacing: -0.01em; color: #c7c8ce;
+}

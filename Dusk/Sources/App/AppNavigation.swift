@@ -20,6 +20,11 @@ enum AppNavigationRoute: Hashable {
     case person(PlexPersonReference, serverID: String?)
     case seerrMedia(type: SeerrMediaType, id: Int)
     case seerrSeason(tvID: Int, seasonNumber: Int)
+    #if DEBUG
+    /// Screenshot mode only (`ScreenshotMode`): Settings › Server Priority is
+    /// otherwise reached through a plain NavigationLink.
+    case screenshotServerPriority
+    #endif
 
     static func destination(for item: PlexItem) -> Self {
         if let person = PlexPersonReference(item: item) {
@@ -111,6 +116,10 @@ struct AppNavigationDestinationView: View {
                 seasonNumber: seasonNumber,
                 service: seerrService
             )
+        #if DEBUG
+        case .screenshotServerPriority:
+            ServerPrioritySettingsView()
+        #endif
         }
     }
 }
