@@ -337,33 +337,36 @@ changes happen there and need a re-render. Upload the folders in this order.
 
 ### iPhone 6.9" (`screenshots/1.7/iphone-6.9/`, 1320×2868)
 
+iPhone and iPad carry the same six panels in the same order; Apple TV differs
+only in panel 4 (no downloads on tvOS).
+
 | File | Raw capture | Headline | Subline |
 |---|---|---|---|
-| `01-home.png` | `01-home.png` | Your Plex, made native. | A fast, free player for iPhone, iPad and Apple TV. |
-| `02-series.png` | `02-series.png` | Pick up the story. | Seasons, episodes and what's next. |
-| `03-player.png` | `07-player.png + 09-skip-intro.png` | Skip the intro. Or the episode. | Skip Intro, plus optional Previous and Next buttons. |
-| `04-library.png` | `06-library-grid.png` | Your whole library. | Every movie and show, sorted your way. |
-| `05-servers.png` | `10-server-priority.png + 15-shows.png` | Every server. One Home. | Choose which server plays first. |
-| `06-icons.png` | `11-app-icons.png` | Make it yours. | Alternate app icons for Dusk Supporters. |
+| `01-home.png` | `01-home.png` | Your Plex, made native. | Free. No ads, no tracking. |
+| `02-library.png` | `02-library-grid.png` | Your whole library. | Every server, one place. |
+| `03-formats.png` | `03-formats.png` (audio picker open) | Direct Play. Even Atmos. | Dolby Vision, DTS, TrueHD, no transcoding. |
+| `04-downloads.png` | `04-downloads.png` (9 finished downloads) | Take it offline. | Download movies or whole seasons. |
+| `05-search.png` | `05-search.png` (query "dragon", Seerr results) | Missing something? Request it. | Seerr results right in Search. |
+| `06-up-next.png` | `06-up-next.png` (full-screen Up Next) | The next episode, already playing. | Skip intros, roll into Up Next. |
 
 ### iPad 13" (`screenshots/1.7/ipad-13/`, 2752×2064 landscape)
 
 | File | Raw capture | Headline | Subline |
 |---|---|---|---|
-| `01-home.png` | `01-home-landscape.png` | Your Plex, made native. | A fast, free player for iPhone, iPad and Apple TV. |
-| `02-series.png` | `04-series-landscape.png` | Pick up the story. | Seasons, episodes and what's next. |
-| `03-skip-intro.png` | `08b-skip-intro-landscape.png` | Skip the intro. | Previous and Next Episode, right in the player. |
-| `04-servers.png` | `03-movies-landscape.png` | Every server. One Home. | Continue Watching from all your Plex servers. |
-| `05-library.png` | `12-library-grid-landscape.png` | Your whole library. | Every movie and show, sorted your way. |
-| `06-icons.png` | `10-app-icons-landscape.png` | Make it yours. | Alternate app icons for Dusk Supporters. |
+| `01-home.png` | `01-home-landscape.png` | Your Plex, made native. | Free. No ads, no tracking. |
+| `02-library.png` | `02-library-grid-landscape.png` | Your whole library. | Every server, one place. |
+| `03-formats.png` | `03-formats-landscape.png` (audio picker open) | Direct Play. Even Atmos. | Dolby Vision, DTS, TrueHD, no transcoding. |
+| `04-downloads.png` | `04-downloads-landscape.png` (30 finished downloads, three full rows) | Take it offline. | Download movies or whole seasons. |
+| `05-search.png` | `05-search-landscape.png` | Missing something? Request it. | Seerr results right in Search. |
+| `06-up-next.png` | `06-up-next-landscape.png` | The next episode, already playing. | Skip intros, roll into Up Next. |
 
 ### Apple TV (`screenshots/1.7/appletv/`, 3840×2160)
 
 | File | Raw capture | Headline | Subline |
 |---|---|---|---|
-| `01-home.png` | `01-home.png` | Your Plex, on the big screen. | A native Apple TV app, built for the Siri Remote. |
-| `02-play-bar.png` | `07-player-actions.png` | Click to skip. Hold to scrub. | A play bar that stays out of the picture. |
-| `03-series.png` | `02-series.png` | Season by season. | Every episode of a show on one page. |
-| `04-panel.png` | `08-player-panel.png` | Every setting, one panel. | Audio, subtitles, quality and speed. |
-| `05-servers.png` | `04-movies.png` | Every server. One Home. | Continue Watching from all your Plex servers. |
-| `06-skip-intro.png` | `09-skip-intro.png` | Skip the intro. | And the next episode is one click away. |
+| `01-home.png` | `01-home.png` | Your Plex, made native. | Free. No ads, no tracking. |
+| `02-library.png` | `02-library-grid.png` | Your whole library. | Every server, one place. |
+| `03-formats.png` | `03-formats.png` (Audio tab open) | Direct Play. Even Atmos. | Dolby Vision, DTS, TrueHD, no transcoding. |
+| `04-play-bar.png` | `04-scrub.png` (scrubbing with preview) | Click to skip. Hold to scrub. | A play bar that feels like Apple TV. |
+| `05-search.png` | `05-search.png` | Missing something? Request it. | Seerr results right in Search. |
+| `06-up-next.png` | `06-up-next.png` | The next episode, already playing. | Skip intros, roll into Up Next. |

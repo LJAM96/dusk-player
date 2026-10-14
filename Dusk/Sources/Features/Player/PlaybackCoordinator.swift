@@ -578,7 +578,8 @@ final class PlaybackCoordinator {
 
     #if DEBUG
     /// Screenshot mode (`ScreenshotMode`): starts at an exact position instead
-    /// of the item's resume point.
+    /// of the item's resume point. With `-DuskScreenshotUpNext` it then raises
+    /// the full-screen Up Next screen for the following episode.
     func playForScreenshot(id: PlexItemID, startPosition: TimeInterval?) async {
         await beginPlayback(
             id: id,
@@ -587,6 +588,12 @@ final class PlaybackCoordinator {
             selectedMediaID: nil,
             placeholder: nil
         )
+        guard ScreenshotMode.frozenUpNextSeconds != nil,
+              let details = activeItemDetails,
+              details.type == .episode,
+              let next = await nextEpisode(after: details) else { return }
+        try? await Task.sleep(for: .seconds(1))
+        presentUpNext(for: next)
     }
     #endif
 

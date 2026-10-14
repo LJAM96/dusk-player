@@ -1,4 +1,7 @@
 import SwiftUI
+#if os(iOS)
+import UIKit
+#endif
 
 /// The full-screen Up Next screen shown when an episode ends without an
 /// auto-advance already in flight (see `PlayerUpNextPosterView` for the small
@@ -478,6 +481,7 @@ private struct UpNextLayoutMetrics {
     let closeTopInset: CGFloat
     let closeTrailingInset: CGFloat
 
+    @MainActor
     static func make(for geometry: GeometryProxy) -> Self {
         let insets = geometry.safeAreaInsets
         let safeWidth = max(geometry.size.width - insets.leading - insets.trailing, 280)
@@ -588,9 +592,23 @@ private struct UpNextLayoutMetrics {
             actionMinHeight: actionMinHeight,
             closeButtonSize: closeButtonSize,
             closeIconFont: closeIconFont,
-            closeTopInset: insets.top + (isCompactWidth ? 12 : 20),
+            closeTopInset: max(insets.top, windowTopSafeAreaInset) + (isCompactWidth ? 12 : 20),
             closeTrailingInset: insets.trailing + (isCompactWidth ? 16 : 24)
         )
+    }
+
+    /// The player cover ignores the safe area, so the reader reports no top
+    /// inset; the window's keeps the close button clear of the status bar and
+    /// the Dynamic Island in portrait.
+    @MainActor
+    private static var windowTopSafeAreaInset: CGFloat {
+        #if os(iOS)
+        UIApplication.shared.connectedScenes
+            .compactMap { ($0 as? UIWindowScene)?.keyWindow?.safeAreaInsets.top }
+            .max() ?? 0
+        #else
+        0
+        #endif
     }
 
     /// 16:9 still sized against both axes, then re-derived from whichever

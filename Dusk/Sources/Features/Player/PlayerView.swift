@@ -817,6 +817,11 @@ private struct PlayerSessionView: View {
         }
         #endif
         #if !os(tvOS)
+        #if DEBUG
+        .onChange(of: viewModel.audioTracks.count + viewModel.subtitleTracks.count, initial: true) {
+            ScreenshotMode.openRequestedPlayerSheet(in: viewModel)
+        }
+        #endif
         .sheet(isPresented: $vm.showQualityPicker) {
             PlayerSelectionSheet(
                 title: "Quality",

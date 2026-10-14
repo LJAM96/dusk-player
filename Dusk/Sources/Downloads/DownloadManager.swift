@@ -2145,3 +2145,90 @@ final class DownloadManager {
         try? fileStore.saveSnapshot(DownloadStoreSnapshot(records: storedRecords))
     }
 }
+
+#if DEBUG
+extension DownloadManager {
+    /// Screenshot mode only (`ScreenshotMode`): records a movie, an episode or
+    /// every episode of a season as a finished download. Metadata and artwork
+    /// go through the normal cache path; the video is a tiny placeholder,
+    /// extended (sparse) to the part's size so the launch-time file check
+    /// keeps the record.
+    func seedCompletedDownloadForScreenshot(id: PlexItemID, type: PlexMediaType) async {
+        guard let serverID = id.serverID,
+              plexService.isSessionReady,
+              let accountProfileID = plexService.activeProfileID?.nilIfEmpty else { return }
+
+        do {
+            if type == .season {
+                let episodes = try await fetchAndCacheChildren(
+                    PlexEpisode.self,
+                    ratingKey: id.ratingKey,
+                    serverID: serverID
+                )
+                for episode in episodes {
+                    await seedCompletedDownloadForScreenshot(
+                        id: PlexItemID(serverID: serverID, ratingKey: episode.ratingKey),
+                        type: .episode
+                    )
+                }
+                return
+            }
+
+            guard record(for: id)?.status != .completed else { return }
+            let details = try await fetchAndCacheDetails(ratingKey: id.ratingKey, serverID: serverID)
+            if details.type == .episode {
+                try await cacheEpisodeContext(details, serverID: serverID)
+            }
+            guard let media = StreamResolver.selectMediaVersion(
+                from: details.media,
+                preferredMaxResolution: preferences.downloadMaxResolution
+            ), let part = media.parts.first else { return }
+
+            let targetURL = try fileStore.targetVideoURL(
+                accountProfileID: accountProfileID,
+                for: details,
+                part: part
+            )
+            try Data("dusk-screenshot-placeholder".utf8).write(to: targetURL)
+            let size = Int64(part.size ?? 0)
+            if size > 0 {
+                let handle = try FileHandle(forWritingTo: targetURL)
+                try handle.truncate(atOffset: UInt64(size))
+                try handle.close()
+            }
+            await cacheArtwork(for: details, serverID: serverID)
+
+            upsert(DownloadedMediaRecord(
+                accountProfileID: accountProfileID,
+                serverID: serverID,
+                serverName: serverName(for: serverID),
+                ratingKey: id.ratingKey,
+                type: details.type,
+                isClip: details.isClip,
+                title: details.title,
+                subtitle: subtitle(for: details),
+                parentRatingKey: details.parentRatingKey,
+                parentTitle: nil,
+                grandparentRatingKey: details.grandparentRatingKey,
+                grandparentTitle: details.grandparentTitle,
+                thumbPath: details.thumb ?? details.parentThumb ?? details.grandparentThumb,
+                artPath: details.art,
+                mediaID: media.id,
+                partID: part.id,
+                relativeVideoPath: fileStore.relativePath(for: targetURL),
+                resumeDataPath: nil,
+                downloadTaskIdentifier: nil,
+                status: .completed,
+                progress: 1,
+                downloadedBytes: size,
+                totalBytes: size > 0 ? size : nil,
+                errorMessage: nil,
+                addedAt: .now,
+                updatedAt: .now
+            ))
+        } catch {
+            print("Screenshot download seed failed for \(id.ratingKey): \(error)")
+        }
+    }
+}
+#endif

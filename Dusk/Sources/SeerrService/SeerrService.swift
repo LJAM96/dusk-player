@@ -46,6 +46,11 @@ final class SeerrService {
         self.configuredPlexServerID = UserDefaults.standard.string(
             forKey: Self.defaultsServerIDKey
         )
+        #if DEBUG
+        if let url = ScreenshotMode.seerrBaseURL {
+            self.configuredBaseURL = url
+        }
+        #endif
     }
 
     var isConfigured: Bool {
@@ -501,6 +506,18 @@ final class SeerrService {
               let profileID = plexService.activeProfileID else {
             return nil
         }
+        #if DEBUG
+        // Screenshot mode: a signed-in session against the demo Seerr, never
+        // read from or written to the Keychain.
+        if ScreenshotMode.seerrBaseURL != nil {
+            return SeerrStoredSession(
+                baseURL: baseURL,
+                profileID: profileID,
+                serverID: plexService.seerrBindingServerID ?? "",
+                cookies: ["connect.sid": "dusk-screenshot"]
+            )
+        }
+        #endif
         let sessions = storedSessions.filter {
             $0.baseURL == baseURL && $0.profileID == profileID
         }
@@ -556,6 +573,9 @@ final class SeerrService {
     }
 
     private func upsertSession(_ stored: SeerrStoredSession) {
+        #if DEBUG
+        if ScreenshotMode.seerrBaseURL != nil { return }
+        #endif
         if storedSessions.contains(stored) {
             return
         }

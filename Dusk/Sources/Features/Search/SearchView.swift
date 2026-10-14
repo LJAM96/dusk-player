@@ -20,6 +20,7 @@ struct SearchRootContent: View {
     @Environment(PlexService.self) private var plexService
     @Environment(SeerrService.self) private var seerrService
     @State private var viewModel: SearchViewModel?
+    @State private var isSearchPresented = false
 
     private let searchPrompt = "Movies, Shows, Actors..."
 
@@ -43,6 +44,7 @@ struct SearchRootContent: View {
                 if let query = ScreenshotMode.searchQuery, let viewModel {
                     viewModel.query = query
                     viewModel.searchDebounced()
+                    ScreenshotMode.presentSearchField($isSearchPresented)
                 }
                 #endif
             }
@@ -80,12 +82,13 @@ struct SearchRootContent: View {
             carouselResults(vm)
                 .searchable(
                     text: $vm.query,
+                    isPresented: $isSearchPresented,
                     placement: .navigationBarDrawer(displayMode: .always),
                     prompt: searchPrompt
                 )
         } else {
             gridResults(vm)
-                .searchable(text: $vm.query, prompt: searchPrompt)
+                .searchable(text: $vm.query, isPresented: $isSearchPresented, prompt: searchPrompt)
         }
         #endif
     }
