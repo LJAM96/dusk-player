@@ -1,15 +1,14 @@
 #if DEBUG
 import SwiftUI
 
-/// DEBUG-only demo mode for the App Store screenshots
-/// (`scripts/screenshots/capture.sh`, see `docs/screenshots.md`).
+/// DEBUG-only demo mode for the App Store screenshots (see
+/// `docs/screenshots.md`).
 ///
 /// Everything is driven by launch arguments, which land in UserDefaults'
 /// argument domain (`-DuskScreenshotMode YES`, `-DuskScreenshotScreen detail`…)
 /// and are never persisted. When the mode is on, the app signs in with a fake
-/// account token and sends every plex.tv request to the mock server in
-/// `scripts/screenshots/mock_plex.py`, which in turn advertises itself as the
-/// account's only Plex Media Server. Nothing here exists in Release builds.
+/// account token and sends every plex.tv request to a local mock server, which
+/// in turn advertises the account's demo Plex Media Servers. Nothing here exists in Release builds.
 enum ScreenshotMode {
     private enum Key {
         static let mode = "DuskScreenshotMode"
