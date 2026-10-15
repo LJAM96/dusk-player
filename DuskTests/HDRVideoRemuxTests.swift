@@ -129,17 +129,71 @@ struct DolbyVisionSignalingTests {
         #expect(!line.contains("SUPPLEMENTAL-CODECS"))
     }
 
-    @Test func existingSupplementalCodecsAreKept() throws {
+    @Test func existingDolbyVisionSupplementalIsReplacedOthersKept() throws {
         let configuration = try makeConfiguration(profile: 8, compat: 1)
-        let input = streamInf + #",SUPPLEMENTAL-CODECS="dvh1.08.07/db1p""#
+        let input = streamInf + #",SUPPLEMENTAL-CODECS="dvh1.08.07/db1p,hvc1.2.4.L150.b0/cdm4""#
         let line = DolbyVisionSignaling.rewrittenStreamInfLine(input, configuration: configuration)
+        #expect(line.contains(#"SUPPLEMENTAL-CODECS="dvh1.08.06/db1p,hvc1.2.4.L150.b0/cdm4""#))
         #expect(line.components(separatedBy: "SUPPLEMENTAL-CODECS").count == 2)
     }
 
-    @Test func levelCapLeavesLowerLevelsAlone() {
-        #expect(DolbyVisionSignaling.cappingHEVCLevel("hvc1.2.4.L150.b0") == "hvc1.2.4.L150.b0")
-        #expect(DolbyVisionSignaling.cappingHEVCLevel("hvc1.2.4.H186.90") == "hvc1.2.4.H153.90")
-        #expect(DolbyVisionSignaling.cappingHEVCLevel("hvc1") == "hvc1")
+    @Test func supplementalCodecsBeforeCodecsIsParsedByName() throws {
+        let configuration = try makeConfiguration(profile: 8, compat: 1)
+        let input = #"#EXT-X-STREAM-INF:SUPPLEMENTAL-CODECS="hvc1.2.4.L150.b0/cdm4",BANDWIDTH=1,CODECS="hvc1.2.4.L150.b0,ec-3""#
+        let line = DolbyVisionSignaling.rewrittenStreamInfLine(input, configuration: configuration)
+        #expect(line == #"#EXT-X-STREAM-INF:SUPPLEMENTAL-CODECS="dvh1.08.06/db1p,hvc1.2.4.L150.b0/cdm4",BANDWIDTH=1,CODECS="hvc1.2.4.L150.b0,ec-3",VIDEO-RANGE=PQ"#)
+    }
+
+    @Test func profile81SetsPQWhenRangeIsMissingOrWrong() throws {
+        let configuration = try makeConfiguration(profile: 8, compat: 1)
+        let missing = #"#EXT-X-STREAM-INF:BANDWIDTH=1,CODECS="hvc1.2.4.L150.b0""#
+        #expect(DolbyVisionSignaling.rewrittenStreamInfLine(missing, configuration: configuration).hasSuffix(",VIDEO-RANGE=PQ"))
+        let wrong = #"#EXT-X-STREAM-INF:BANDWIDTH=1,VIDEO-RANGE=SDR,CODECS="hvc1.2.4.L150.b0""#
+        let line = DolbyVisionSignaling.rewrittenStreamInfLine(wrong, configuration: configuration)
+        #expect(line.contains("VIDEO-RANGE=PQ"))
+        #expect(!line.contains("SDR"))
+    }
+
+    @Test func profile8OnHev1IsLeftAlone() throws {
+        let configuration = try makeConfiguration(profile: 8, compat: 1)
+        let input = #"#EXT-X-STREAM-INF:BANDWIDTH=1,CODECS="hev1.2.4.L150.b0,ec-3",VIDEO-RANGE=PQ"#
+        #expect(DolbyVisionSignaling.rewrittenStreamInfLine(input, configuration: configuration) == input)
+        let original = initSegment(entryType: "hev1")
+        #expect(DolbyVisionSignaling.patchedInitSegment(Data(original), configuration: configuration) == nil)
+    }
+
+    @Test func profile5OnHev1BecomesDvheInBothPlaces() throws {
+        let configuration = try makeConfiguration(profile: 5, compat: 0)
+        let input = #"#EXT-X-STREAM-INF:BANDWIDTH=1,CODECS="hev1.2.4.L153.b0,ec-3",VIDEO-RANGE=PQ"#
+        #expect(DolbyVisionSignaling.rewrittenStreamInfLine(input, configuration: configuration).contains(#"CODECS="dvhe.05.06,ec-3""#))
+        let patched = try #require(DolbyVisionSignaling.patchedInitSegment(Data(initSegment(entryType: "hev1")), configuration: configuration))
+        #expect(try sampleEntry(in: [UInt8](patched)).type == "dvhe")
+    }
+
+    @Test func malformedLineIsLeftAlone() throws {
+        let configuration = try makeConfiguration(profile: 8, compat: 1)
+        let input = #"#EXT-X-STREAM-INF:BANDWIDTH=1,CODECS="hvc1.2.4.L150.b0"#
+        #expect(DolbyVisionSignaling.rewrittenStreamInfLine(input, configuration: configuration) == input)
+    }
+
+    @Test func levelCapOnlyWhenContentFitsLevel51() throws {
+        let fits = try makeConfiguration(profile: 8, compat: 1)
+        #expect(DolbyVisionSignaling.cappingHEVCLevel("hvc1.2.4.L156.b0", configuration: fits) == "hvc1.2.4.L153.b0")
+        #expect(DolbyVisionSignaling.cappingHEVCLevel("hvc1.2.4.L150.b0", configuration: fits) == "hvc1.2.4.L150.b0")
+        #expect(DolbyVisionSignaling.cappingHEVCLevel("hvc1", configuration: fits) == "hvc1")
+
+        // 4K120 genuinely needs 5.2.
+        let fast = try makeConfiguration(profile: 8, compat: 1, frameRate: 119.88)
+        #expect(DolbyVisionSignaling.cappingHEVCLevel("hvc1.2.4.L156.b0", configuration: fast) == "hvc1.2.4.L156.b0")
+
+        // 50 Mbit/s exceeds Main tier 5.1 (40) but not High tier 5.1 (160).
+        let heavy = try makeConfiguration(profile: 8, compat: 1, bitrate: 50_000)
+        #expect(DolbyVisionSignaling.cappingHEVCLevel("hvc1.2.4.L156.b0", configuration: heavy) == "hvc1.2.4.L156.b0")
+        #expect(DolbyVisionSignaling.cappingHEVCLevel("hvc1.2.4.H186.90", configuration: heavy) == "hvc1.2.4.H153.90")
+
+        // Unknown bitrate: cannot prove it fits, so the declaration stays.
+        let unknown = try makeConfiguration(profile: 8, compat: 1, bitrate: nil)
+        #expect(DolbyVisionSignaling.cappingHEVCLevel("hvc1.2.4.L156.b0", configuration: unknown) == "hvc1.2.4.L156.b0")
     }
 
     @Test func profile81InitSegmentKeepsHvc1AndGainsDvvC() throws {
@@ -168,10 +222,17 @@ struct DolbyVisionSignalingTests {
 
     // MARK: - Helpers
 
-    private func makeConfiguration(profile: Int, compat: Int) throws -> DolbyVisionConfiguration {
+    private func makeConfiguration(
+        profile: Int,
+        compat: Int,
+        frameRate: Double = 23.976,
+        bitrate: Int? = 20_000
+    ) throws -> DolbyVisionConfiguration {
+        let bitrateField = bitrate.map { #", "bitrate": \#($0)"# } ?? ""
         let json = """
         { "id": 1, "streamType": 1, "codec": "hevc", "DOVIPresent": true,
-          "DOVIProfile": \(profile), "DOVILevel": 6, "DOVIBLCompatID": \(compat) }
+          "DOVIProfile": \(profile), "DOVILevel": 6, "DOVIBLCompatID": \(compat),
+          "width": 3840, "height": 2160, "frameRate": \(frameRate)\(bitrateField) }
         """
         let stream = try JSONDecoder().decode(PlexStream.self, from: Data(json.utf8))
         return try #require(DolbyVisionConfiguration(stream: stream))
@@ -185,8 +246,8 @@ struct DolbyVisionSignalingTests {
 
     /// ftyp + moov/trak/mdia/minf/stbl/stsd/hvc1(hvcC), as Plex's muxer
     /// writes the video track of a remux init segment.
-    private func initSegment(extraChild: [UInt8] = []) -> [UInt8] {
-        let hvc1 = box("hvc1", [UInt8](repeating: 0, count: 78) + box("hvcC", [1, 2, 3, 4]) + extraChild)
+    private func initSegment(entryType: String = "hvc1", extraChild: [UInt8] = []) -> [UInt8] {
+        let hvc1 = box(entryType, [UInt8](repeating: 0, count: 78) + box("hvcC", [1, 2, 3, 4]) + extraChild)
         let stsd = box("stsd", [0, 0, 0, 0, 0, 0, 0, 1] + hvc1)
         let moov = box("moov", box("trak", box("mdia", box("minf", box("stbl", stsd)))))
         return box("ftyp", Array("isom".utf8) + [0, 0, 0, 0]) + moov

@@ -385,13 +385,30 @@ so the whole live HUD is derived from one instant.
   - **Dolby Vision 8.1 / 8.4** (`DolbyVisionSignaling`, profile 8 path): the
     track stays `hvc1` (the base layer remains decodable everywhere) and
     gains a `dvvC` box built from Plex's `DOVIProfile`/`DOVILevel`/
-    `DOVIBLCompatID`. The variant keeps its HEVC `CODECS` entry, with the
-    declared level capped at `L153` (tvOS 27 refuses a DV master declaring
-    5.2 with -11848), and gains `SUPPLEMENTAL-CODECS="dvh1.08.LL/db1p"`
-    (`/db4h` and `VIDEO-RANGE=HLG` for 8.4). This is Apple's
-    backward-compatible packaging: a DV display gets real Dolby Vision,
-    anything else the base layer. It applies to every remux session of an
-    8.1/8.4 file (HDR, Atmos, converted audio) while the HDR setting is on.
+    `DOVIBLCompatID`. The variant keeps its HEVC `CODECS` entry and gains
+    `dvh1.08.LL/db1p` (`/db4h` for 8.4) in `SUPPLEMENTAL-CODECS` (merged:
+    other supplemental codecs are kept, an existing DV entry is replaced),
+    with `VIDEO-RANGE` set explicitly to `PQ` (8.1) or `HLG` (8.4) because
+    Apple requires it to match the brand. Attributes are parsed by full
+    name (`HLSAttributeList`), so `CODECS` never matches inside
+    `SUPPLEMENTAL-CODECS`. This is Apple's backward-compatible packaging: a
+    DV display gets real Dolby Vision, anything else the base layer. It
+    applies to every remux session of an 8.1/8.4 file (HDR, Atmos,
+    converted audio) while the HDR setting is on. Only `hvc1` is signalled:
+    Apple requires it for 8.4, and a `hev1` entry (in-band parameter sets)
+    cannot honestly be renamed, so a `hev1` variant and its init segment are
+    left as plain HEVC. (DV5 renames `hev1` to `dvhe` and declares `dvhe.05.LL`
+    to match.)
+  - Level cap: tvOS 27 refuses a DV master declaring level 5.2 (`L156`)
+    with -11848 although the same 4K24 stream declared 5.1 plays with DV
+    engaged (AetherEngine #674; encoders often over-declare). The declared
+    level is lowered to `L153` only when Plex's metadata proves the content
+    fits 5.1 for the declared tier (picture size, luma sample rate, average
+    bitrate ≤ 40/160 Mbit/s Main/High); otherwise, or with metadata missing,
+    the source's level stays. It is not OS-gated, because a declaration the
+    content satisfies is truthful everywhere. A wrong guess (peaks above the
+    average) costs one decoder error, which the failure watch turns into
+    VLCKit direct play — the same outcome as an uncapped refusal.
   - **Dolby Vision 7** (FEL/MEL, dual layer): Apple has no profile 7
     decoder, and its RPU is not valid as 8.1 without per-frame conversion
     (libdovi RPU rewrite, EL NAL removal, `trun`/`mdat` rewrite). That would
@@ -406,7 +423,7 @@ so the whole live HUD is derived from one instant.
   `dvvC`/`SUPPLEMENTAL-CODECS` itself (the patch then leaves them alone),
   whether Plex declares `VIDEO-RANGE=HLG` for plain HLG sources, that the
   RPU is actually applied (an L2-trim test clip pulses visibly), HDR10+ on
-  an HDR10+ TV, and the level cap on 4K60 sources.
+  an HDR10+ TV, and the level cap on 4K60 and high-bitrate sources.
 
 ## AirPlay (iOS/iPadOS)
 
