@@ -10,8 +10,9 @@ import VideoToolbox
 ///   cannot reshape it, and AVPlayer only renders it from MP4 carrying the DV
 ///   signaling (see `dolbyVisionRemuxBlocker`). The engine still follows the
 ///   container so a last-resort direct play never hands AVPlayer an MKV.
-///   Profiles 7/8 play through their HDR10 base layer and follow normal
-///   engine selection.
+///   Profiles 7/8 follow normal engine selection; a VLCKit-only HDR file
+///   (Dolby Vision 7/8, HDR10, HDR10+, HLG) can then reach AVPlayer through
+///   the HDR remux (see `hdrVideoRemuxBlocker`).
 /// - **AVPlayer** when ALL of: container is mp4/mov/m4v, video is 8-bit h264,
 ///   hevc, or av1 with a hardware decoder, audio is aac/ac3/eac3/alac/mp3/flac,
 ///   and all subtitles are either tx3g/mov_text (embedded) or external text
@@ -330,6 +331,112 @@ enum StreamResolver {
             return "subtitle \(subtitleStream.codec?.uppercased() ?? "?") cannot ride the remux"
         }
         return nil
+    }
+
+    // MARK: - HDR Video Remux
+
+    /// Whether an HDR file only VLCKit could direct play should reach AVPlayer
+    /// through a video-copy Plex remux. VLCKit 3 renders into an untagged
+    /// 8-bit surface on iOS/tvOS, so it never shows HDR at all; AVPlayer
+    /// gives real HDR10, HLG, HDR10+ (the ST 2094-40 SEI rides the copied
+    /// bitstream) and — with `DolbyVisionSignaling` — Dolby Vision 8.1/8.4.
+    /// Returns why not, or nil when it qualifies.
+    ///
+    /// Audio must be copyable (E-AC-3/AC-3/AAC): converting DTS & co. to
+    /// keep the picture would trade a lossless track for a lossy one, so
+    /// those files keep VLCKit. (TrueHD, which VLCKit cannot decode at all,
+    /// reaches the same remux through the undecodable-audio fallback.)
+    /// The display gate is the one the Atmos remux uses: Plex declares the
+    /// variant HDR, which AVFoundation refuses on an SDR display.
+    static func hdrVideoRemuxBlocker(
+        media: PlexMedia,
+        decision: Decision,
+        audioStream: PlexStream?,
+        subtitleStream: PlexStream?,
+        displaySupportsHDR: Bool
+    ) -> String? {
+        guard decision.engine == .vlcKit, !decision.requiresServerTranscode else {
+            return "not a VLCKit direct-play file"
+        }
+        guard media.parts.count == 1 else { return "multi-part media" }
+        let videoStreams = media.parts.flatMap(\.streams).filter { $0.streamType == .video }
+        guard !videoStreams.isEmpty, videoStreams.allSatisfy({ $0.codec?.lowercased() == "hevc" }) else {
+            return "video codec is not HEVC"
+        }
+        guard videoStreams.contains(where: isRemuxableHDRVideo) else { return "video is not HDR" }
+        guard displaySupportsHDR else { return "HDR video on a display without HDR playback" }
+        if let audioStream, !canCopyIntoRemux(audio: audioStream) {
+            return "audio \(audioStream.codec?.uppercased() ?? "?") would need conversion"
+        }
+        if let subtitleStream, !canRideRemux(subtitle: subtitleStream) {
+            return "subtitle \(subtitleStream.codec?.uppercased() ?? "?") cannot ride the remux"
+        }
+        return nil
+    }
+
+    /// HDR video AVPlayer can show from an HEVC remux: a PQ or HLG transfer,
+    /// or a Dolby Vision profile whose base layer is HDR (7, 8.1, 8.4, 8.6).
+    /// Profile 5 has its own path; 8.2 (SDR base) is not HDR.
+    static func isRemuxableHDRVideo(_ stream: PlexStream) -> Bool {
+        guard stream.streamType == .video, stream.doviProfile != 5 else { return false }
+        switch hdrTransfer(of: stream) {
+        case .pq?, .hlg?: return true
+        case nil: return false
+        }
+    }
+
+    enum HDRTransfer: Sendable {
+        case pq
+        case hlg
+    }
+
+    /// The stream's HDR transfer, from Plex's (ffprobe-spelled) `colorTrc`,
+    /// falling back to the Dolby Vision base-layer compatibility ID when
+    /// the TRC is missing. nil means SDR or unknown.
+    static func hdrTransfer(of stream: PlexStream) -> HDRTransfer? {
+        let trc = stream.colorTrc?.lowercased() ?? ""
+        if trc.contains("2084") || trc.contains("pq") { return .pq }
+        if trc.contains("hlg") || trc.contains("b67") { return .hlg }
+        guard trc.isEmpty, stream.doviPresent == true || stream.doviProfile != nil else { return nil }
+        switch (stream.doviProfile, stream.doviBLCompatID) {
+        case (8?, 4?): return .hlg
+        case (7?, _), (8?, 1?), (8?, 6?): return .pq
+        default: return nil
+        }
+    }
+
+    /// Short label for a remux reason / Playback Info, e.g. `Dolby Vision 8.1`,
+    /// `HDR10`, `HLG`. HDR10+ is not in Plex's metadata, so it reads HDR10.
+    static func hdrVideoLabel(for media: PlexMedia) -> String {
+        guard let stream = media.parts.lazy.flatMap(\.streams).first(where: isRemuxableHDRVideo) else {
+            return "HDR"
+        }
+        if let configuration = dolbyVisionSignalingStream(in: media, includesProfile8: true)
+            .flatMap(DolbyVisionConfiguration.init(stream:)) {
+            return configuration.displayName
+        }
+        if let profile = stream.doviProfile {
+            return "Dolby Vision \(profile) (HDR10 base layer)"
+        }
+        return hdrTransfer(of: stream) == .hlg ? "HLG" : "HDR10"
+    }
+
+    /// The video stream whose Dolby Vision signaling a remux restores for
+    /// AVPlayer: profile 5, or (with `includesProfile8`) 8.1/8.4. Profile 7
+    /// is never signalled — Apple has no decoder for it, and its RPU is not
+    /// valid as 8.1 without per-frame conversion — so it plays its HDR10
+    /// base layer. 8.2/8.6 have no Apple-supported Dolby Vision form either.
+    static func dolbyVisionSignalingStream(in media: PlexMedia, includesProfile8: Bool) -> PlexStream? {
+        media.parts.lazy
+            .flatMap(\.streams)
+            .first { stream in
+                guard stream.streamType == .video, stream.codec?.lowercased() != "av1" else { return false }
+                switch (stream.doviProfile, stream.doviBLCompatID) {
+                case (5?, _): return true
+                case (8?, 1?), (8?, 4?): return includesProfile8
+                default: return false
+                }
+            }
     }
 
     static func canRideRemux(subtitle stream: PlexStream) -> Bool {

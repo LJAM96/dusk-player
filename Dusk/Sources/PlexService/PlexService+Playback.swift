@@ -627,10 +627,11 @@ private extension PlexService {
         if case .spatialAudioRemux = mode {
             // Listed first so Plex prefers it: fragmented MP4 is the only HLS
             // container AVPlayer plays HEVC from (HEVC in MPEG-TS comes out
-            // audio-only), and it carries E-AC-3/AC-3 untouched. The WebVTT
+            // audio-only), and it carries E-AC-3/AC-3/AAC untouched (AAC is
+            // last so converted audio still lands on E-AC-3). The WebVTT
             // subtitle target turns text subtitles into HLS subtitle segments.
             clauses.append(
-                "add-transcode-target(type=videoProfile&context=streaming&protocol=hls&container=mp4&videoCodec=hevc,h264&audioCodec=eac3,ac3)"
+                "add-transcode-target(type=videoProfile&context=streaming&protocol=hls&container=mp4&videoCodec=hevc,h264&audioCodec=eac3,ac3,aac)"
             )
             clauses.append(
                 "add-transcode-target(type=subtitleProfile&context=streaming&protocol=hls&container=webvtt&subtitleCodec=webvtt)"

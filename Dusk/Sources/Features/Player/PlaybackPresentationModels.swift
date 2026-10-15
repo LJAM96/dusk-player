@@ -140,8 +140,9 @@ struct PlaybackSource: Sendable {
     /// `RemuxHLSLoader`). AVPlayer only; `.spatialAudio` sessions whose audio
     /// is Dolby Atmos.
     var restoresDolbyAtmos = false
-    /// Relabel the remuxed video as Dolby Vision (through `RemuxHLSLoader`).
-    /// AVPlayer only; `.spatialAudio` sessions of Dolby Vision profile 5.
+    /// Restore Dolby Vision signaling on the remuxed video (through
+    /// `RemuxHLSLoader`). AVPlayer only; `.spatialAudio` sessions of Dolby
+    /// Vision profile 5 and 8.1/8.4.
     var dolbyVisionRemux: DolbyVisionConfiguration? = nil
 
     /// Route the HLS playlists and init segment through `RemuxHLSLoader`.

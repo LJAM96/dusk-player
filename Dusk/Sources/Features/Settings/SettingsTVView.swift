@@ -233,6 +233,10 @@ struct SettingsTVView: View {
 
                     tvRowDivider
 
+                    TVSettingsToggleRow(title: "HDR & Dolby Vision", isOn: $preferences.hdrVideoRemuxEnabled)
+
+                    tvRowDivider
+
                     TVSettingsToggleRow(title: "Force AVPlayer", isOn: $preferences.forceAVPlayer)
 
                     tvRowDivider

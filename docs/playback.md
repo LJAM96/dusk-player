@@ -277,7 +277,8 @@ so the whole live HUD is derived from one instant.
   e.g. every simulator) and rejects it with CoreMedia -12927 if the attribute
   is removed. VLCKit keeps those files.
 - Delivery (`PlexService.spatialAudioRemuxURL`, mode `.spatialAudioRemux`):
-  HLS with an fMP4 target first (`container=mp4&videoCodec=hevc,h264&audioCodec=eac3,ac3`)
+  HLS with an fMP4 target first (`container=mp4&videoCodec=hevc,h264&audioCodec=eac3,ac3,aac`;
+  AAC is last so audio Plex has to convert still lands on E-AC-3)
   — HEVC in MPEG-TS HLS plays audio-only on AVPlayer — plus a WebVTT subtitle
   target. Plex takes the session subtitle from the part's server-side
   selection, so `requestSpatialAudioRemux` first mirrors the audio/subtitle
@@ -352,6 +353,60 @@ so the whole live HUD is derived from one instant.
   patched init exposes the `ec+3` layers (7.1.4/9.1.6), WebVTT subtitles
   render, seeking works, and the fallback paths engage. Atmos output itself
   (HDMI receiver, AirPods) needs real hardware.
+
+## HDR Video and Dolby Vision 8 (HDR Remux)
+
+- Why: VLCKit 3 renders into an untagged 8-bit RGBA surface on iOS/tvOS (see
+  "Display Mode Matching"), so an HDR MKV never shows HDR there — not HDR10,
+  not the "HDR10 base" of Dolby Vision 7/8, no HDR10+ dynamic metadata, no
+  HLG. Only AVPlayer/VideoToolbox output real HDR on Apple devices.
+- Eligibility (`StreamResolver.hdrVideoRemuxBlocker`, setting
+  `hdrVideoRemuxEnabled`, default on): the resolver would pick VLCKit for
+  direct play (not DV5, not forced engines), single part, all video HEVC,
+  HDR video (`isRemuxableHDRVideo`: PQ or HLG `colorTrc`, or DV 7 / 8.1 /
+  8.4 / 8.6 by base-layer compatibility ID when the TRC is missing; 8.2 has
+  an SDR base and is not HDR), `AVPlayer.eligibleForHDRPlayback`, a text
+  subtitle if any, and audio Plex can **copy** (E-AC-3/AC-3/AAC). DTS,
+  FLAC, PCM & co. keep VLCKit: converting a lossless track to keep the
+  picture would lower audio quality, and the remux never lowers quality.
+  TrueHD (undecodable on VLCKit) reaches the same video-copy remux through
+  the undecodable-audio fallback.
+- Delivery and acceptance are the Atmos remux's
+  (`requestSpatialAudioRemux`, session type `.spatialAudio`, lossless only,
+  any failure → plain direct play). A file can qualify for Atmos, HDR or
+  both; the session reason names what qualified, e.g. `Dolby Atmos + Dolby
+  Vision 8.1 via lossless Plex remux`. Picking a DTS track mid-session
+  leaves the remux for VLCKit direct play, like any non-copyable track.
+- Formats:
+  - **HDR10 / HLG**: no signaling needed; the copied HEVC carries its VUI.
+  - **HDR10+**: the ST 2094-40 SEI rides the copied bitstream and AVPlayer
+    forwards it (Apple TV 4K 3rd gen and later, HDR10+ TV). Plex metadata
+    does not distinguish HDR10+, so these read as HDR10 everywhere in Dusk.
+  - **Dolby Vision 8.1 / 8.4** (`DolbyVisionSignaling`, profile 8 path): the
+    track stays `hvc1` (the base layer remains decodable everywhere) and
+    gains a `dvvC` box built from Plex's `DOVIProfile`/`DOVILevel`/
+    `DOVIBLCompatID`. The variant keeps its HEVC `CODECS` entry, with the
+    declared level capped at `L153` (tvOS 27 refuses a DV master declaring
+    5.2 with -11848), and gains `SUPPLEMENTAL-CODECS="dvh1.08.LL/db1p"`
+    (`/db4h` and `VIDEO-RANGE=HLG` for 8.4). This is Apple's
+    backward-compatible packaging: a DV display gets real Dolby Vision,
+    anything else the base layer. It applies to every remux session of an
+    8.1/8.4 file (HDR, Atmos, converted audio) while the HDR setting is on.
+  - **Dolby Vision 7** (FEL/MEL, dual layer): Apple has no profile 7
+    decoder, and its RPU is not valid as 8.1 without per-frame conversion
+    (libdovi RPU rewrite, EL NAL removal, `trun`/`mdat` rewrite). That would
+    need every media segment to pass through the app — which
+    `AVAssetResourceLoader` cannot do for HLS media segments — so it would
+    take a local HTTP proxy. Not done. Profile 7 rides the remux unsignalled
+    and plays its HDR10 base layer on AVPlayer (EL/RPU NALs are ignored).
+- Turning `hdrVideoRemuxEnabled` off restores the previous behavior exactly:
+  no HDR-only remux, and no profile 8 signaling on Atmos/converted-audio
+  remuxes.
+- Unverified without real hardware/PMS: whether Plex already writes
+  `dvvC`/`SUPPLEMENTAL-CODECS` itself (the patch then leaves them alone),
+  whether Plex declares `VIDEO-RANGE=HLG` for plain HLG sources, that the
+  RPU is actually applied (an L2-trim test clip pulses visibly), HDR10+ on
+  an HDR10+ TV, and the level cap on 4K60 sources.
 
 ## AirPlay (iOS/iPadOS)
 
@@ -522,7 +577,8 @@ so the whole live HUD is derived from one instant.
   software otherwise), and Dolby Vision profile 5 sets
   `requiresServerTranscode` regardless of container — libvlc cannot reshape
   IPTPQc2, and AVPlayer only renders it from a relabelled remux. DV profiles
-  7/8 play through their HDR10 base layer normally.
+  7/8 follow normal engine selection; when that lands on VLCKit, the HDR
+  remux (above) moves them to AVPlayer.
 - Force preferences override all codec/container checks. `forceAVPlayer` can
   intentionally choose an engine that later fails on unsupported media.
 
@@ -1235,6 +1291,11 @@ so the whole live HUD is derived from one instant.
   cadence correction. NTSC rates are deliberately not snapped to integers. tvOS
   picks the closest mode the TV supports, so an unsupported request degrades
   rather than fails.
+- Dolby Vision is requested (`dvh1` codec type; PQ, or HLG for 8.4) only
+  for remux sessions that restore DV signaling
+  (`PlaybackCoordinator.remuxDolbyVisionConfiguration`, passed to `apply`).
+  Every other path shows a DV file's base layer, so it asks for that range
+  and Playback Info reads `HDR10 (Dolby Vision base layer)`.
 - Dynamic range is carried by the `CMVideoFormatDescription`'s color tags, read
   from the stream's own `colorTrc`/`colorPrimaries`/`colorSpace` (ffmpeg
   spellings) rather than the looser `isHDRVideo` heuristic, and defaulting to
@@ -1654,7 +1715,9 @@ so the whole live HUD is derived from one instant.
 - `forceAVPlayer` and `forceVLCKit` are mutually exclusive in their setters.
 - `spatialAudioRemuxEnabled` (default on; "Dolby Atmos" on tvOS, "Dolby Atmos &
   Spatial Audio" on iOS, under Playback Advanced) gates the Atmos remux.
-  Either forced engine also disables it.
+  `hdrVideoRemuxEnabled` (default on; "HDR & Dolby Vision" on both) gates
+  the HDR remux and profile 8 Dolby Vision signaling. Either forced engine
+  also disables both.
 - Settings UI is split by platform; shared labels/options live in
   `SettingsSupport`.
 - Adding a playback preference usually requires edits in `UserPreferences`,
@@ -1682,10 +1745,12 @@ so the whole live HUD is derived from one instant.
   platform `VLCKitRenderer*.swift` files.
 - Plex playback calls: `PlexService+Playback.swift`; metadata shape/fetching:
   `PlexService+Library.swift` and `PlexMediaDetails.swift`.
-- Dolby Atmos / spatial audio remux: eligibility in `StreamResolver`, Plex
-  request in `PlexService+Playback.swift`, session logic in
-  `PlaybackCoordinator+SpatialAudio.swift`, Atmos init-segment fix in
-  `Playback/RemuxHLSLoader.swift`.
+- Dolby Atmos / spatial audio, HDR and Dolby Vision remux: eligibility in
+  `StreamResolver` (`spatialAudioRemuxBlocker`, `hdrVideoRemuxBlocker`,
+  `dolbyVisionRemuxBlocker`), Plex request in `PlexService+Playback.swift`,
+  session logic in `PlaybackCoordinator+SpatialAudio.swift`, Atmos and Dolby
+  Vision init-segment/playlist fixes in `Playback/RemuxHLSLoader.swift`
+  (tests: `DuskTests/HDRVideoRemuxTests.swift`).
 - Session orchestration: `PlaybackCoordinator+Session.swift`; timeline:
   `PlaybackCoordinator+Timeline.swift`; Up Next: `PlaybackCoordinator+UpNext.swift`.
 - Display mode matching (tvOS): `Features/Player/DisplayModeMatcher.swift`,

@@ -100,6 +100,33 @@ struct DolbyVisionConfiguration: Sendable, Equatable {
         String(format: "dvh1.%02d.%02d", profile, level)
     }
 
+    /// Profile 8.1 (HDR10 base) and 8.4 (HLG base): the base layer is plain
+    /// HEVC every decoder can show, so the track stays `hvc1` and Dolby Vision
+    /// is announced alongside it (`dvvC` + `SUPPLEMENTAL-CODECS`) instead of
+    /// replacing it. Profile 5 has no such base and must be relabelled.
+    var hasCompatibleBaseLayer: Bool {
+        profile == 8 && (blSignalCompatibilityID == 1 || blSignalCompatibilityID == 4)
+    }
+
+    /// The base layer is HLG (profile 8.4) rather than HDR10 (8.1).
+    var hasHLGBaseLayer: Bool {
+        hasCompatibleBaseLayer && blSignalCompatibilityID == 4
+    }
+
+    /// HLS `SUPPLEMENTAL-CODECS` value for a backward-compatible stream,
+    /// e.g. `dvh1.08.06/db1p` (8.1) or `dvh1.08.06/db4h` (8.4).
+    var supplementalCodecString: String? {
+        guard hasCompatibleBaseLayer else { return nil }
+        return codecString + (hasHLGBaseLayer ? "/db4h" : "/db1p")
+    }
+
+    /// Short human label, e.g. `Dolby Vision 8.1`.
+    var displayName: String {
+        hasCompatibleBaseLayer
+            ? "Dolby Vision \(profile).\(blSignalCompatibilityID)"
+            : "Dolby Vision profile \(profile)"
+    }
+
     /// The level Dolby's pixel-rate table gives the stream, for when Plex
     /// omits `DOVILevel`.
     private static func fallbackLevel(for stream: PlexStream) -> Int {
@@ -119,13 +146,20 @@ struct DolbyVisionConfiguration: Sendable, Equatable {
 
 /// Restores Dolby Vision signaling on Plex's fragmented-MP4 HLS remux.
 ///
-/// Plex copies a Dolby Vision profile 5 HEVC bitstream (RPU NAL units
-/// included) into fMP4 segments but labels the track as plain HEVC (`hvc1`).
-/// Profile 5 has no HDR10/SDR-compatible base layer, so AVFoundation decoding
-/// it as HEVC shows IPTPQc2 color as green/purple garbage. Relabelling the
-/// sample entry `dvh1` and supplying the `dvcC` configuration box makes
-/// VideoToolbox decode it as Dolby Vision — how Apple devices render DV5 from
-/// any MP4 — and the playlist's `CODECS` entry is rewritten to match.
+/// Plex copies a Dolby Vision HEVC bitstream (RPU NAL units included) into
+/// fMP4 segments but labels the track as plain HEVC (`hvc1`) with no
+/// configuration box, so AVFoundation never applies the RPU.
+///
+/// - Profile 5 has no HDR10/SDR-compatible base layer; decoded as HEVC its
+///   IPTPQc2 color is green/purple garbage. The sample entry is relabelled
+///   `dvh1` with a `dvcC` box — how Apple devices render DV5 from any MP4 —
+///   and the playlist's `CODECS` entry is rewritten to match.
+/// - Profile 8.1/8.4 keeps its `hvc1` entry (the HDR10/HLG base stays
+///   decodable everywhere) and gains a `dvvC` box plus a
+///   `SUPPLEMENTAL-CODECS="dvh1.08.LL/db1p|db4h"` variant attribute, the
+///   backward-compatible packaging Apple's HLS spec uses for these profiles.
+///   AVPlayer then applies the RPU (real Dolby Vision on a DV display,
+///   RPU-guided tone mapping elsewhere).
 enum DolbyVisionSignaling {
     private static let containerHeaderPadding: [String: Int] = [
         "moov": 0, "trak": 0, "mdia": 0, "minf": 0, "stbl": 0,
@@ -140,17 +174,26 @@ enum DolbyVisionSignaling {
         "hev1": "dvhe",
     ]
 
-    /// Returns the init segment with every HEVC sample entry relabelled as
-    /// Dolby Vision (and given a `dvcC`/`dvvC` box when it has none), or nil
-    /// when there was nothing to patch or the data is not a parseable MP4.
+    /// Highest HEVC level a variant's `CODECS` may declare. tvOS 27 refuses
+    /// a Dolby Vision master that declares level 5.2 (`L156`) with -11848,
+    /// while the same stream declared 5.1 plays with Dolby Vision engaged.
+    /// Only the playlist declaration changes; the decoder reads `hvcC`.
+    static let maximumDeclaredHEVCLevel = 153
+
+    /// Returns the init segment with every HEVC sample entry signalled as
+    /// Dolby Vision (relabelled for profile 5, kept `hvc1` for 8.1/8.4) and
+    /// given a `dvcC`/`dvvC` box when it has none, or nil when there was
+    /// nothing to patch or the data is not a parseable MP4.
     static func patchedInitSegment(_ data: Data, configuration: DolbyVisionConfiguration) -> Data? {
         var didPatch = false
         guard let patched = MP4BoxRewriter.rewrite(
             [UInt8](data),
             containerHeaderPadding: containerHeaderPadding,
             transform: { type, box in
-                guard let renamed = sampleEntryRenames[type],
-                      let entry = dolbyVisionSampleEntry(box, type: renamed, configuration: configuration) else {
+                guard let renamed = sampleEntryRenames[type] else { return nil }
+                let entryType = configuration.hasCompatibleBaseLayer ? type : renamed
+                guard let entry = dolbyVisionSampleEntry(box, type: entryType, configuration: configuration),
+                      entry != box else {
                     return nil
                 }
                 didPatch = true
@@ -162,25 +205,64 @@ enum DolbyVisionSignaling {
         return Data(patched)
     }
 
-    /// Rewrites `CODECS` on `EXT-X-STREAM-INF` lines so the HEVC entry
-    /// announces Dolby Vision; AVFoundation picks the decoder for a variant
-    /// from it before it ever reads the init segment.
+    /// Rewrites an `EXT-X-STREAM-INF` line so the variant announces Dolby
+    /// Vision; AVFoundation picks the decoder for a variant from it before
+    /// it ever reads the init segment. Profile 5 replaces the HEVC `CODECS`
+    /// entry; 8.1/8.4 keep it (level capped, see `maximumDeclaredHEVCLevel`)
+    /// and add `SUPPLEMENTAL-CODECS`, plus `VIDEO-RANGE=HLG` for 8.4. Lines
+    /// without an HEVC entry are left alone.
     static func rewrittenStreamInfLine(_ line: String, configuration: DolbyVisionConfiguration) -> String {
         guard let start = line.range(of: "CODECS=\""),
               let end = line[start.upperBound...].firstIndex(of: "\"") else {
             return line
         }
+        var hasHEVCEntry = false
         let codecs = line[start.upperBound..<end]
             .split(separator: ",")
             .map { codec -> String in
                 let trimmed = codec.trimmingCharacters(in: .whitespaces)
                 let lowered = trimmed.lowercased()
-                return lowered.hasPrefix("hvc1") || lowered.hasPrefix("hev1")
-                    ? configuration.codecString
-                    : trimmed
+                guard lowered.hasPrefix("hvc1") || lowered.hasPrefix("hev1") else { return trimmed }
+                hasHEVCEntry = true
+                return configuration.hasCompatibleBaseLayer
+                    ? cappingHEVCLevel(trimmed)
+                    : configuration.codecString
             }
             .joined(separator: ",")
-        return line.replacingCharacters(in: start.upperBound..<end, with: codecs)
+        guard hasHEVCEntry else { return line }
+        var rewritten = line.replacingCharacters(in: start.upperBound..<end, with: codecs)
+
+        guard let supplemental = configuration.supplementalCodecString else { return rewritten }
+        if !rewritten.contains("SUPPLEMENTAL-CODECS=") {
+            rewritten += ",SUPPLEMENTAL-CODECS=\"\(supplemental)\""
+        }
+        if configuration.hasHLGBaseLayer {
+            rewritten = settingAttribute("VIDEO-RANGE", to: "HLG", in: rewritten)
+        }
+        return rewritten
+    }
+
+    /// `hvc1.2.4.L156.b0` → `hvc1.2.4.L153.b0`; anything unparseable or
+    /// already at/below the cap is returned unchanged.
+    static func cappingHEVCLevel(_ codec: String) -> String {
+        var parts = codec.split(separator: ".", omittingEmptySubsequences: false).map(String.init)
+        guard parts.count >= 4,
+              let tier = parts[3].first, tier == "L" || tier == "H",
+              let level = Int(parts[3].dropFirst()),
+              level > maximumDeclaredHEVCLevel else {
+            return codec
+        }
+        parts[3] = "\(tier)\(maximumDeclaredHEVCLevel)"
+        return parts.joined(separator: ".")
+    }
+
+    /// Replaces an unquoted attribute's value, or appends the attribute.
+    private static func settingAttribute(_ name: String, to value: String, in line: String) -> String {
+        guard let start = line.range(of: "\(name)=") else {
+            return line + ",\(name)=\(value)"
+        }
+        let end = line[start.upperBound...].firstIndex(of: ",") ?? line.endIndex
+        return line.replacingCharacters(in: start.upperBound..<end, with: value)
     }
 
     private static func dolbyVisionSampleEntry(
@@ -302,7 +384,7 @@ enum MP4BoxRewriter {
 }
 
 /// Resource-loader front for a Plex fMP4 HLS remux (Dolby Atmos and Dolby
-/// Vision profile 5 sessions).
+/// Vision sessions).
 ///
 /// Playlists and the init segment are requested through a private URL
 /// scheme and fetched here; media segments are rewritten to absolute server
@@ -423,7 +505,7 @@ final class RemuxHLSLoader: NSObject, AVAssetResourceLoaderDelegate, @unchecked 
         if let dolbyVision,
            let patched = DolbyVisionSignaling.patchedInitSegment(segment, configuration: dolbyVision) {
             atmosSignalingLogger.notice(
-                "Restored Dolby Vision signaling (\(dolbyVision.codecString, privacy: .public)) in the HLS init segment"
+                "Restored Dolby Vision signaling (\(dolbyVision.supplementalCodecString ?? dolbyVision.codecString, privacy: .public)) in the HLS init segment"
             )
             segment = patched
         }

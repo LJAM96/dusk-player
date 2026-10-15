@@ -384,10 +384,11 @@ extension PlaybackCoordinator {
                         }
                     }
                 } else {
-                    // Dolby Atmos / spatial audio: a VLCKit-only file whose
-                    // audio is Dolby goes to AVPlayer through a lossless Plex
-                    // remux. Anything short of a confirmed copy-remux keeps
-                    // plain direct play.
+                    // Dolby Atmos / spatial audio and HDR video: a VLCKit-only
+                    // file whose audio is Dolby, or whose video is HDR (HDR10,
+                    // HDR10+, HLG, Dolby Vision 7/8), goes to AVPlayer through
+                    // a lossless Plex remux. Anything short of a confirmed
+                    // copy-remux keeps plain direct play.
                     let audioStreamID = PlayerViewModel.preferredLocalAudioStream(
                         inPart: part,
                         preferredLanguage: preferences.defaultAudioLanguage
@@ -535,7 +536,13 @@ extension PlaybackCoordinator {
             refreshAdjacentEpisodesIfNeeded()
             // Ahead of the engine so the display's mode switch (which blanks the
             // screen briefly) overlaps buffering instead of playback.
-            DisplayModeMatcher.apply(media: media, part: part, decision: playbackDecision)
+            let dolbyVisionRemux = remuxDolbyVisionConfiguration(for: media, decision: playbackDecision)
+            DisplayModeMatcher.apply(
+                media: media,
+                part: part,
+                decision: playbackDecision,
+                dolbyVision: dolbyVisionRemux
+            )
             engine = newEngine
             let preferredAudioTrackPosition: Int? = switch playbackDecision {
             case .directPlay, .localDownload:
@@ -570,7 +577,7 @@ extension PlaybackCoordinator {
                 ),
                 locality: sourceLocality(for: playbackURL, serverID: serverID),
                 restoresDolbyAtmos: playbackDecision.isSpatialAudio && activeAudioStreamIsDolbyAtmos(in: part),
-                dolbyVisionRemux: remuxDolbyVisionConfiguration(for: media, decision: playbackDecision)
+                dolbyVisionRemux: dolbyVisionRemux
             )
             debugInfo = PlaybackDebugInfo(
                 title: details.title,
@@ -1095,7 +1102,13 @@ extension PlaybackCoordinator {
         // A quality/fallback switch can change the delivered dynamic range (a
         // server transcode of an HDR source lands as SDR), so the criteria is
         // re-evaluated rather than carried over from the previous attempt.
-        DisplayModeMatcher.apply(media: media, part: part, decision: playbackDecision)
+        let dolbyVisionRemux = remuxDolbyVisionConfiguration(for: media, decision: playbackDecision)
+        DisplayModeMatcher.apply(
+            media: media,
+            part: part,
+            decision: playbackDecision,
+            dolbyVision: dolbyVisionRemux
+        )
         engine = newEngine
         let preferredAudioTrackPosition: Int? = switch playbackDecision {
         case .directPlay, .localDownload:
@@ -1119,7 +1132,7 @@ extension PlaybackCoordinator {
             ),
             locality: sourceLocality(for: playbackURL, serverID: activePlaybackServerID),
             restoresDolbyAtmos: playbackDecision.isSpatialAudio && activeAudioStreamIsDolbyAtmos(in: part),
-            dolbyVisionRemux: remuxDolbyVisionConfiguration(for: media, decision: playbackDecision)
+            dolbyVisionRemux: dolbyVisionRemux
         )
         debugInfo = PlaybackDebugInfo(
             title: details.title,

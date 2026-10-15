@@ -33,6 +33,7 @@ final class UserPreferences {
         static let forceAVPlayer = "forceAVPlayer"
         static let forceVLCKit = "forceVLCKit"
         static let spatialAudioRemuxEnabled = "spatialAudioRemuxEnabled"
+        static let hdrVideoRemuxEnabled = "hdrVideoRemuxEnabled"
         static let appearanceMode = "appearanceMode"
         static let libraryTabOrder = "libraryTabOrder"
         static let hiddenLibraryTabs = "hiddenLibraryTabs"
@@ -185,6 +186,14 @@ final class UserPreferences {
     /// AVPlayer, so Atmos reaches HDMI and AirPods get spatial audio.
     var spatialAudioRemuxEnabled: Bool {
         didSet { UserDefaults.standard.set(spatialAudioRemuxEnabled, forKey: Keys.spatialAudioRemuxEnabled) }
+    }
+
+    /// Play HDR files only VLCKit could direct play (HDR10, HDR10+, HLG,
+    /// Dolby Vision 7/8) through a lossless Plex remux into AVPlayer, which
+    /// shows real HDR and applies Dolby Vision 8.1/8.4 metadata. VLCKit
+    /// renders into an 8-bit SDR surface on iOS/tvOS.
+    var hdrVideoRemuxEnabled: Bool {
+        didSet { UserDefaults.standard.set(hdrVideoRemuxEnabled, forKey: Keys.hdrVideoRemuxEnabled) }
     }
 
     /// App-wide appearance override.
@@ -462,6 +471,7 @@ final class UserPreferences {
         self.forceAVPlayer = forceAVPlayer
         self.forceVLCKit = forceVLCKit
         self.spatialAudioRemuxEnabled = defaults.object(forKey: Keys.spatialAudioRemuxEnabled) as? Bool ?? true
+        self.hdrVideoRemuxEnabled = defaults.object(forKey: Keys.hdrVideoRemuxEnabled) as? Bool ?? true
         self.appearanceMode = appearanceMode
         self.libraryTabOrder = libraryTabOrder
         self.hiddenLibraryTabs = hiddenLibraryTabs

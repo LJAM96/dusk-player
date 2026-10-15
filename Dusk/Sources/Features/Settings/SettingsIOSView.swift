@@ -433,6 +433,9 @@ struct SettingsIOSView: View {
                 Toggle("Dolby Atmos & Spatial Audio", isOn: $preferences.spatialAudioRemuxEnabled)
                     .foregroundStyle(Color.duskTextPrimary)
 
+                Toggle("HDR & Dolby Vision", isOn: $preferences.hdrVideoRemuxEnabled)
+                    .foregroundStyle(Color.duskTextPrimary)
+
                 Toggle("Force AVPlayer", isOn: $preferences.forceAVPlayer)
                     .foregroundStyle(Color.duskTextPrimary)
 

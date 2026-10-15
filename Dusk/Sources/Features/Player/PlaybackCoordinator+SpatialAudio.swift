@@ -39,7 +39,9 @@ extension PlaybackCoordinator {
     /// Dolby Vision profile 5 files take the same remux for their video
     /// (AVPlayer renders DV5 from MP4; libvlc cannot) regardless of the
     /// spatial-audio setting, and have Plex convert any audio the fMP4 cannot
-    /// carry instead of refusing.
+    /// carry instead of refusing. Other HDR files (HDR10, HDR10+, HLG, Dolby
+    /// Vision 7/8) take it when `hdrVideoRemuxEnabled` is on and the audio can
+    /// be copied: VLCKit has no HDR output on iOS/tvOS.
     func requestSpatialAudioRemux(
         ratingKey: String,
         mediaIndex: Int,
@@ -54,7 +56,9 @@ extension PlaybackCoordinator {
         let isDolbyVisionRemux = StreamResolver.isDolbyVisionProfile5(media)
         // Audio conversion is the undecodable-audio fallback, not a spatial
         // audio preference, so the setting only gates the Dolby remux.
-        guard preferences.spatialAudioRemuxEnabled || convertsAudio || isDolbyVisionRemux,
+        let considersSpatialAudio = preferences.spatialAudioRemuxEnabled || convertsAudio
+        let considersHDRVideo = preferences.hdrVideoRemuxEnabled
+        guard considersSpatialAudio || considersHDRVideo || isDolbyVisionRemux,
               !preferences.forceAVPlayer,
               !preferences.forceVLCKit else {
             return nil
@@ -67,20 +71,42 @@ extension PlaybackCoordinator {
         }
         let convertsAudio = convertsAudio
             || (isDolbyVisionRemux && audioStream.map { !StreamResolver.canCopyIntoRemux(audio: $0) } == true)
-        let blocker = isDolbyVisionRemux
-            ? StreamResolver.dolbyVisionRemuxBlocker(
+        let blocker: String?
+        // Which of the two non-DV5 reasons qualified, for the session reason.
+        var qualifiesForSpatialAudio = false
+        var qualifiesForHDRVideo = false
+        if isDolbyVisionRemux {
+            blocker = StreamResolver.dolbyVisionRemuxBlocker(
                 media: media,
                 subtitleStream: subtitleStream,
                 displaySupportsHDR: AVPlayer.eligibleForHDRPlayback
             )
-            : StreamResolver.spatialAudioRemuxBlocker(
-                media: media,
-                decision: resolverDecision,
-                audioStream: audioStream,
-                subtitleStream: subtitleStream,
-                displaySupportsHDR: AVPlayer.eligibleForHDRPlayback,
-                convertsAudio: convertsAudio
-            )
+        } else {
+            let spatialAudioBlocker = considersSpatialAudio
+                ? StreamResolver.spatialAudioRemuxBlocker(
+                    media: media,
+                    decision: resolverDecision,
+                    audioStream: audioStream,
+                    subtitleStream: subtitleStream,
+                    displaySupportsHDR: AVPlayer.eligibleForHDRPlayback,
+                    convertsAudio: convertsAudio
+                )
+                : "Dolby Atmos remux is off"
+            let hdrVideoBlocker = considersHDRVideo
+                ? StreamResolver.hdrVideoRemuxBlocker(
+                    media: media,
+                    decision: resolverDecision,
+                    audioStream: audioStream,
+                    subtitleStream: subtitleStream,
+                    displaySupportsHDR: AVPlayer.eligibleForHDRPlayback
+                )
+                : "HDR remux is off"
+            qualifiesForSpatialAudio = spatialAudioBlocker == nil
+            qualifiesForHDRVideo = hdrVideoBlocker == nil
+            blocker = qualifiesForSpatialAudio || qualifiesForHDRVideo
+                ? nil
+                : [spatialAudioBlocker, hdrVideoBlocker].compactMap { $0 }.joined(separator: "; ")
+        }
         if let blocker {
             spatialAudioLogger.notice(
                 "No spatial-audio remux for ratingKey \(ratingKey, privacy: .public): \(blocker, privacy: .public)"
@@ -148,8 +174,14 @@ extension PlaybackCoordinator {
                 let target = result.streams.audioCodec?.uppercased() ?? "a supported codec"
                 reason = "\(source) converted to \(target) by Plex, video copied (\(resolverDecision.reason))"
             } else {
-                let audioLabel = audioStream.map { StreamResolver.isDolbyAtmos($0) ? "Dolby Atmos" : "multichannel Dolby" } ?? "Dolby"
-                reason = "\(audioLabel) via lossless Plex remux (\(resolverDecision.reason))"
+                var labels: [String] = []
+                if qualifiesForSpatialAudio {
+                    labels.append(audioStream.map { StreamResolver.isDolbyAtmos($0) ? "Dolby Atmos" : "multichannel Dolby" } ?? "Dolby")
+                }
+                if qualifiesForHDRVideo {
+                    labels.append(StreamResolver.hdrVideoLabel(for: media))
+                }
+                reason = "\(labels.joined(separator: " + ")) via lossless Plex remux (\(resolverDecision.reason))"
             }
             return SpatialAudioRemux(
                 url: result.url,
@@ -404,13 +436,19 @@ extension PlaybackCoordinator {
     }
 
     /// The Dolby Vision signaling `RemuxHLSLoader` restores on a remux of a
-    /// Dolby Vision profile 5 file; nil for every other session.
+    /// Dolby Vision profile 5 file, or of a profile 8.1/8.4 file while the
+    /// HDR setting is on (any remux of it: HDR, Atmos or converted audio);
+    /// nil for every other session.
     func remuxDolbyVisionConfiguration(
         for media: PlexMedia,
         decision: PlaybackDecision
     ) -> DolbyVisionConfiguration? {
         guard decision.isSpatialAudio else { return nil }
-        return StreamResolver.dolbyVisionProfile5Stream(in: media).flatMap(DolbyVisionConfiguration.init(stream:))
+        return StreamResolver.dolbyVisionSignalingStream(
+            in: media,
+            includesProfile8: preferences.hdrVideoRemuxEnabled
+        )
+        .flatMap(DolbyVisionConfiguration.init(stream:))
     }
 
     /// Whether the remux's audio is E-AC-3 + JOC. Only then does the session
