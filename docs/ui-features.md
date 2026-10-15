@@ -627,6 +627,12 @@ in Dusk. Read this with `docs/codebase-map.md`, `STYLE.md`, and `docs/data-and-p
   video libraries default to Release Date (newest).
 - Use `LibraryGenreSupport` for Plex genre filter discovery, normalization, URL
   parameter extraction, and fallback matching. Do not compare genre strings ad hoc.
+- The grid's **Unwatched** chip (between Genre and Sort) is a one-tap filter, remembered
+  per library (`LibraryUnwatchedFilterStore`, keyed on `PlexLibrary.id`) and applied to
+  that library's genre and collection grids too. `LibraryUnwatchedFilter` sends
+  `unwatched=1` for movie/video sections (in-progress titles stay) and
+  `unwatchedLeaves=1` for shows (listed while any episode is unwatched). Active = inverted
+  `TextPrimary` fill with a filled checkmark (STYLE.md selected treatment).
 - `LibraryItemsViewModel` uses a `queryGeneration` guard so stale async page loads do
   not mutate current results. Preserve this pattern when adding filters.
 - Infinite scroll is triggered from `PlexItemPosterGrid.onItemAppear`; keep pagination
