@@ -9,27 +9,187 @@ private let dolbyVision7Logger = Logger(
 
 /// Upstream GETs for `DolbyVision7HLSProxy`; a seam for tests.
 protocol HLSUpstreamFetching: Sendable {
-    func fetch(_ url: URL) async throws -> (Data, HTTPURLResponse)
+    /// GETs `url`. Follows redirects only while they stay on `origin`'s
+    /// scheme/host/port, and stops reading once the body would pass
+    /// `maximumBytes`; both throw `HLSUpstreamFetchError`.
+    func fetch(_ url: URL, origin: URL, maximumBytes: Int) async throws -> (Data, HTTPURLResponse)
+}
+
+enum HLSUpstreamFetchError: Error, Sendable, Equatable {
+    /// The body (declared or received) is over the limit for its kind.
+    case tooLarge(limit: Int)
+    /// The server redirected off the master playlist's origin.
+    case offOriginRedirect
 }
 
 /// Fetches Plex's remux playlists and segments verbatim (query included),
-/// uncached: every segment is converted once and never kept.
+/// uncached: every segment is converted once and never kept. Bodies are
+/// received incrementally, so a limit holds before the whole body is in
+/// memory (a declared `Content-Length` over it fails before any byte).
 struct URLSessionHLSUpstreamFetcher: HLSUpstreamFetching {
-    private static let session: URLSession = {
+    static let shared = URLSessionHLSUpstreamFetcher(configuration: defaultConfiguration)
+
+    static var defaultConfiguration: URLSessionConfiguration {
         let configuration = URLSessionConfiguration.ephemeral
         configuration.requestCachePolicy = .reloadIgnoringLocalCacheData
         configuration.urlCache = nil
         configuration.timeoutIntervalForRequest = 90
         configuration.timeoutIntervalForResource = 300
-        return URLSession(configuration: configuration)
-    }()
+        return configuration
+    }
 
-    func fetch(_ url: URL) async throws -> (Data, HTTPURLResponse) {
-        let (data, response) = try await Self.session.data(from: url)
-        guard let http = response as? HTTPURLResponse else {
-            throw URLError(.badServerResponse)
+    private let session: URLSession
+    private let loads: HLSUpstreamLoads
+
+    init(configuration: URLSessionConfiguration) {
+        let loads = HLSUpstreamLoads()
+        self.loads = loads
+        self.session = URLSession(configuration: configuration, delegate: loads, delegateQueue: nil)
+    }
+
+    func fetch(_ url: URL, origin: URL, maximumBytes: Int) async throws -> (Data, HTTPURLResponse) {
+        let task = session.dataTask(with: url)
+        loads.register(task, origin: origin, maximumBytes: maximumBytes)
+        return try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { continuation in
+                loads.wait(for: task, continuation: continuation)
+                task.resume()
+            }
+        } onCancel: {
+            task.cancel()
         }
-        return (data, http)
+    }
+}
+
+/// The session delegate behind `URLSessionHLSUpstreamFetcher`: one entry
+/// per task with its origin, limit and body so far.
+private final class HLSUpstreamLoads: NSObject, URLSessionDataDelegate, @unchecked Sendable {
+    typealias Continuation = CheckedContinuation<(Data, HTTPURLResponse), any Error>
+
+    private final class Load {
+        let origin: URL
+        let maximumBytes: Int
+        var body = Data()
+        var failure: HLSUpstreamFetchError?
+        var continuation: Continuation?
+        /// Set when the task completes before anyone waits for it (it was
+        /// cancelled straight away).
+        var result: Result<(Data, HTTPURLResponse), any Error>?
+
+        init(origin: URL, maximumBytes: Int) {
+            self.origin = origin
+            self.maximumBytes = maximumBytes
+        }
+    }
+
+    private let lock = NSLock()
+    // Guarded by `lock`.
+    private var loads: [Int: Load] = [:]
+
+    func register(_ task: URLSessionTask, origin: URL, maximumBytes: Int) {
+        lock.withLock { loads[task.taskIdentifier] = Load(origin: origin, maximumBytes: maximumBytes) }
+    }
+
+    func wait(for task: URLSessionTask, continuation: Continuation) {
+        let result = lock.withLock { () -> Result<(Data, HTTPURLResponse), any Error>? in
+            guard let load = loads[task.taskIdentifier] else { return .failure(URLError(.unknown)) }
+            guard let result = load.result else {
+                load.continuation = continuation
+                return nil
+            }
+            loads[task.taskIdentifier] = nil
+            return result
+        }
+        if let result { continuation.resume(with: result) }
+    }
+
+    private func load(of task: URLSessionTask) -> Load? {
+        lock.withLock { loads[task.taskIdentifier] }
+    }
+
+    /// Records why `task` is being stopped; its completion reports that
+    /// instead of the cancellation it causes.
+    private func fail(_ task: URLSessionTask, _ failure: HLSUpstreamFetchError) {
+        lock.withLock { loads[task.taskIdentifier]?.failure = failure }
+    }
+
+    func urlSession(
+        _ session: URLSession,
+        task: URLSessionTask,
+        willPerformHTTPRedirection response: HTTPURLResponse,
+        newRequest request: URLRequest,
+        completionHandler: @escaping @Sendable (URLRequest?) -> Void
+    ) {
+        guard let load = load(of: task),
+              let target = request.url,
+              DolbyVision7HLSProxy.isSameOrigin(target, as: load.origin) else {
+            fail(task, .offOriginRedirect)
+            completionHandler(nil)
+            task.cancel()
+            return
+        }
+        completionHandler(request)
+    }
+
+    func urlSession(
+        _ session: URLSession,
+        dataTask: URLSessionDataTask,
+        didReceive response: URLResponse,
+        completionHandler: @escaping @Sendable (URLSession.ResponseDisposition) -> Void
+    ) {
+        guard let load = load(of: dataTask) else {
+            completionHandler(.cancel)
+            return
+        }
+        let declared = response.expectedContentLength
+        if declared > Int64(load.maximumBytes) {
+            fail(dataTask, .tooLarge(limit: load.maximumBytes))
+            completionHandler(.cancel)
+            return
+        }
+        if declared > 0 {
+            lock.withLock { load.body.reserveCapacity(Int(declared)) }
+        }
+        completionHandler(.allow)
+    }
+
+    func urlSession(_ session: URLSession, dataTask: URLSessionDataTask, didReceive data: Data) {
+        let isOverLimit = lock.withLock { () -> Bool in
+            guard let load = loads[dataTask.taskIdentifier], load.failure == nil else { return false }
+            guard load.body.count + data.count <= load.maximumBytes else {
+                load.failure = .tooLarge(limit: load.maximumBytes)
+                load.body = Data()
+                return true
+            }
+            load.body.append(data)
+            return false
+        }
+        if isOverLimit { dataTask.cancel() }
+    }
+
+    func urlSession(_ session: URLSession, task: URLSessionTask, didCompleteWithError error: (any Error)?) {
+        let finished = lock.withLock { () -> (Continuation, Result<(Data, HTTPURLResponse), any Error>)? in
+            guard let load = loads[task.taskIdentifier] else { return nil }
+            let result: Result<(Data, HTTPURLResponse), any Error>
+            if let failure = load.failure {
+                result = .failure(failure)
+            } else if let error {
+                result = .failure(error)
+            } else if let response = task.response as? HTTPURLResponse {
+                result = .success((load.body, response))
+            } else {
+                result = .failure(URLError(.badServerResponse))
+            }
+            guard let continuation = load.continuation else {
+                load.result = result
+                return nil
+            }
+            loads[task.taskIdentifier] = nil
+            return (continuation, result)
+        }
+        if let (continuation, result) = finished {
+            continuation.resume(with: result)
+        }
     }
 }
 
@@ -60,12 +220,27 @@ final class DolbyVision7HLSProxy: @unchecked Sendable {
     /// this bounds the proxy's memory to a few segments.
     private static let maximumConcurrentSegments = 2
 
+    /// Upstream body limits, enforced while receiving. A media playlist of a
+    /// long film at 1 s segments is a few MB; an init segment a few KB. A
+    /// media segment is cut at keyframes when Plex copies the video, so it
+    /// lasts at least a GOP: 256 MiB holds 16 s at UHD Blu-ray's 128 Mbps
+    /// ceiling (FEL included), well past any real segment.
+    static let maximumPlaylistBytes = 16 << 20
+    static let maximumInitSegmentBytes = 4 << 20
+    static let maximumMediaSegmentBytes = 256 << 20
+
+    /// Connections still waiting for their request head. AVPlayer sends its
+    /// head right after connecting, so it only ever holds a few of these
+    /// for an instant; a new connection over the cap evicts the oldest.
+    static let maximumPendingConnections = 16
+
     private let upstreamMasterURL: URL
     private let target: DolbyVisionConfiguration
     private let restoresDolbyAtmos: Bool
     private let sampleRewriter: any DolbyVisionSampleRewriting
     private let fetcher: any HLSUpstreamFetching
     private let token: String
+    private let requestHeadTimeout: TimeInterval
     private let queue = DispatchQueue(label: "com.dusk-player.dolby-vision-7-proxy")
     private let segmentGate = HLSProxySegmentGate(limit: maximumConcurrentSegments)
 
@@ -89,6 +264,8 @@ final class DolbyVision7HLSProxy: @unchecked Sendable {
     /// once).
     private var initLoads: [Int: Task<InitSegmentLoad, any Error>] = [:]
     private var connections: [ObjectIdentifier: NWConnection] = [:]
+    /// Connections whose request head has not arrived yet, oldest first.
+    private var pendingHeads: [ObjectIdentifier] = []
     private var requestTasks: [ObjectIdentifier: Task<Void, Never>] = [:]
 
     /// Called once, on an arbitrary queue, when conversion cannot continue.
@@ -102,13 +279,15 @@ final class DolbyVision7HLSProxy: @unchecked Sendable {
         target: DolbyVisionConfiguration,
         restoresDolbyAtmos: Bool,
         sampleRewriter: any DolbyVisionSampleRewriting = DoviBridgeSampleRewriter(),
-        fetcher: any HLSUpstreamFetching = URLSessionHLSUpstreamFetcher()
+        fetcher: any HLSUpstreamFetching = URLSessionHLSUpstreamFetcher.shared,
+        requestHeadTimeout: TimeInterval = 10
     ) {
         self.upstreamMasterURL = upstreamMasterURL
         self.target = target
         self.restoresDolbyAtmos = restoresDolbyAtmos
         self.sampleRewriter = sampleRewriter
         self.fetcher = fetcher
+        self.requestHeadTimeout = requestHeadTimeout
         self.token = (0..<16).map { _ in String(format: "%02x", UInt8.random(in: .min ... .max)) }.joined()
     }
 
@@ -152,6 +331,7 @@ final class DolbyVision7HLSProxy: @unchecked Sendable {
             listener = nil
             readyContinuation = nil
             connections = [:]
+            pendingHeads = []
             requestTasks = [:]
             masterPlaylist = nil
             initSegments = [:]
@@ -265,13 +445,27 @@ final class DolbyVision7HLSProxy: @unchecked Sendable {
 
     // MARK: - Connections
 
+    /// Connections in use (tests).
+    var openConnectionCount: Int { lock.withLock { connections.count } }
+
+    /// Every connection must deliver its request head within
+    /// `requestHeadTimeout`; after that (a request waiting on a fetch or a
+    /// segment slot) it has no deadline. Head-less connections are also
+    /// capped, oldest evicted, so a local client without the token cannot
+    /// pile them up.
     private func accept(_ connection: NWConnection) {
         let key = ObjectIdentifier(connection)
-        let isAccepted = lock.withLock {
-            guard !isStopped else { return false }
+        let (isAccepted, evicted) = lock.withLock { () -> (Bool, NWConnection?) in
+            guard !isStopped else { return (false, nil) }
+            var evicted: NWConnection?
+            if pendingHeads.count >= Self.maximumPendingConnections {
+                evicted = connections[pendingHeads.removeFirst()]
+            }
             connections[key] = connection
-            return true
+            pendingHeads.append(key)
+            return (true, evicted)
         }
+        evicted?.cancel()
         guard isAccepted else {
             connection.cancel()
             return
@@ -285,6 +479,12 @@ final class DolbyVision7HLSProxy: @unchecked Sendable {
             }
         }
         connection.start(queue: queue)
+        queue.asyncAfter(deadline: .now() + requestHeadTimeout) { [weak self, weak connection] in
+            guard let self, let connection else { return }
+            if self.lock.withLock({ self.pendingHeads.contains(key) }) {
+                connection.cancel()
+            }
+        }
         receiveHead(on: connection, buffered: Data())
     }
 
@@ -299,8 +499,10 @@ final class DolbyVision7HLSProxy: @unchecked Sendable {
                 buffered.append(content)
             }
             if let headLength = HLSProxyRequest.headLength(in: buffered) {
+                self.headReceived(on: connection)
                 self.handle(HLSProxyRequest.parse(buffered.prefix(headLength)), on: connection)
             } else if buffered.count > HLSProxyRequest.maximumHeadLength {
+                self.headReceived(on: connection)
                 self.send(.empty(431), for: nil, on: connection)
             } else if error != nil || isComplete {
                 connection.cancel()
@@ -308,6 +510,11 @@ final class DolbyVision7HLSProxy: @unchecked Sendable {
                 self.receiveHead(on: connection, buffered: buffered)
             }
         }
+    }
+
+    private func headReceived(on connection: NWConnection) {
+        let key = ObjectIdentifier(connection)
+        lock.withLock { pendingHeads.removeAll { $0 == key } }
     }
 
     private func handle(_ request: HLSProxyRequest?, on connection: NWConnection) {
@@ -362,6 +569,7 @@ final class DolbyVision7HLSProxy: @unchecked Sendable {
     private func connectionClosed(_ key: ObjectIdentifier) {
         let task = lock.withLock {
             connections[key] = nil
+            pendingHeads.removeAll { $0 == key }
             return requestTasks.removeValue(forKey: key)
         }
         task?.cancel()
@@ -404,7 +612,11 @@ final class DolbyVision7HLSProxy: @unchecked Sendable {
                 return .empty(404)
             }
         } catch let error as DolbyVision7ConversionError {
-            reportFatal(error)
+            // A request the player abandoned (a seek) says nothing about
+            // the segments it still wants.
+            if !Task.isCancelled {
+                reportFatal(error)
+            }
             return .empty(500)
         } catch {
             if !Task.isCancelled {
@@ -417,7 +629,7 @@ final class DolbyVision7HLSProxy: @unchecked Sendable {
     }
 
     private func playlistResponse(_ upstream: URL, isVideo: Bool) async throws -> HLSProxyResponse {
-        let (data, response) = try await fetcher.fetch(upstream)
+        let (data, response) = try await fetchUpstream(upstream, maximumBytes: Self.maximumPlaylistBytes, isVideo: isVideo)
         guard (200..<300).contains(response.statusCode) else { return .empty(response.statusCode) }
         let playlist = try rewrittenPlaylist(
             String(decoding: data, as: UTF8.self),
@@ -447,14 +659,22 @@ final class DolbyVision7HLSProxy: @unchecked Sendable {
         case let .upstreamStatus(status): return .empty(status)
         }
 
-        let (data, response) = try await fetcher.fetch(upstream)
+        let (data, response) = try await fetchUpstream(upstream, maximumBytes: Self.maximumMediaSegmentBytes, isVideo: true)
         guard (200..<300).contains(response.statusCode) else { return .empty(response.statusCode) }
         try Task.checkCancellation()
 
+        // Off the request task, but cancelled with it: a seek stops the
+        // conversion between samples and frees the segment slot.
         let rewriter = FMP4FragmentRewriter(info: info, sampleRewriter: sampleRewriter)
-        let converted = try await Task.detached(priority: .userInitiated) {
+        let conversion = Task.detached(priority: .userInitiated) {
             try rewriter.rewrite(data)
-        }.value
+        }
+        let converted = try await withTaskCancellationHandler {
+            try await conversion.value
+        } onCancel: {
+            conversion.cancel()
+        }
+        try Task.checkCancellation()
         try check(converted.stats)
         return HLSProxyResponse(status: 200, contentType: HLSProxyResponse.mp4ContentType, body: converted.data)
     }
@@ -462,7 +682,11 @@ final class DolbyVision7HLSProxy: @unchecked Sendable {
     // MARK: - Conversion
 
     private func preflight() async throws {
-        let (masterData, masterResponse) = try await fetcher.fetch(upstreamMasterURL)
+        let (masterData, masterResponse) = try await fetchUpstream(
+            upstreamMasterURL,
+            maximumBytes: Self.maximumPlaylistBytes,
+            isVideo: true
+        )
         guard (200..<300).contains(masterResponse.statusCode) else {
             throw DolbyVision7ConversionError.proxyUnavailable("master playlist returned HTTP \(masterResponse.statusCode)")
         }
@@ -500,7 +724,7 @@ final class DolbyVision7HLSProxy: @unchecked Sendable {
             if attempt > 0 {
                 try await Task.sleep(for: .seconds(1))
             }
-            let (data, response) = try await fetcher.fetch(url)
+            let (data, response) = try await fetchUpstream(url, maximumBytes: Self.maximumPlaylistBytes, isVideo: true)
             if (200..<300).contains(response.statusCode) {
                 return String(decoding: data, as: UTF8.self)
             }
@@ -582,7 +806,7 @@ final class DolbyVision7HLSProxy: @unchecked Sendable {
 
     private func loadInitSegment(id: Int, upstream: URL) async throws -> InitSegmentLoad {
         defer { lock.withLock { initLoads[id] = nil } }
-        let (data, response) = try await fetcher.fetch(upstream)
+        let (data, response) = try await fetchUpstream(upstream, maximumBytes: Self.maximumInitSegmentBytes, isVideo: true)
         guard (200..<300).contains(response.statusCode) else {
             return .upstreamStatus(response.statusCode)
         }
@@ -633,6 +857,24 @@ final class DolbyVision7HLSProxy: @unchecked Sendable {
         }
     }
 
+    /// A GET on the master playlist's origin. Video (playlists, init and
+    /// media segments) that is too large or redirected off the origin can
+    /// never be served converted, so that is fatal (→ the unconverted
+    /// remux, which AVPlayer streams from the server itself); a rendition
+    /// playlist just fails its request (502).
+    private func fetchUpstream(_ url: URL, maximumBytes: Int, isVideo: Bool) async throws -> (Data, HTTPURLResponse) {
+        do {
+            return try await fetcher.fetch(url, origin: upstreamMasterURL, maximumBytes: maximumBytes)
+        } catch let error as HLSUpstreamFetchError where isVideo {
+            switch error {
+            case let .tooLarge(limit):
+                throw DolbyVision7ConversionError.proxyUnavailable("upstream body over \(limit) bytes")
+            case .offOriginRedirect:
+                throw DolbyVision7ConversionError.proxyUnavailable("upstream redirected off the server's origin")
+            }
+        }
+    }
+
     private func reportFatal(_ error: DolbyVision7ConversionError) {
         let handler = lock.withLock { () -> (@Sendable (DolbyVision7ConversionError) -> Void)? in
             guard !isStopped, !didReportFatalError else { return nil }
@@ -676,9 +918,14 @@ final class DolbyVision7HLSProxy: @unchecked Sendable {
     }
 
     private func isSameOrigin(_ url: URL) -> Bool {
-        url.scheme?.lowercased() == upstreamMasterURL.scheme?.lowercased()
-            && url.host?.lowercased() == upstreamMasterURL.host?.lowercased()
-            && Self.effectivePort(of: url) == Self.effectivePort(of: upstreamMasterURL)
+        Self.isSameOrigin(url, as: upstreamMasterURL)
+    }
+
+    /// Same scheme, host and (effective) port.
+    static func isSameOrigin(_ url: URL, as origin: URL) -> Bool {
+        url.scheme?.lowercased() == origin.scheme?.lowercased()
+            && url.host?.lowercased() == origin.host?.lowercased()
+            && effectivePort(of: url) == effectivePort(of: origin)
     }
 
     private static func effectivePort(of url: URL) -> Int? {

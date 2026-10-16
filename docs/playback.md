@@ -458,8 +458,27 @@ so the whole live HUD is derived from one instant.
     media segments (fetched, converted, never cached; at most two at once).
     Upstream non-2xx is forwarded, network errors are 502, and a player
     hanging up (seen as end of stream on a read kept pending after the
-    request head) cancels the fetch and conversion behind it. Logs never
-    carry the token or upstream query strings.
+    request head) cancels the fetch and conversion behind it: the detached
+    conversion task is cancelled with the request, `FMP4FragmentRewriter`
+    stops between samples, and an abandoned request never runs the RPU
+    check or reports a fatal error (a seek must not drop playback to
+    HDR10). Logs never carry the token or upstream query strings.
+  - Upstream (`URLSessionHLSUpstreamFetcher`, one shared delegate-based
+    session): bodies are received incrementally against a per-kind limit —
+    playlists 16 MiB, init segments 4 MiB, media segments 256 MiB (≥ 16 s
+    at UHD Blu-ray's 128 Mbps ceiling; Plex cuts copied video at keyframes,
+    so a segment is at least a GOP) — and a declared `Content-Length` over
+    it fails before any byte. Redirects are followed only on the master
+    playlist's origin; any other is refused (`HLSUpstreamFetchError`). For
+    video (master/variant playlists, init, segments) either is fatal → the
+    unconverted remux, which AVPlayer streams from the server itself; a
+    rendition playlist only fails its own request (502).
+  - Connections: a request head must arrive within 10 s of accept (no
+    deadline after that, so a request waiting on a fetch or a segment slot
+    is never cut), and at most 16 connections may wait for their head; a
+    new one over the cap evicts the oldest waiting one, so a local client
+    without the token cannot pile them up or lock AVPlayer out (its heads
+    arrive immediately).
   - Playlists (`DolbyVision7PlaylistRewriter`): `SUPPLEMENTAL-CODECS=
     "dvh1.08.LL/db1p"`, `VIDEO-RANGE=PQ`, level cap as for DV8; I-frame
     playlists dropped; WebVTT renditions (no `EXT-X-MAP`) keep their segment
@@ -475,7 +494,12 @@ so the whole live HUD is derived from one instant.
     video sample goes through the Rust bridge (`Native/DuskDovi`, libdovi
     `ConversionMode::To81`): NAL 63 (EL) dropped, NAL 62 (RPU) rewritten;
     `trun` sizes and data offsets are rebuilt, `sidx` dropped, audio bytes
-    copied.
+    copied. Before anything is allocated, a fragment's runs share one
+    budget: at most one sample per mdat byte and 2^20 samples in all, and
+    sample bytes summing to no more than the mdat payload (runs never
+    overlap), so a crafted `moof` cannot multiply memory or output.
+    Zero-size samples stay legal (ISO BMFF allows them) and count against
+    the sample budget.
 - Preflight (`DolbyVision7HLSProxy.start()`): listener ready, master has a
   variant that takes 8.1 signaling, its media playlist passes the same strict
   video rewrite AVPlayer will get (fMP4 throughout, no byte ranges or

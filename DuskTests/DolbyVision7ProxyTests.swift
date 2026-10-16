@@ -1,4 +1,5 @@
 import Foundation
+import Network
 import Testing
 @testable import Dusk
 
@@ -75,6 +76,110 @@ struct HLSProxyHTTPTests {
     }
 }
 
+/// The real `URLSessionHLSUpstreamFetcher` against a stubbed server
+/// (`StubUpstreamProtocol`), so redirects and body limits run through
+/// URLSession's own delegate calls.
+@Suite("Dolby Vision 7 upstream fetcher")
+struct HLSUpstreamFetcherTests {
+    private static let origin = URL(string: "http://plex.test:32400/video/:/transcode/universal/start.m3u8")!
+
+    private let fetcher: URLSessionHLSUpstreamFetcher = {
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [StubUpstreamProtocol.self]
+        return URLSessionHLSUpstreamFetcher(configuration: configuration)
+    }()
+
+    @Test func sameOriginRedirectIsFollowed() async throws {
+        let (data, response) = try await fetcher.fetch(
+            stubURL("/redirect", ["to": "http://PLEX.test:32400/ok"]),
+            origin: Self.origin,
+            maximumBytes: 1024
+        )
+        #expect(response.statusCode == 200)
+        #expect(String(decoding: data, as: UTF8.self) == "ok")
+    }
+
+    @Test(arguments: ["http://cdn.test:32400/ok", "http://plex.test:32401/ok", "https://plex.test:32400/ok"])
+    func offOriginRedirectIsRefused(target: String) async {
+        await #expect(throws: HLSUpstreamFetchError.offOriginRedirect) {
+            _ = try await fetcher.fetch(stubURL("/redirect", ["to": target]), origin: Self.origin, maximumBytes: 1024)
+        }
+    }
+
+    @Test func declaredLengthOverTheLimitFailsBeforeTheBody() async {
+        await #expect(throws: HLSUpstreamFetchError.tooLarge(limit: 100)) {
+            _ = try await fetcher.fetch(stubURL("/declared", ["length": "101"]), origin: Self.origin, maximumBytes: 100)
+        }
+    }
+
+    @Test func streamedBodyOverTheLimitFails() async {
+        await #expect(throws: HLSUpstreamFetchError.tooLarge(limit: 200)) {
+            _ = try await fetcher.fetch(stubURL("/chunks", ["count": "5", "size": "50"]), origin: Self.origin, maximumBytes: 200)
+        }
+    }
+
+    @Test func bodyAtTheLimitIsReturned() async throws {
+        let (data, response) = try await fetcher.fetch(
+            stubURL("/chunks", ["count": "4", "size": "50"]),
+            origin: Self.origin,
+            maximumBytes: 200
+        )
+        #expect(response.statusCode == 200)
+        #expect(data == Data(repeating: 0x41, count: 200))
+    }
+
+    private func stubURL(_ path: String, _ query: [String: String]) -> URL {
+        var components = URLComponents(string: "http://plex.test:32400")!
+        components.path = path
+        components.queryItems = query.map { URLQueryItem(name: $0.key, value: $0.value) }
+        return components.url!
+    }
+}
+
+/// `/ok` → "ok"; `/redirect?to=<url>` → 302; `/declared?length=<n>` →
+/// `Content-Length: n` with a short body; `/chunks?count=<n>&size=<m>` → n
+/// chunks of m bytes, no length.
+private final class StubUpstreamProtocol: URLProtocol, @unchecked Sendable {
+    override class func canInit(with request: URLRequest) -> Bool { true }
+    override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
+
+    override func startLoading() {
+        guard let url = request.url, let client else { return }
+        let query = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems ?? []
+        func value(_ name: String) -> String? { query.first { $0.name == name }?.value }
+        func respond(headers: [String: String], chunks: [Data]) {
+            let response = HTTPURLResponse(url: url, statusCode: 200, httpVersion: "HTTP/1.1", headerFields: headers)!
+            client.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
+            chunks.forEach { client.urlProtocol(self, didLoad: $0) }
+            client.urlProtocolDidFinishLoading(self)
+        }
+
+        switch url.path {
+        case "/redirect":
+            let target = URL(string: value("to") ?? "")!
+            let response = HTTPURLResponse(
+                url: url,
+                statusCode: 302,
+                httpVersion: "HTTP/1.1",
+                headerFields: ["Location": target.absoluteString]
+            )!
+            // URLSession asks its delegate, then loads the target in a new
+            // instance (or the fetcher cancels the task).
+            client.urlProtocol(self, wasRedirectedTo: URLRequest(url: target), redirectResponse: response)
+        case "/declared":
+            respond(headers: ["Content-Length": value("length") ?? "0"], chunks: [Data("short".utf8)])
+        case "/chunks":
+            let count = Int(value("count") ?? "") ?? 0
+            let size = Int(value("size") ?? "") ?? 0
+            respond(headers: [:], chunks: Array(repeating: Data(repeating: 0x41, count: size), count: count))
+        default:
+            respond(headers: [:], chunks: [Data("ok".utf8)])
+        }
+    }
+
+    override func stopLoading() {}
+}
+
 /// End-to-end through a real loopback listener and URLSession. The playlist,
 /// init and fragment rewriting are the real `DolbyVision7PlaylistRewriter`,
 /// `DolbyVision7InitRewriter` and `FMP4FragmentRewriter`; only the server and
@@ -122,6 +227,10 @@ struct DolbyVision7ProxyTests {
 
         // The master playlist is served from the preflight copy.
         #expect(upstream.fetchCount(ofPathSuffix: "start.m3u8") == 1)
+        // Every fetch is bounded for its kind.
+        #expect(upstream.byteLimits(ofPathSuffix: "start.m3u8") == [DolbyVision7HLSProxy.maximumPlaylistBytes])
+        #expect(upstream.byteLimits(ofPathSuffix: "/header") == [DolbyVision7HLSProxy.maximumInitSegmentBytes])
+        #expect(upstream.byteLimits(ofPathSuffix: "00000.m4s").allSatisfy { $0 == DolbyVision7HLSProxy.maximumMediaSegmentBytes })
     }
 
     @Test func refusesWrongTokenAndForeignOrigin() async throws {
@@ -153,6 +262,88 @@ struct DolbyVision7ProxyTests {
 
         #expect(try await get(segmentURL).status == 500)
         #expect(recorder.errors == [.missingRPU])
+    }
+
+    /// Too large for the proxy to buffer: the unconverted remux, which
+    /// AVPlayer streams from the server itself, takes over.
+    @Test func oversizedVideoSegmentIsFatal() async throws {
+        let recorder = ProxyFatalErrorRecorder()
+        let upstream = ProxyFakeUpstream(failures: ["00000.m4s": .tooLarge(limit: DolbyVision7HLSProxy.maximumMediaSegmentBytes)])
+        let proxy = try makeProxy(upstream: upstream, rpusPerSample: 1)
+        proxy.onFatalError = { recorder.record($0) }
+        let masterURL = try await proxy.start()
+        defer { proxy.stop() }
+
+        #expect(try await get(firstSegmentURL(masterURL)).status == 500)
+        #expect(recorder.errors.count == 1)
+    }
+
+    /// A subtitle playlist is not video: a refused redirect only fails its
+    /// own request.
+    @Test func offOriginRedirectOfARenditionIsNotFatal() async throws {
+        let recorder = ProxyFatalErrorRecorder()
+        let upstream = ProxyFakeUpstream(
+            masterPlaylist: ProxyFakeUpstream.masterPlaylistWithSubtitles,
+            failures: ["subs.m3u8": .offOriginRedirect]
+        )
+        let proxy = try makeProxy(upstream: upstream, rpusPerSample: 1)
+        proxy.onFatalError = { recorder.record($0) }
+        let masterURL = try await proxy.start()
+        defer { proxy.stop() }
+
+        let masterText = String(decoding: try await get(masterURL).body, as: UTF8.self)
+        let subtitlesLine = try #require(masterText.components(separatedBy: "\n").first { $0.hasPrefix("#EXT-X-MEDIA") })
+        let subtitlesURL = try #require(
+            HLSAttributeList(line: subtitlesLine)?.quotedValue(of: "URI").flatMap(URL.init(string:))
+        )
+        #expect(try await get(subtitlesURL).status == 502)
+        #expect(recorder.errors.isEmpty)
+    }
+
+    /// A seek hangs up on a segment mid-conversion: the conversion stops,
+    /// and its result (here: no RPUs, fatal if checked) is never judged.
+    @Test func abandonedSegmentIsCancelledAndNotFatal() async throws {
+        let recorder = ProxyFatalErrorRecorder()
+        let sampleRewriter = ProxyBlockingSampleRewriter()
+        let proxy = try makeProxy(upstream: ProxyFakeUpstream(), sampleRewriter: sampleRewriter)
+        proxy.onFatalError = { recorder.record($0) }
+        let masterURL = try await proxy.start()
+        defer { proxy.stop() }
+
+        let segmentURL = try await firstSegmentURL(masterURL)
+        let request = Task { try await get(segmentURL) }
+        #expect(await waitUntil { sampleRewriter.didStart })
+        request.cancel()
+        #expect(await waitUntil { sampleRewriter.sawCancellation })
+        try await Task.sleep(for: .milliseconds(200))
+        #expect(recorder.errors.isEmpty)
+    }
+
+    @Test func connectionWithoutARequestHeadTimesOut() async throws {
+        let proxy = try makeProxy(upstream: ProxyFakeUpstream(), rpusPerSample: 1, requestHeadTimeout: 0.5)
+        let masterURL = try await proxy.start()
+        defer { proxy.stop() }
+
+        let clients = (0..<3).map { _ in silentConnection(to: masterURL) }
+        defer { clients.forEach { $0.cancel() } }
+        #expect(await waitUntil { proxy.openConnectionCount == 3 })
+        #expect(await waitUntil { proxy.openConnectionCount == 0 })
+    }
+
+    @Test func connectionsWithoutARequestHeadAreCappedAndTheOldestEvicted() async throws {
+        let proxy = try makeProxy(upstream: ProxyFakeUpstream(), rpusPerSample: 1)
+        let masterURL = try await proxy.start()
+        defer { proxy.stop() }
+
+        let cap = DolbyVision7HLSProxy.maximumPendingConnections
+        let clients = (0..<(cap + 4)).map { _ in silentConnection(to: masterURL) }
+        defer { clients.forEach { $0.cancel() } }
+        #expect(await waitUntil { proxy.openConnectionCount >= cap })
+        try await Task.sleep(for: .milliseconds(500))
+        #expect(proxy.openConnectionCount == cap)
+
+        // The player still gets through.
+        #expect(try await get(masterURL).status == 200)
     }
 
     @Test func playlistWithoutMapFailsPreflight() async throws {
@@ -232,15 +423,49 @@ struct DolbyVision7ProxyTests {
 
     // MARK: - Helpers
 
-    private func makeProxy(upstream: ProxyFakeUpstream, rpusPerSample: Int) throws -> DolbyVision7HLSProxy {
+    private func makeProxy(
+        upstream: ProxyFakeUpstream,
+        rpusPerSample: Int = 1,
+        sampleRewriter: (any DolbyVisionSampleRewriting)? = nil,
+        requestHeadTimeout: TimeInterval = 10
+    ) throws -> DolbyVision7HLSProxy {
         let media = try proxyDolbyVision7Media(profile: 7, compat: 6)
         return DolbyVision7HLSProxy(
             upstreamMasterURL: Self.masterURL,
             target: try #require(StreamResolver.dolbyVision7ConversionTarget(in: media)),
             restoresDolbyAtmos: false,
-            sampleRewriter: ProxyFakeSampleRewriter(rpusPerSample: rpusPerSample),
-            fetcher: upstream
+            sampleRewriter: sampleRewriter ?? ProxyFakeSampleRewriter(rpusPerSample: rpusPerSample),
+            fetcher: upstream,
+            requestHeadTimeout: requestHeadTimeout
         )
+    }
+
+    /// The first media segment of the first variant, as AVPlayer finds it.
+    private func firstSegmentURL(_ masterURL: URL) async throws -> URL {
+        let master = try await get(masterURL)
+        let variantURL = try #require(firstURI(in: String(decoding: master.body, as: UTF8.self)))
+        let media = try await get(variantURL)
+        return try #require(firstURI(in: String(decoding: media.body, as: UTF8.self)))
+    }
+
+    /// A loopback TCP connection that never sends a request.
+    private func silentConnection(to masterURL: URL) -> NWConnection {
+        let connection = NWConnection(
+            host: .ipv4(.loopback),
+            port: NWEndpoint.Port(rawValue: UInt16(masterURL.port ?? 0)) ?? .any,
+            using: .tcp
+        )
+        connection.start(queue: .global())
+        return connection
+    }
+
+    private func waitUntil(timeout: Duration = .seconds(5), _ condition: () -> Bool) async -> Bool {
+        let deadline = ContinuousClock.now + timeout
+        while !condition() {
+            guard ContinuousClock.now < deadline else { return false }
+            try? await Task.sleep(for: .milliseconds(10))
+        }
+        return true
     }
 
     private func get(_ url: URL, range: String? = nil) async throws -> (status: Int, body: Data) {
@@ -329,6 +554,35 @@ private struct ProxyFakeSampleRewriter: DolbyVisionSampleRewriting {
         stats.rpuCount = rpusPerSample
         stats.sourceProfile = 7
         stats.sourceELType = .mel
+        return stats
+    }
+}
+
+/// Blocks in the first sample until the task converting it is cancelled
+/// (or 5 s pass), then reports a sample without RPUs.
+private final class ProxyBlockingSampleRewriter: DolbyVisionSampleRewriting, @unchecked Sendable {
+    private let lock = NSLock()
+    private var started = false
+    private var cancelled = false
+
+    var didStart: Bool { lock.withLock { started } }
+    var sawCancellation: Bool { lock.withLock { cancelled } }
+
+    func rewriteSample(
+        _ sample: UnsafeRawBufferPointer,
+        nalLengthSize: Int,
+        appendingTo output: inout Data
+    ) throws -> DolbyVisionSampleStats {
+        lock.withLock { started = true }
+        let deadline = Date().addingTimeInterval(5)
+        while !Task.isCancelled, Date() < deadline {
+            Thread.sleep(forTimeInterval: 0.01)
+        }
+        let isCancelled = Task.isCancelled
+        lock.withLock { cancelled = isCancelled }
+        output.append(ProxyFakeSampleRewriter.marker)
+        var stats = DolbyVisionSampleStats()
+        stats.nalCount = 1
         return stats
     }
 }
@@ -436,28 +690,39 @@ private final class ProxyFakeUpstream: HLSUpstreamFetching, @unchecked Sendable 
     """
 
     private let lock = NSLock()
-    private var fetched: [URL] = []
+    private var fetched: [(url: URL, maximumBytes: Int)] = []
     private let masterPlaylist: String
     private let mediaPlaylist: String
     /// Answered after a delay, so requests for it overlap.
     private let slowPathComponent: String?
+    /// Thrown for these last path components, as the real fetcher would.
+    private let failures: [String: HLSUpstreamFetchError]
 
     init(
         masterPlaylist: String = ProxyFakeUpstream.masterPlaylist,
         mediaPlaylist: String = ProxyFakeUpstream.fmp4MediaPlaylist,
-        slowPathComponent: String? = nil
+        slowPathComponent: String? = nil,
+        failures: [String: HLSUpstreamFetchError] = [:]
     ) {
         self.masterPlaylist = masterPlaylist
         self.mediaPlaylist = mediaPlaylist
         self.slowPathComponent = slowPathComponent
+        self.failures = failures
     }
 
     func fetchCount(ofPathSuffix suffix: String) -> Int {
-        lock.withLock { fetched.filter { $0.path.hasSuffix(suffix) }.count }
+        lock.withLock { fetched.filter { $0.url.path.hasSuffix(suffix) }.count }
     }
 
-    func fetch(_ url: URL) async throws -> (Data, HTTPURLResponse) {
-        lock.withLock { fetched.append(url) }
+    func byteLimits(ofPathSuffix suffix: String) -> [Int] {
+        lock.withLock { fetched.filter { $0.url.path.hasSuffix(suffix) }.map(\.maximumBytes) }
+    }
+
+    func fetch(_ url: URL, origin: URL, maximumBytes: Int) async throws -> (Data, HTTPURLResponse) {
+        lock.withLock { fetched.append((url, maximumBytes)) }
+        if let failure = failures[url.lastPathComponent] {
+            throw failure
+        }
         if url.lastPathComponent == slowPathComponent {
             try await Task.sleep(for: .milliseconds(300))
         }
