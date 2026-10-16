@@ -82,8 +82,8 @@ final class PlaybackCoordinator {
     /// consumed by `PlayerViewModel.configureAutomaticTrackSelection`.
     var pendingExternalSubtitleStreamID: Int?
     /// Plex audio/subtitle choice to carry into the next player configuration
-    /// when a Dolby Atmos remux session moves to direct play because of a
-    /// track change. Consumed once by `PlayerView`.
+    /// when a remux returns to direct play or enhanced SDR subtitles switch
+    /// tvOS from AVPlayer to VLCKit. Consumed once by `PlayerView`.
     var pendingExplicitTrackSelection: ExplicitTrackSelection?
     /// Bumped when `refreshSubtitleStreamsAfterDownload` replaced the active
     /// part snapshot. The player observes it and re-reads the part's subtitle

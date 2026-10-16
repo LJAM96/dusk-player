@@ -30,6 +30,53 @@ enum StreamResolver {
         /// from a remux nor libvlc can tone-map). The coordinator should start
         /// such media on the server-transcode ladder rung instead of direct play.
         var requiresServerTranscode: Bool = false
+        /// tvOS prefers VLC for enhanced SDR subtitles, including when the
+        /// container already needs VLC but an optional Atmos remux could win.
+        var usesEnhancedSubtitleRenderer = false
+    }
+
+    // MARK: - Local Rendering Preference
+
+    /// Local-file/direct-play selection. Also gates the optional SDR Atmos
+    /// remux so it cannot replace an eligible enhanced subtitle renderer.
+    static func evaluateForDirectPlayback(
+        media: PlexMedia,
+        part: PlexMediaPart,
+        enhancementMode: VideoEnhancementMode,
+        selectedSubtitleStreamID: Int?,
+        forceAVPlayer: Bool = false,
+        forceVLCKit: Bool = false
+    ) -> Decision {
+        let decision = evaluate(media: media, forceAVPlayer: forceAVPlayer, forceVLCKit: forceVLCKit)
+        #if os(tvOS)
+        guard !forceAVPlayer, !forceVLCKit,
+              !decision.requiresServerTranscode,
+              let selectedSubtitleStreamID,
+              part.streams.contains(where: {
+                  $0.streamType == .subtitle && $0.id == selectedSubtitleStreamID && $0.key == nil
+              }) else { return decision }
+        let request = VideoEnhancementRequest.make(mode: enhancementMode, media: media, part: part)
+        guard request.isPotentiallyEnabled, request.preflightUnavailabilityReason == nil else { return decision }
+
+        // vmem is SDR-only. Require positive SDR evidence and reject *every*
+        // HDR/DV hint, even when Plex omitted bitDepth or spelled PQ as ST2084.
+        let videoStreams = part.streams.filter { $0.streamType == .video }
+        let sdrTransfers: Set<String> = ["bt709", "smpte170m", "smpte240m", "gamma22", "gamma28", "iec61966-2-1"]
+        guard !videoStreams.isEmpty, videoStreams.allSatisfy({ stream in
+            !stream.isHDRVideo && hdrTransfer(of: stream) == nil &&
+                stream.doviPresent != true && stream.doviProfile == nil &&
+                stream.doviBLCompatID == nil && stream.doviLevel == nil &&
+                (stream.bitDepth.map { (1...8).contains($0) } == true ||
+                    sdrTransfers.contains(stream.colorTrc?.lowercased() ?? ""))
+        }) else { return decision }
+        return Decision(
+            engine: .vlcKit,
+            reason: "SDR video enhancement with selected embedded subtitles uses VLCKit",
+            usesEnhancedSubtitleRenderer: true
+        )
+        #else
+        return decision
+        #endif
     }
 
     // MARK: - AVPlayer-Compatible Codec Sets

@@ -152,6 +152,13 @@ extension PlayerViewModel {
             engine.selectSubtitleTrack(preferredSubtitleTrack)
             selectedSubtitleTrackID = engine.selectedSubtitleTrackID
             hasAppliedAutomaticSubtitleSelection = true
+            #if os(tvOS)
+            if let preferredSubtitleTrack, !preferredSubtitleTrack.isExternal {
+                // Engine-discovered tracks can differ from Plex's startup
+                // list (e.g. AVPlayer excludes an unmountable sidecar).
+                plexTrackSelectionHandler?(selectedAudioTrack?.plexStreamID, preferredSubtitleTrack.plexStreamID)
+            }
+            #endif
         } else if shouldReapplyAutomaticSubtitleSelectionForExternalTracks {
             // A mounted sidecar joins the list after the container's own
             // tracks, so give the language preference one more chance to land
@@ -163,6 +170,11 @@ extension PlayerViewModel {
                preferredSubtitleTrack.id != selectedSubtitleTrackID {
                 engine.selectSubtitleTrack(preferredSubtitleTrack)
                 selectedSubtitleTrackID = engine.selectedSubtitleTrackID
+                #if os(tvOS)
+                if !preferredSubtitleTrack.isExternal {
+                    plexTrackSelectionHandler?(selectedAudioTrack?.plexStreamID, preferredSubtitleTrack.plexStreamID)
+                }
+                #endif
             }
         }
     }

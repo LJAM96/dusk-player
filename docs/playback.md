@@ -1433,6 +1433,31 @@ so the whole live HUD is derived from one instant.
   view path in place.
 - Merely containing embedded subtitle tracks never disables enhancement, for
   direct play or downloads. The actual engine selection determines rendering:
+  - On tvOS, `StreamResolver.evaluateForDirectPlayback` prefers VLCKit for
+    eligible SDR video when Auto/On and an embedded subtitle is selected.
+    Startup uses the same forced/language subtitle rule as the player; returning
+    to Original and leaving a remux use the current explicit choice when present.
+    The view model also reports its actual automatic embedded-track choice,
+    covering engine-discovered lists that differ from Plex's startup metadata.
+    Explicit engine overrides and the frame-rate limits still win. Require
+    positive SDR evidence (8-bit video or a known SDR transfer), with no HDR,
+    PQ/ST2084, HLG, wide-color, or Dolby Vision flags. Missing range metadata
+    keeps the normal engine; never select VLC for enhancement at the cost of HDR.
+    The optional SDR Atmos copy-remux yields to this preference, at startup or
+    when rebuilding it after a track change: play the original on VLC instead.
+    The selected audio track is decoded to PCM (Atmos objects are not retained).
+    HDR/DV and audio-conversion recovery remuxes, server streams, and transcodes
+    keep their existing paths.
+  - A tvOS embedded-subtitle selection during AVPlayer direct/local playback
+    uses `switchToVLCKitForEnhancedSubtitlesIfNeeded` and the existing replacement
+    attempt flow. It retains the source URL, live clock (even after seeking back
+    before the original resume offset), playing/paused state, Plex session and
+    scrobble state, downloaded-file identity, and explicit audio/subtitle IDs.
+    The selected audio position is supplied before VLC opens the source, avoiding
+    a startup audio-track switch. The handoff may briefly rebuffer. Keep VLC for
+    the rest of that item, including subtitle Off, to avoid repeated reloads.
+    This policy does not change iOS; AVPlayer still reveals its native layer
+    while captions are selected. HDR/DV never gets this renderer handoff.
   - VLCKit supports enhancement with embedded text/ASS/bitmap and mounted
     sidecar subtitles. libVLC 3's `vmem` output CPU-blends SPU subtitles into
     the pixels before `DuskVLCRawVideoOutput` forwards them to Metal (see the
@@ -1451,7 +1476,8 @@ so the whole live HUD is derived from one instant.
     retain precedence). A general AVPlayer overlay is not implemented: copying
     plain text cues would lose native positioning/styling and bitmap support.
   - `VideoEnhancementSubtitleTests` covers metadata-only tracks, the preference,
-    engine-specific selection eligibility, and HDR/fps reason precedence.
+    engine-specific selection eligibility, HDR/fps reason precedence, tvOS SDR
+    routing with HDR/DV/HLG/unknown-range exclusions, and handoff continuity.
 - AVPlayer attaches an `AVPlayerItemVideoOutput` and, from a display link,
   pulls the time-current pixel buffer (`itemTime(forHostTime:)` +
   `hasNewPixelBuffer`) into `VideoEnhancementRenderer.submit`. This path paces

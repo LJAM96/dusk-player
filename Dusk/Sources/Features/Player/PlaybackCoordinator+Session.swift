@@ -447,6 +447,25 @@ extension PlaybackCoordinator {
             let serverID = itemServerID
                 ?? downloadManager?.serverID(for: id)
                 ?? plexService.pool.primary?.serverID
+            switch playbackDecision {
+            case .directPlay, .localDownload:
+                let directDecision = StreamResolver.evaluateForDirectPlayback(
+                    media: media,
+                    part: part,
+                    enhancementMode: preferences.videoEnhancementMode,
+                    selectedSubtitleStreamID: PlayerViewModel.preferredSubtitleStreamID(
+                        inPart: part,
+                        preferredLanguage: preferences.defaultSubtitleLanguage,
+                        forcedOnly: preferences.subtitleForcedOnly
+                    ),
+                    forceAVPlayer: preferences.forceAVPlayer,
+                    forceVLCKit: preferences.forceVLCKit
+                )
+                engineType = directDecision.engine
+                resolverReason = directDecision.reason
+            default:
+                break
+            }
             // Hub/list responses can carry the current Plex viewOffset even when
             // the item-detail response omits it. Keep that initiating offset as
             // a fallback so tapping a visible "Resume" item cannot silently
@@ -764,8 +783,11 @@ extension PlaybackCoordinator {
                     return
                 }
 
-                let resolverDecision = StreamResolver.evaluate(
+                let resolverDecision = StreamResolver.evaluateForDirectPlayback(
                     media: media,
+                    part: part,
+                    enhancementMode: preferences.videoEnhancementMode,
+                    selectedSubtitleStreamID: activeSubtitleStreamID,
                     forceAVPlayer: preferences.forceAVPlayer,
                     forceVLCKit: preferences.forceVLCKit
                 )
@@ -779,6 +801,16 @@ extension PlaybackCoordinator {
                     media: media,
                     part: part
                 )
+                #if os(tvOS)
+                // Original restarts a local engine too; retain the choices
+                // used above instead of re-running language preferences.
+                if resolverDecision.usesEnhancedSubtitleRenderer {
+                    pendingExplicitTrackSelection = ExplicitTrackSelection(
+                        audioStreamID: activeAudioStreamID,
+                        subtitleStreamID: activeSubtitleStreamID
+                    )
+                }
+                #endif
                 // Plex session hygiene: returning to Original releases the
                 // server transcoder that fed the previous quality.
                 if let oldTranscodeSessionID = activeTranscodeSessionID {
@@ -937,6 +969,9 @@ extension PlaybackCoordinator {
             scheduleSpatialAudioTrackChange()
             return
         }
+        #if os(tvOS)
+        switchToVLCKitForEnhancedSubtitlesIfNeeded()
+        #endif
         guard isAirPlaySession else { return }
         scheduleAirPlayTransition(isTrackChange: true)
     }
@@ -1088,7 +1123,8 @@ extension PlaybackCoordinator {
         videoEnhancementRequest: VideoEnhancementRequest,
         startPosition: TimeInterval?,
         shouldAutoPlay: Bool = true,
-        audioTrackPositionOverride: Int? = nil
+        audioTrackPositionOverride: Int? = nil,
+        audioChannelCountOverride: Int? = nil
     ) {
         let attemptContext = PlaybackAttemptContext(
             attemptID: attemptID,
@@ -1153,7 +1189,7 @@ extension PlaybackCoordinator {
             shouldAutoPlay: shouldAutoPlay,
             context: attemptContext,
             preferredAudioTrackPosition: preferredAudioTrackPosition,
-            preferredAudioChannelCount: PlayerViewModel.preferredAudioStreamChannelCount(
+            preferredAudioChannelCount: audioChannelCountOverride ?? PlayerViewModel.preferredAudioStreamChannelCount(
                 inPart: part,
                 preferredLanguage: preferences.defaultAudioLanguage
             ),
@@ -1172,7 +1208,11 @@ extension PlaybackCoordinator {
             resolverReason: resolverReason,
             sanitizedPlaybackURL: sanitizedURL
         )
-        activePlaybackUsesLocalDownload = false
+        if case .localDownload = playbackDecision {
+            activePlaybackUsesLocalDownload = true
+        } else {
+            activePlaybackUsesLocalDownload = false
+        }
         playerPresentationID = UUID()
         nowPlayingController.beginSession(
             details: details,
@@ -1192,6 +1232,68 @@ extension PlaybackCoordinator {
             startDirectPlayFallbackWatch()
         }
     }
+
+    #if os(tvOS)
+    /// Reuses the same source/session; only the renderer changes. Once on VLC,
+    /// leave it there for the item so subtitle Off/On never causes more reloads.
+    func switchToVLCKitForEnhancedSubtitlesIfNeeded() {
+        guard !didFinalizeCurrentSession, !isSwitchingQuality, !isPreparingAirPlay,
+              activeLiveTVContext == nil,
+              let details = activeItemDetails, let ratingKey, let debugInfo,
+              debugInfo.engine == .avPlayer,
+              let playbackSource, let currentEngine = engine else { return }
+        switch debugInfo.decision {
+        case .directPlay, .localDownload: break
+        default: return
+        }
+        let decision = StreamResolver.evaluateForDirectPlayback(
+            media: debugInfo.media,
+            part: debugInfo.part,
+            enhancementMode: preferences.videoEnhancementMode,
+            selectedSubtitleStreamID: activeSubtitleStreamID,
+            forceAVPlayer: preferences.forceAVPlayer,
+            forceVLCKit: preferences.forceVLCKit
+        )
+        guard decision.usesEnhancedSubtitleRenderer else { return }
+
+        let audioStreams = debugInfo.part.streams.filter { $0.streamType == .audio }
+        let audioPosition = audioStreams.firstIndex { $0.id == activeAudioStreamID }
+        pendingExplicitTrackSelection = ExplicitTrackSelection(
+            audioStreamID: activeAudioStreamID,
+            subtitleStreamID: activeSubtitleStreamID
+        )
+        // Prefer the live clock, including seeks behind the original resume
+        // offset. A not-yet-ready engine still needs its pending resume offset.
+        let resumePosition = currentEngine.state == .playing || currentEngine.state == .paused
+            ? currentEngine.currentTime
+            : max(currentEngine.currentTime, playbackSource.startPosition ?? 0)
+        let shouldAutoPlay: Bool = switch currentEngine.state {
+        case .playing: true
+        case .paused: false
+        default: playbackSource.shouldAutoPlay
+        }
+        activateReplacementAttempt(
+            transitionLabel: "switching to VLCKit for enhanced SDR subtitles",
+            attemptID: UUID(),
+            details: details,
+            ratingKey: ratingKey,
+            media: debugInfo.media,
+            part: debugInfo.part,
+            playbackURL: playbackSource.url,
+            sanitizedURL: debugInfo.sanitizedPlaybackURL,
+            playbackDecision: debugInfo.decision,
+            engineType: .vlcKit,
+            resolverReason: decision.reason,
+            videoEnhancementRequest: VideoEnhancementRequest.make(
+                mode: preferences.videoEnhancementMode, media: debugInfo.media, part: debugInfo.part
+            ),
+            startPosition: resumePosition,
+            shouldAutoPlay: shouldAutoPlay,
+            audioTrackPositionOverride: audioPosition,
+            audioChannelCountOverride: audioPosition.flatMap { audioStreams[$0].channels }
+        )
+    }
+    #endif
 
     // MARK: - External (sidecar) subtitles
 

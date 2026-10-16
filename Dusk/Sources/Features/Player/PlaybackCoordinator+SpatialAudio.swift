@@ -87,6 +87,19 @@ extension PlaybackCoordinator {
             return nil
         }
 
+        #if os(tvOS)
+        // Enhanced SDR subtitles take priority over an optional Atmos copy
+        // remux. Never veto a remux needed to decode audio or preserve HDR/DV.
+        if !convertsAudio, StreamResolver.evaluateForDirectPlayback(
+            media: media,
+            part: part,
+            enhancementMode: preferences.videoEnhancementMode,
+            selectedSubtitleStreamID: subtitleStreamID
+        ).usesEnhancedSubtitleRenderer {
+            return nil
+        }
+        #endif
+
         let blocker: String?
         // Which of the two non-DV5 reasons qualified, for the session reason.
         var qualifiesForSpatialAudio = false
@@ -448,13 +461,23 @@ extension PlaybackCoordinator {
         }
 
         let media = details.media[mediaIndex]
-        let resolverDecision = StreamResolver.evaluate(
+        let resolverDecision = StreamResolver.evaluateForDirectPlayback(
             media: media,
+            part: part,
+            enhancementMode: preferences.videoEnhancementMode,
+            selectedSubtitleStreamID: keepsExplicitTracks ? activeSubtitleStreamID : PlayerViewModel.preferredSubtitleStreamID(
+                inPart: part,
+                preferredLanguage: preferences.defaultSubtitleLanguage,
+                forcedOnly: preferences.subtitleForcedOnly
+            ),
             forceAVPlayer: preferences.forceAVPlayer,
             forceVLCKit: preferences.forceVLCKit
         )
         let wasPlaying = engine?.state != .paused && engine?.state != .error
-        let resumePosition = currentResumePosition
+        let resumePosition = resolverDecision.usesEnhancedSubtitleRenderer &&
+            (engine?.state == .playing || engine?.state == .paused)
+            ? engine?.currentTime ?? currentResumePosition
+            : currentResumePosition
 
         var audioTrackPosition: Int?
         if keepsExplicitTracks {
@@ -499,7 +522,10 @@ extension PlaybackCoordinator {
             ),
             startPosition: resumePosition,
             shouldAutoPlay: wasPlaying,
-            audioTrackPositionOverride: audioTrackPosition
+            audioTrackPositionOverride: audioTrackPosition,
+            audioChannelCountOverride: resolverDecision.usesEnhancedSubtitleRenderer
+                ? part.streams.first(where: { $0.streamType == .audio && $0.id == activeAudioStreamID })?.channels
+                : nil
         )
     }
 
