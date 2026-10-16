@@ -451,16 +451,21 @@ so the whole live HUD is derived from one instant.
     every relayed URL must share the master playlist's scheme/host/port
     (→ 403, never an open relay). GET/HEAD, single byte ranges (206/416),
     `Connection: close`, `Cache-Control: no-store`. Routes: `master.m3u8`
-    (cached from preflight), `p/<b64url>.m3u8` playlists, `i/<b64url>.mp4`
-    init segments (converted once, cached with their `FMP4InitInfo`),
-    `s/<init id>/<b64url>.m4s` media segments (fetched, converted, never
-    cached; at most two at once). Upstream non-2xx is forwarded, network
+    (cached from preflight), `v/<b64url>.m3u8` video playlists,
+    `p/<b64url>.m3u8` rendition (subtitle/audio) playlists, `i/<b64url>.mp4`
+    init segments (converted once, cached with their `FMP4InitInfo`;
+    concurrent first requests share one fetch), `s/<init id>/<b64url>.m4s`
+    media segments (fetched, converted, never cached; at most two at once). Upstream non-2xx is forwarded, network
     errors are 502, and a closed player connection cancels its fetch. Logs
     never carry the token or upstream query strings.
   - Playlists (`DolbyVision7PlaylistRewriter`): `SUPPLEMENTAL-CODECS=
     "dvh1.08.LL/db1p"`, `VIDEO-RANGE=PQ`, level cap as for DV8; I-frame
     playlists dropped; WebVTT renditions (no `EXT-X-MAP`) keep their segment
-    URLs on the server.
+    URLs on the server. Video is strict: a variant playlist without
+    `EXT-X-MAP`, a segment ahead of the first `EXT-X-MAP` of any fMP4
+    playlist, or a variant/init/segment URI off the server's origin throws
+    `.unsupportedPlaylist` (fatal → ladder) instead of passing through, so an
+    unconverted profile 7 sample never plays behind 8.1 signaling.
   - Init (`DolbyVision7InitRewriter`): one `hvc1`/`dvh1` video track becomes
     `hvc1` + an 8.1 `dvvC`; the Atmos `dec3` patch (`EAC3JOCSignaling`) runs
     here too when `restoresDolbyAtmos`.
@@ -470,9 +475,10 @@ so the whole live HUD is derived from one instant.
     `trun` sizes and data offsets are rebuilt, `sidx` dropped, audio bytes
     copied.
 - Preflight (`DolbyVision7HLSProxy.start()`): listener ready, master has a
-  variant that takes 8.1 signaling, its media playlist is fMP4
-  (`EXT-X-MAP`, no byte ranges or encryption), and the init segment
-  converts. Segment 0 is not prefetched.
+  variant that takes 8.1 signaling, its media playlist passes the same strict
+  video rewrite AVPlayer will get (fMP4 throughout, no byte ranges or
+  encryption, everything on the server), and the init segment converts.
+  Segment 0 is not prefetched.
 - Fallback ladder:
   1. Preflight failure fails the load; a segment that cannot be converted, a
      video segment with samples but no RPU, or a listener that dies twice
@@ -481,9 +487,15 @@ so the whole live HUD is derived from one instant.
   2. The failure watch (armed for `.spatialAudio`) runs
      `performDirectPlayServerStreamFallback`, whose first branch sets
      `isDolbyVision7ConversionSuppressed` and calls
-     `rebuildSpatialAudioSession(transitionLabel:declineReason:)`: a fresh
-     Plex remux (old transcode session stopped) at the live position, now
-     without conversion — the HDR10 base layer through `RemuxHLSLoader`.
+     `retryRemuxWithoutDolbyVision7Conversion`, which queues
+     `rebuildSpatialAudioSession(transitionLabel:declineReason:)` on
+     `spatialAudioTransitionTask` (behind any track-change rebuild in flight;
+     one that already replaced the failed engine counts as the retry): a
+     fresh Plex remux (old transcode session stopped) at the live position,
+     now without conversion — the HDR10 base layer through `RemuxHLSLoader`.
+     When the rebuild cannot start at all (its guard fails), the branch falls
+     through to the normal remux-failure rung below instead of leaving the
+     error overlay up.
   3. Plex declining that, or the unconverted remux failing as well, leaves
      the remux for direct play (VLCKit) like any failed remux. The flag stops
      a loop.

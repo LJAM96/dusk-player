@@ -10,19 +10,35 @@ import Foundation
 /// backward-compatible 8.1 signaling `DolbyVisionSignaling` writes for
 /// native profile 8; I-frame variants are dropped (their samples would not
 /// be converted). Anything the proxy cannot serve converted — byte ranges,
-/// encryption, a variant that cannot carry `dvh1.08` — throws
-/// `.unsupportedPlaylist` so the caller falls back to the plain remux.
+/// encryption, a variant that cannot carry `dvh1.08`, a segment outside
+/// any `EXT-X-MAP` of an fMP4 playlist — throws `.unsupportedPlaylist` (as
+/// may the mapper) so the caller falls back to the plain remux: an
+/// unconverted profile 7 sample must never play behind 8.1 signaling.
 enum DolbyVision7PlaylistRewriter {
     struct URLMapper: Sendable {
-        let playlist: @Sendable (URL) -> URL
-        let initSegment: @Sendable (URL) -> URL
-        let mediaSegment: @Sendable (_ segment: URL, _ initSegment: URL?) -> URL
+        /// `isVideo`: an `EXT-X-STREAM-INF` variant (or a `TYPE=VIDEO`
+        /// rendition), as opposed to a subtitle or audio rendition.
+        let playlist: @Sendable (_ playlist: URL, _ isVideo: Bool) throws -> URL
+        let initSegment: @Sendable (URL) throws -> URL
+        /// `initSegment` is nil only for segments of a playlist without any
+        /// `EXT-X-MAP` (WebVTT), which the mapper may leave on the server.
+        let mediaSegment: @Sendable (_ segment: URL, _ initSegment: URL?) throws -> URL
     }
 
-    static func rewrite(_ text: String, baseURL: URL, target: DolbyVisionConfiguration, mapper: URLMapper) throws -> String {
+    /// - Parameter requiresInitSegment: the playlist is a video variant:
+    ///   every media segment must follow an `EXT-X-MAP`. Any playlist that
+    ///   uses `EXT-X-MAP` at all is held to that too.
+    static func rewrite(
+        _ text: String,
+        baseURL: URL,
+        target: DolbyVisionConfiguration,
+        requiresInitSegment: Bool = false,
+        mapper: URLMapper
+    ) throws -> String {
         var lines: [String] = []
         var nextURIIsVariant = false
         var currentMap: URL?
+        let segmentsNeedInitSegment = requiresInitSegment || text.contains("#EXT-X-MAP")
 
         for rawLine in text.components(separatedBy: "\n") {
             let line = rawLine.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -32,7 +48,8 @@ enum DolbyVision7PlaylistRewriter {
             } else if line.hasPrefix("#EXT-X-I-FRAME-STREAM-INF") {
                 continue
             } else if line.hasPrefix("#EXT-X-MEDIA:") {
-                lines.append(try mappingURIAttribute(in: line, baseURL: baseURL, using: mapper.playlist))
+                let isVideo = HLSAttributeList(line: line)?.value(of: "TYPE") == "VIDEO"
+                lines.append(try mappingURIAttribute(in: line, baseURL: baseURL) { try mapper.playlist($0, isVideo) })
             } else if line.hasPrefix("#EXT-X-MAP") {
                 guard let attributes = HLSAttributeList(line: line),
                       attributes.quotedValue(of: "BYTERANGE") == nil,
@@ -42,7 +59,7 @@ enum DolbyVision7PlaylistRewriter {
                 let initSegment = try resolve(uri, against: baseURL)
                 currentMap = initSegment
                 var mapped = attributes
-                mapped.setQuoted("URI", to: mapper.initSegment(initSegment).absoluteString)
+                mapped.setQuoted("URI", to: try mapper.initSegment(initSegment).absoluteString)
                 lines.append(mapped.line)
             } else if line.hasPrefix("#EXT-X-BYTERANGE") {
                 throw DolbyVision7ConversionError.unsupportedPlaylist("EXT-X-BYTERANGE")
@@ -57,10 +74,13 @@ enum DolbyVision7PlaylistRewriter {
             } else {
                 let url = try resolve(line, against: baseURL)
                 if nextURIIsVariant {
-                    lines.append(mapper.playlist(url).absoluteString)
+                    lines.append(try mapper.playlist(url, true).absoluteString)
                     nextURIIsVariant = false
                 } else {
-                    lines.append(mapper.mediaSegment(url, currentMap).absoluteString)
+                    guard currentMap != nil || !segmentsNeedInitSegment else {
+                        throw DolbyVision7ConversionError.unsupportedPlaylist("media segment without EXT-X-MAP")
+                    }
+                    lines.append(try mapper.mediaSegment(url, currentMap).absoluteString)
                 }
             }
         }
@@ -93,13 +113,13 @@ enum DolbyVision7PlaylistRewriter {
     private static func mappingURIAttribute(
         in line: String,
         baseURL: URL,
-        using map: (URL) -> URL
+        using map: (URL) throws -> URL
     ) throws -> String {
         guard line.contains("URI=") else { return line }
         guard var attributes = HLSAttributeList(line: line), let uri = attributes.quotedValue(of: "URI") else {
             throw DolbyVision7ConversionError.unsupportedPlaylist("unparseable URI attribute")
         }
-        attributes.setQuoted("URI", to: map(try resolve(uri, against: baseURL)).absoluteString)
+        attributes.setQuoted("URI", to: try map(try resolve(uri, against: baseURL)).absoluteString)
         return attributes.line
     }
 

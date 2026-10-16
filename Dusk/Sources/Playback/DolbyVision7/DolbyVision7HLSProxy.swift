@@ -43,7 +43,9 @@ struct URLSessionHLSUpstreamFetcher: HLSUpstreamFetching {
 /// (`DolbyVision7InitRewriter`), and each media segment has its enhancement
 /// layer dropped and its RPUs rewritten as 8.1 (`FMP4FragmentRewriter`,
 /// libdovi through `DoviBridge`). WebVTT renditions (no `EXT-X-MAP`) stay
-/// pointed at the server.
+/// pointed at the server; a video variant must be fMP4 throughout, with every
+/// init and media segment on the server's origin, or conversion fails rather
+/// than letting an unconverted sample play behind 8.1 signaling.
 ///
 /// Anything that cannot be converted reports through `onFatalError` once;
 /// `AVPlayerEngine` turns that into an engine error and the coordinator
@@ -82,6 +84,10 @@ final class DolbyVision7HLSProxy: @unchecked Sendable {
     private var initIDsByURL: [URL: Int] = [:]
     private var initURLsByID: [Int: URL] = [:]
     private var initSegments: [Int: (data: Data, info: FMP4InitInfo)] = [:]
+    /// First fetch of an init segment in flight, shared by every request
+    /// that needs it meanwhile (AVPlayer asks for the init and segment 0 at
+    /// once).
+    private var initLoads: [Int: Task<InitSegmentLoad, any Error>] = [:]
     private var connections: [ObjectIdentifier: NWConnection] = [:]
     private var requestTasks: [ObjectIdentifier: Task<Void, Never>] = [:]
 
@@ -140,7 +146,8 @@ final class DolbyVision7HLSProxy: @unchecked Sendable {
                 listener: listener,
                 continuation: readyContinuation,
                 connections: Array(connections.values),
-                tasks: Array(requestTasks.values)
+                tasks: Array(requestTasks.values),
+                initLoads: Array(initLoads.values)
             )
             listener = nil
             readyContinuation = nil
@@ -148,10 +155,12 @@ final class DolbyVision7HLSProxy: @unchecked Sendable {
             requestTasks = [:]
             masterPlaylist = nil
             initSegments = [:]
+            initLoads = [:]
             return teardown
         }
         teardown.continuation?.resume(throwing: CancellationError())
         teardown.tasks.forEach { $0.cancel() }
+        teardown.initLoads.forEach { $0.cancel() }
         teardown.connections.forEach { $0.cancel() }
         teardown.listener?.newConnectionHandler = nil
         teardown.listener?.stateUpdateHandler = nil
@@ -344,10 +353,11 @@ final class DolbyVision7HLSProxy: @unchecked Sendable {
 
     // MARK: - Routing
 
-    /// `/<token>/master.m3u8`, `/<token>/p/<upstream>.m3u8` (media and
-    /// subtitle playlists), `/<token>/i/<upstream>.mp4` (init segments) and
-    /// `/<token>/s/<init id>/<upstream>.m4s` (media segments), where
-    /// `<upstream>` is the server URL in unpadded base64url.
+    /// `/<token>/master.m3u8`, `/<token>/v/<upstream>.m3u8` (video
+    /// playlists, fMP4 only), `/<token>/p/<upstream>.m3u8` (rendition
+    /// playlists such as subtitles), `/<token>/i/<upstream>.mp4` (init
+    /// segments) and `/<token>/s/<init id>/<upstream>.m4s` (media segments),
+    /// where `<upstream>` is the server URL in unpadded base64url.
     private func response(for request: HLSProxyRequest) async -> HLSProxyResponse {
         guard request.method == "GET" || request.isHead else { return .empty(405) }
         let components = request.path.split(separator: "/", omittingEmptySubsequences: false).map(String.init)
@@ -360,9 +370,9 @@ final class DolbyVision7HLSProxy: @unchecked Sendable {
             case ("master.m3u8", 3):
                 guard let master = lock.withLock({ masterPlaylist }) else { return .empty(404) }
                 return HLSProxyResponse(status: 200, contentType: HLSProxyResponse.playlistContentType, body: master)
-            case ("p", 4):
+            case ("v", 4), ("p", 4):
                 guard let upstream = upstreamURL(components[3], fileExtension: "m3u8") else { return .empty(403) }
-                return try await playlistResponse(upstream)
+                return try await playlistResponse(upstream, isVideo: components[2] == "v")
             case ("i", 4):
                 guard let upstream = upstreamURL(components[3], fileExtension: "mp4") else { return .empty(403) }
                 return try await initSegmentResponse(id: initID(for: upstream))
@@ -390,10 +400,14 @@ final class DolbyVision7HLSProxy: @unchecked Sendable {
         }
     }
 
-    private func playlistResponse(_ upstream: URL) async throws -> HLSProxyResponse {
+    private func playlistResponse(_ upstream: URL, isVideo: Bool) async throws -> HLSProxyResponse {
         let (data, response) = try await fetcher.fetch(upstream)
         guard (200..<300).contains(response.statusCode) else { return .empty(response.statusCode) }
-        let playlist = try rewrittenPlaylist(String(decoding: data, as: UTF8.self), baseURL: upstream)
+        let playlist = try rewrittenPlaylist(
+            String(decoding: data, as: UTF8.self),
+            baseURL: upstream,
+            isVideo: isVideo
+        )
         return HLSProxyResponse(
             status: 200,
             contentType: HLSProxyResponse.playlistContentType,
@@ -450,7 +464,8 @@ final class DolbyVision7HLSProxy: @unchecked Sendable {
         guard variantText.contains("#EXT-X-MAP") else {
             throw DolbyVision7ConversionError.unsupportedPlaylist("variant is not fMP4 (no EXT-X-MAP)")
         }
-        _ = try rewrittenPlaylist(variantText, baseURL: variantURL)
+        // Strictly, as served later: fMP4 throughout, all on the server.
+        _ = try rewrittenPlaylist(variantText, baseURL: variantURL, isVideo: true)
         guard let initID = lock.withLock({ initURLsByID.keys.min() }) else {
             throw DolbyVision7ConversionError.unsupportedPlaylist("init segment is not on the server")
         }
@@ -478,41 +493,79 @@ final class DolbyVision7HLSProxy: @unchecked Sendable {
         throw DolbyVision7ConversionError.proxyUnavailable("variant playlist returned HTTP \(lastStatus)")
     }
 
-    private func rewrittenPlaylist(_ text: String, baseURL: URL) throws -> String {
+    /// A master or media playlist with every URI mapped onto this proxy.
+    /// Video (a variant, or any playlist with `EXT-X-MAP`) only ever maps
+    /// onto the proxy: anything it cannot route there throws
+    /// `.unsupportedPlaylist`. Only rendition playlists and map-less
+    /// (WebVTT) segments may stay on the server.
+    private func rewrittenPlaylist(_ text: String, baseURL: URL, isVideo: Bool = false) throws -> String {
         try DolbyVision7PlaylistRewriter.rewrite(
             text,
             baseURL: baseURL,
             target: target,
+            requiresInitSegment: isVideo,
             mapper: .init(
-                playlist: { [self] upstream in
-                    proxyURL(upstream, route: "p", fileExtension: "m3u8") ?? upstream
+                playlist: { [self] upstream, isVideo in
+                    if let url = proxyURL(upstream, route: isVideo ? "v" : "p", fileExtension: "m3u8") {
+                        return url
+                    }
+                    guard !isVideo else {
+                        throw DolbyVision7ConversionError.unsupportedPlaylist("video playlist is not on the server")
+                    }
+                    return upstream
                 },
                 initSegment: { [self] upstream in
-                    guard isSameOrigin(upstream) else { return upstream }
+                    guard let url = proxyURL(upstream, route: "i", fileExtension: "mp4") else {
+                        throw DolbyVision7ConversionError.unsupportedPlaylist("init segment is not on the server")
+                    }
                     _ = initID(for: upstream)
-                    return proxyURL(upstream, route: "i", fileExtension: "mp4") ?? upstream
+                    return url
                 },
                 mediaSegment: { [self] segment, initSegment in
-                    guard let initSegment, isSameOrigin(initSegment) else { return segment }
-                    return proxyURL(segment, route: "s/\(initID(for: initSegment))", fileExtension: "m4s") ?? segment
+                    guard let initSegment else { return segment }
+                    guard isSameOrigin(initSegment),
+                          let url = proxyURL(segment, route: "s/\(initID(for: initSegment))", fileExtension: "m4s") else {
+                        throw DolbyVision7ConversionError.unsupportedPlaylist("media segment is not on the server")
+                    }
+                    return url
                 }
             )
         )
     }
 
-    private enum InitSegmentLoad {
+    private enum InitSegmentLoad: Sendable {
         case converted((data: Data, info: FMP4InitInfo))
         /// The server answered with this non-2xx status; passed on as is.
         case upstreamStatus(Int)
     }
 
     /// The converted init segment, fetched once and kept for the session
-    /// (every media segment needs its track layout).
+    /// (every media segment needs its track layout). Concurrent first
+    /// requests share one fetch; a failed or non-2xx fetch is retried by the
+    /// next request.
     private func initSegment(id: Int) async throws -> InitSegmentLoad {
-        let cached = lock.withLock { (initSegments[id], initURLsByID[id]) }
-        if let segment = cached.0 { return .converted(segment) }
-        guard let upstream = cached.1 else { return .upstreamStatus(404) }
+        enum Lookup {
+            case cached((data: Data, info: FMP4InitInfo))
+            case loading(Task<InitSegmentLoad, any Error>)
+            case unknown
+        }
+        let lookup = lock.withLock { () -> Lookup in
+            if let segment = initSegments[id] { return .cached(segment) }
+            if let load = initLoads[id] { return .loading(load) }
+            guard !isStopped, let upstream = initURLsByID[id] else { return .unknown }
+            let load = Task { try await self.loadInitSegment(id: id, upstream: upstream) }
+            initLoads[id] = load
+            return .loading(load)
+        }
+        switch lookup {
+        case let .cached(segment): return .converted(segment)
+        case let .loading(load): return try await load.value
+        case .unknown: return .upstreamStatus(404)
+        }
+    }
 
+    private func loadInitSegment(id: Int, upstream: URL) async throws -> InitSegmentLoad {
+        defer { lock.withLock { initLoads[id] = nil } }
         let (data, response) = try await fetcher.fetch(upstream)
         guard (200..<300).contains(response.statusCode) else {
             return .upstreamStatus(response.statusCode)
@@ -524,7 +577,9 @@ final class DolbyVision7HLSProxy: @unchecked Sendable {
         dolbyVision7Logger.notice(
             "Converted the init segment to \(self.target.displayName, privacy: .public): video track \(converted.info.video.trackID, privacy: .public), NAL length \(converted.info.video.nalLengthSize, privacy: .public)"
         )
-        lock.withLock { initSegments[id] = converted }
+        lock.withLock {
+            if !isStopped { initSegments[id] = converted }
+        }
         return .converted(converted)
     }
 

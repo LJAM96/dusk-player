@@ -97,7 +97,7 @@ struct DolbyVision7ProxyTests {
         #expect(!masterText.contains("secret"))
         let variantURL = try #require(firstURI(in: masterText))
         #expect(variantURL.host == "127.0.0.1")
-        #expect(variantURL.path.contains("/p/"))
+        #expect(variantURL.path.contains("/v/"))
 
         let media = try await get(variantURL)
         #expect(media.status == 200)
@@ -161,6 +161,73 @@ struct DolbyVision7ProxyTests {
         await #expect(throws: DolbyVision7ConversionError.self) {
             _ = try await proxy.start()
         }
+    }
+
+    /// Video the proxy cannot route through itself would play unconverted
+    /// behind the 8.1 signaling: the variant fails preflight instead.
+    @Test(arguments: [
+        ProxyFakeUpstream.offOriginSegmentPlaylist,
+        ProxyFakeUpstream.offOriginInitPlaylist,
+        ProxyFakeUpstream.segmentBeforeMapPlaylist,
+    ])
+    func unproxyableVideoFailsPreflight(mediaPlaylist: String) async throws {
+        let proxy = try makeProxy(upstream: ProxyFakeUpstream(mediaPlaylist: mediaPlaylist), rpusPerSample: 1)
+        do {
+            _ = try await proxy.start()
+            Issue.record("preflight accepted a variant it cannot convert")
+        } catch DolbyVision7ConversionError.unsupportedPlaylist {
+            // Expected.
+        } catch {
+            Issue.record("unexpected preflight error \(error)")
+        }
+    }
+
+    @Test func subtitleRenditionStaysOnTheServer() async throws {
+        let proxy = try makeProxy(
+            upstream: ProxyFakeUpstream(masterPlaylist: ProxyFakeUpstream.masterPlaylistWithSubtitles),
+            rpusPerSample: 1
+        )
+        let masterURL = try await proxy.start()
+        defer { proxy.stop() }
+
+        let masterText = String(decoding: try await get(masterURL).body, as: UTF8.self)
+        let subtitlesLine = try #require(masterText.components(separatedBy: "\n").first { $0.hasPrefix("#EXT-X-MEDIA") })
+        let subtitlesURL = try #require(
+            HLSAttributeList(line: subtitlesLine)?.quotedValue(of: "URI").flatMap(URL.init(string:))
+        )
+        #expect(subtitlesURL.path.contains("/p/"))
+
+        let subtitles = try await get(subtitlesURL)
+        #expect(subtitles.status == 200)
+        #expect(firstURI(in: String(decoding: subtitles.body, as: UTF8.self))?.absoluteString
+            == "http://plex.test:32400/video/:/transcode/universal/session/abc/subs/sub0.vtt")
+    }
+
+    @Test func concurrentFirstInitRequestsShareOneFetch() async throws {
+        let upstream = ProxyFakeUpstream(mediaPlaylist: ProxyFakeUpstream.twoMapMediaPlaylist, slowPathComponent: "header2")
+        let proxy = try makeProxy(upstream: upstream, rpusPerSample: 1)
+        let masterURL = try await proxy.start()
+        defer { proxy.stop() }
+
+        let masterText = String(decoding: try await get(masterURL).body, as: UTF8.self)
+        let variantURL = try #require(firstURI(in: masterText))
+        let mediaLines = String(decoding: try await get(variantURL).body, as: UTF8.self)
+            .components(separatedBy: "\n")
+        // The second map and the segment after it; neither was preflighted.
+        let secondInitURL = try #require(
+            mediaLines.last { $0.hasPrefix("#EXT-X-MAP") }
+                .flatMap { HLSAttributeList(line: $0)?.quotedValue(of: "URI") }
+                .flatMap(URL.init(string:))
+        )
+        let secondSegmentURL = try #require(mediaLines.last { $0.hasPrefix("http") }.flatMap(URL.init(string:)))
+        #expect(secondSegmentURL.path.contains("/s/1/"))
+
+        async let initResponse = get(secondInitURL)
+        async let segmentResponse = get(secondSegmentURL)
+        let (initSegment, segment) = try await (initResponse, segmentResponse)
+        #expect(initSegment.status == 200)
+        #expect(segment.status == 200)
+        #expect(upstream.fetchCount(ofPathSuffix: "/header2") == 1)
     }
 
     // MARK: - Helpers
@@ -287,11 +354,71 @@ private final class ProxyFakeUpstream: HLSUpstreamFetching, @unchecked Sendable 
     session/abc/base/index.m3u8
 
     """
+    static let masterPlaylistWithSubtitles = """
+    #EXTM3U
+    #EXT-X-VERSION:7
+    #EXT-X-MEDIA:TYPE=SUBTITLES,GROUP-ID="subs",NAME="English",LANGUAGE="en",URI="session/abc/subs/subs.m3u8"
+    #EXT-X-STREAM-INF:BANDWIDTH=60000000,CODECS="hvc1.2.4.L153.b0,ec-3",RESOLUTION=3840x2160,VIDEO-RANGE=PQ,SUBTITLES="subs"
+    session/abc/base/index.m3u8
+
+    """
+    static let subtitlePlaylist = """
+    #EXTM3U
+    #EXT-X-TARGETDURATION:4
+    #EXTINF:4.000,
+    sub0.vtt
+    #EXT-X-ENDLIST
+
+    """
     static let fmp4MediaPlaylist = """
     #EXTM3U
     #EXT-X-VERSION:7
     #EXT-X-TARGETDURATION:4
     #EXT-X-PLAYLIST-TYPE:VOD
+    #EXT-X-MAP:URI="header"
+    #EXTINF:4.000,
+    00000.m4s
+    #EXT-X-ENDLIST
+
+    """
+    static let twoMapMediaPlaylist = """
+    #EXTM3U
+    #EXT-X-VERSION:7
+    #EXT-X-TARGETDURATION:4
+    #EXT-X-PLAYLIST-TYPE:VOD
+    #EXT-X-MAP:URI="header"
+    #EXTINF:4.000,
+    00000.m4s
+    #EXT-X-DISCONTINUITY
+    #EXT-X-MAP:URI="header2"
+    #EXTINF:4.000,
+    00001.m4s
+    #EXT-X-ENDLIST
+
+    """
+    static let offOriginSegmentPlaylist = """
+    #EXTM3U
+    #EXT-X-TARGETDURATION:4
+    #EXT-X-MAP:URI="header"
+    #EXTINF:4.000,
+    http://cdn.test/00000.m4s
+    #EXT-X-ENDLIST
+
+    """
+    static let offOriginInitPlaylist = """
+    #EXTM3U
+    #EXT-X-TARGETDURATION:4
+    #EXT-X-MAP:URI="http://cdn.test/header"
+    #EXTINF:4.000,
+    00000.m4s
+    #EXT-X-ENDLIST
+
+    """
+    static let segmentBeforeMapPlaylist = """
+    #EXTM3U
+    #EXT-X-TARGETDURATION:4
+    #EXTINF:4.000,
+    lead.m4s
     #EXT-X-MAP:URI="header"
     #EXTINF:4.000,
     00000.m4s
@@ -310,10 +437,19 @@ private final class ProxyFakeUpstream: HLSUpstreamFetching, @unchecked Sendable 
 
     private let lock = NSLock()
     private var fetched: [URL] = []
+    private let masterPlaylist: String
     private let mediaPlaylist: String
+    /// Answered after a delay, so requests for it overlap.
+    private let slowPathComponent: String?
 
-    init(mediaPlaylist: String = ProxyFakeUpstream.fmp4MediaPlaylist) {
+    init(
+        masterPlaylist: String = ProxyFakeUpstream.masterPlaylist,
+        mediaPlaylist: String = ProxyFakeUpstream.fmp4MediaPlaylist,
+        slowPathComponent: String? = nil
+    ) {
+        self.masterPlaylist = masterPlaylist
         self.mediaPlaylist = mediaPlaylist
+        self.slowPathComponent = slowPathComponent
     }
 
     func fetchCount(ofPathSuffix suffix: String) -> Int {
@@ -322,12 +458,16 @@ private final class ProxyFakeUpstream: HLSUpstreamFetching, @unchecked Sendable 
 
     func fetch(_ url: URL) async throws -> (Data, HTTPURLResponse) {
         lock.withLock { fetched.append(url) }
+        if url.lastPathComponent == slowPathComponent {
+            try await Task.sleep(for: .milliseconds(300))
+        }
         let body: Data?
         switch url.lastPathComponent {
-        case "start.m3u8": body = Data(Self.masterPlaylist.utf8)
+        case "start.m3u8": body = Data(masterPlaylist.utf8)
         case "index.m3u8": body = Data(mediaPlaylist.utf8)
-        case "header": body = ProxyFMP4Fixture.initSegment()
-        case "00000.m4s": body = ProxyFMP4Fixture.mediaSegment()
+        case "subs.m3u8": body = Data(Self.subtitlePlaylist.utf8)
+        case "header", "header2": body = ProxyFMP4Fixture.initSegment()
+        case "00000.m4s", "00001.m4s": body = ProxyFMP4Fixture.mediaSegment()
         default: body = nil
         }
         let response = HTTPURLResponse(url: url, statusCode: body == nil ? 404 : 200, httpVersion: "HTTP/1.1", headerFields: nil)!

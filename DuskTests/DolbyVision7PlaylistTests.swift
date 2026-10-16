@@ -9,7 +9,7 @@ struct DolbyVision7PlaylistTests {
     private let subtitlesURL = URL(string: "https://plex.example:32400/video/:/transcode/universal/session/abc/subs/index.m3u8")!
 
     private let mapper = DolbyVision7PlaylistRewriter.URLMapper(
-        playlist: { proxied("p", $0) },
+        playlist: { playlist, isVideo in proxied(isVideo ? "v" : "p", playlist) },
         initSegment: { proxied("i", $0) },
         mediaSegment: { segment, initSegment in initSegment.map { proxied("s", segment, initSegment: $0) } ?? segment }
     )
@@ -35,7 +35,7 @@ struct DolbyVision7PlaylistTests {
         #EXT-X-VERSION:7
         #EXT-X-MEDIA:TYPE=SUBTITLES,GROUP-ID="subs",NAME="English",LANGUAGE="en",URI="\(proxied("p", subtitlesURL).absoluteString)"
         #EXT-X-STREAM-INF:BANDWIDTH=60000000,CODECS="hvc1.2.4.L153.b0,ec-3",RESOLUTION=3840x2160,SUBTITLES="subs",SUPPLEMENTAL-CODECS="dvh1.08.06/db1p",VIDEO-RANGE=PQ
-        \(proxied("p", mediaURL).absoluteString)
+        \(proxied("v", mediaURL).absoluteString)
 
         """
         #expect(try rewrite(master, baseURL: masterURL) == expected)
@@ -92,6 +92,44 @@ struct DolbyVision7PlaylistTests {
         let output = try rewrite(playlist, baseURL: subtitlesURL)
         #expect(output.contains("\nhttps://plex.example:32400/video/:/transcode/universal/session/abc/subs/sub0.vtt\n"))
         #expect(output.contains("#EXT-X-KEY:METHOD=NONE"))
+    }
+
+    @Test func videoPlaylistSegmentsNeedAnInitSegment() throws {
+        // A segment ahead of the first EXT-X-MAP of an fMP4 playlist.
+        let beforeMap = "#EXTM3U\n#EXTINF:6.0,\nlead.m4s\n#EXT-X-MAP:URI=\"header\"\n#EXTINF:6.0,\n0.m4s\n"
+        #expect(isUnsupportedPlaylist { try rewrite(beforeMap, baseURL: mediaURL) })
+
+        // A video variant without any EXT-X-MAP (MPEG-TS) never converts.
+        let transportStream = "#EXTM3U\n#EXTINF:6.0,\n0.ts\n#EXT-X-ENDLIST\n"
+        #expect(isUnsupportedPlaylist {
+            try DolbyVision7PlaylistRewriter.rewrite(
+                transportStream, baseURL: mediaURL, target: target, requiresInitSegment: true, mapper: mapper)
+        })
+        // The same playlist as a rendition (no conversion) is passed on.
+        #expect(try rewrite(transportStream, baseURL: subtitlesURL).contains("/subs/0.ts\n"))
+    }
+
+    @Test func mapperFailuresAbortTheRewrite() {
+        let refusing = DolbyVision7PlaylistRewriter.URLMapper(
+            playlist: { playlist, _ in playlist },
+            initSegment: { _ in throw DolbyVision7ConversionError.unsupportedPlaylist("off origin") },
+            mediaSegment: { segment, _ in segment }
+        )
+        let playlist = "#EXTM3U\n#EXT-X-MAP:URI=\"header\"\n#EXTINF:6.0,\n0.m4s\n"
+        #expect(isUnsupportedPlaylist {
+            try DolbyVision7PlaylistRewriter.rewrite(playlist, baseURL: mediaURL, target: target, mapper: refusing)
+        })
+    }
+
+    @Test func videoRenditionsAreMappedAsVideo() throws {
+        let master = """
+        #EXTM3U
+        #EXT-X-MEDIA:TYPE=VIDEO,GROUP-ID="v",NAME="Main",URI="alt/index.m3u8"
+        #EXT-X-MEDIA:TYPE=SUBTITLES,GROUP-ID="subs",NAME="English",URI="session/abc/subs/index.m3u8"
+        """
+        let output = try rewrite(master, baseURL: masterURL)
+        #expect(output.contains(proxied("v", URL(string: "https://plex.example:32400/video/:/transcode/universal/alt/index.m3u8")!).absoluteString))
+        #expect(output.contains(proxied("p", subtitlesURL).absoluteString))
     }
 
     @Test func byteRangesAndEncryptionThrow() {
