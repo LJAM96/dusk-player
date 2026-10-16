@@ -258,7 +258,7 @@ extension PlaybackCoordinator {
             var engineType = resolverDecision.engine
             var resolverReason = resolverDecision.reason
             var transcodeSessionID: String?
-            var spatialAudioStreamIDs: (audio: Int?, subtitle: Int?)?
+            var spatialAudioStreamIDs: (audio: Int?, subtitle: Int?, convertsAudio: Bool)?
 
             if let localURL {
                 playbackURL = localURL
@@ -358,7 +358,7 @@ extension PlaybackCoordinator {
                         transcodeSessionID = dolbyVisionRemux.transcodeSessionID
                         engineType = .avPlayer
                         resolverReason = dolbyVisionRemux.reason
-                        spatialAudioStreamIDs = (audioStreamID, subtitleStreamID)
+                        spatialAudioStreamIDs = (audioStreamID, subtitleStreamID, dolbyVisionRemux.convertsAudio)
                     } else {
                         let serverStreamSessionID = UUID().uuidString
                         do {
@@ -459,7 +459,7 @@ extension PlaybackCoordinator {
                         transcodeSessionID = remux.transcodeSessionID
                         engineType = .avPlayer
                         resolverReason = remux.reason
-                        spatialAudioStreamIDs = (audioStreamID, subtitleStreamID)
+                        spatialAudioStreamIDs = (audioStreamID, subtitleStreamID, remux.convertsAudio)
                     }
                 }
             }
@@ -562,7 +562,11 @@ extension PlaybackCoordinator {
                 // lists and changes them through Plex (server track selection).
                 activeAudioStreamID = spatialAudioStreamIDs.audio
                 activeSubtitleStreamID = spatialAudioStreamIDs.subtitle
+                remuxAudioConversion = spatialAudioStreamIDs.convertsAudio
+                    ? RemuxAudioConversion(audioStreamID: spatialAudioStreamIDs.audio)
+                    : nil
             } else if !wantsAirPlay {
+                remuxAudioConversion = nil
                 activeAudioStreamID = PlayerViewModel.preferredAudioStreamID(
                     inPart: part,
                     preferredLanguage: preferences.defaultAudioLanguage
@@ -885,7 +889,7 @@ extension PlaybackCoordinator {
     /// Restarts the current session as a server transcode pinned to the given
     /// audio stream (nil = the part's default audio stream). Used when the
     /// local engine cannot decode a track (TrueHD on a stock VLCKit build, or
-    /// Dusk's TrueHD decoder producing no audio): the server decodes it to an
+    /// Dusk's TrueHD decoder failing to open): the server decodes it to an
     /// AVPlayer-friendly stream, so the user's choice produces sound instead
     /// of a dead local decoder.
     func transcodeForUndecodableAudio(_ track: AudioTrack?) async {

@@ -133,8 +133,8 @@ extension PlayerViewModel {
             transcodeAudioFallbackHandler?(nil)
         }
 
-        // The engine's own TrueHD decoder produced no audio for the playing
-        // track: same rescue, pinned to that stream (Plex converts it).
+        // libvlc could not open its TrueHD decoder for the playing track:
+        // same rescue, pinned to that stream (Plex converts it).
         if !hasRequestedUndecodableAudioFallback,
            let failedTrackID = engine.failedAudioDecoderTrackID,
            let failedTrack = audioTracks.first(where: { $0.id == failedTrackID }) {

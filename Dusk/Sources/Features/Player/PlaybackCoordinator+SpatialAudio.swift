@@ -19,6 +19,8 @@ extension PlaybackCoordinator {
         let url: URL
         let transcodeSessionID: String
         let reason: String
+        /// Plex converts the audio (instead of copying it) in this remux.
+        let convertsAudio: Bool
     }
 
     var isSpatialAudioSession: Bool {
@@ -191,7 +193,8 @@ extension PlaybackCoordinator {
             return SpatialAudioRemux(
                 url: result.url,
                 transcodeSessionID: transcodeSessionID,
-                reason: reason
+                reason: reason,
+                convertsAudio: convertsAudio
             )
         } catch {
             stopTranscodeSessionInBackground(transcodeSessionID, serverID: serverID)
@@ -271,6 +274,12 @@ extension PlaybackCoordinator {
         let audioStreamID = activeAudioStreamID
         let subtitleStreamID = activeSubtitleStreamID
         let audioCodec = part.streams.first { $0.streamType == .audio && $0.id == audioStreamID }?.codec
+        // Keep converting when the remux being rebuilt already converts this
+        // very stream (a subtitle change, the Dolby Vision 7 retry): TrueHD is
+        // locally decodable on Dusk's VLCKit, so the codec alone would drop
+        // the conversion and with it the remux (and HDR). A newly picked
+        // decodable stream (TrueHD, DTS) still leaves for direct play.
+        let keepsAudioConversion = remuxAudioConversion.map { $0.audioStreamID == audioStreamID } ?? false
 
         let remux = await requestSpatialAudioRemux(
             ratingKey: ratingKey,
@@ -279,7 +288,7 @@ extension PlaybackCoordinator {
             part: part,
             audioStreamID: audioStreamID,
             subtitleStreamID: subtitleStreamID,
-            convertsAudio: PlayerViewModel.isLocallyUndecodableAudioCodec(audioCodec),
+            convertsAudio: keepsAudioConversion || PlayerViewModel.isLocallyUndecodableAudioCodec(audioCodec),
             sessionIdentifier: playbackSessionID,
             serverID: activePlaybackServerID
         )
@@ -305,6 +314,7 @@ extension PlaybackCoordinator {
             stopTranscodeSessionInBackground(oldTranscodeSessionID, serverID: activePlaybackServerID)
         }
         activeTranscodeSessionID = remux.transcodeSessionID
+        remuxAudioConversion = remux.convertsAudio ? RemuxAudioConversion(audioStreamID: audioStreamID) : nil
         activateReplacementAttempt(
             transitionLabel: transitionLabel,
             attemptID: UUID(),
@@ -382,6 +392,7 @@ extension PlaybackCoordinator {
         activeTranscodeSessionID = remux.transcodeSessionID
         activeAudioStreamID = audioStreamID
         activeSubtitleStreamID = subtitleStreamID
+        remuxAudioConversion = RemuxAudioConversion(audioStreamID: audioStreamID)
         activateReplacementAttempt(
             transitionLabel: "converting undecodable audio on the server (video copied)",
             attemptID: UUID(),
@@ -446,6 +457,7 @@ extension PlaybackCoordinator {
             stopTranscodeSessionInBackground(oldTranscodeSessionID, serverID: activePlaybackServerID)
         }
         activeTranscodeSessionID = nil
+        remuxAudioConversion = nil
         spatialAudioLogger.notice(
             "Leaving spatial-audio remux for ratingKey \(ratingKey, privacy: .public): \(reason, privacy: .public)"
         )
@@ -531,6 +543,12 @@ extension PlaybackCoordinator {
             playbackSource?.startPosition ?? 0
         )
     }
+}
+
+/// The audio stream a remux session has Plex convert (see
+/// `PlaybackCoordinator.remuxAudioConversion`).
+struct RemuxAudioConversion: Sendable, Equatable {
+    let audioStreamID: Int?
 }
 
 /// Plex stream ids the viewer explicitly chose, carried across an engine swap

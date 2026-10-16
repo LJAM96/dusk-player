@@ -42,12 +42,25 @@ private final class VLCLibraryLogBridge: NSObject, VLCLogging, @unchecked Sendab
         category: "libvlc"
     )
     private let verbose = UserDefaults.standard.bool(forKey: "vlcVerboseLogging")
+    private let failureLock = NSLock()
+    private var failures = 0
+
+    /// How many times libvlc reported that it could not open a TrueHD/MLP
+    /// decoder ("Codec `trhd' (TrueHD Audio) is not supported.", from
+    /// `src/input/decoder.c`). Read by `VLCKitEngine.watchTrueHDDecoding`.
+    var trueHDDecoderFailures: Int {
+        failureLock.withLock { failures }
+    }
 
     func handleMessage(
         _ message: String,
         logLevel: VLCLogLevel,
         context: VLCLogContext?
     ) {
+        if logLevel == .error, Self.isTrueHDDecoderFailure(message) {
+            failureLock.withLock { failures += 1 }
+        }
+
         let module = context?.module ?? ""
         let objectType = context?.objectType ?? ""
 
@@ -69,6 +82,10 @@ private final class VLCLibraryLogBridge: NSObject, VLCLogging, @unchecked Sendab
         default:
             logger.notice("\(line, privacy: .public)")
         }
+    }
+
+    private static func isTrueHDDecoderFailure(_ message: String) -> Bool {
+        ["Codec `trhd'", "Codec `mlp '", "Codec `mlpa'"].contains { message.contains($0) }
     }
 
     /// Emitters and phrases covering the audio output, the aout core, the
@@ -341,6 +358,7 @@ final class VLCKitEngine: NSObject, PlaybackEngine {
     /// TrueHD decode watchdog (see `watchTrueHDDecoding(at:)`).
     private var trueHDDecodeWatch: TrueHDDecodeWatch?
     private var verifiedTrueHDTrackID: Int?
+    private var trueHDDecoderFailureBaseline = 0
     /// Last seen (audio, text) track counts; see `refreshTracksIfCountsChanged`.
     private var lastObservedTrackCounts: (audio: Int32, text: Int32) = (-1, -1)
     @ObservationIgnored nonisolated(unsafe) private var audioSessionObservers: [NSObjectProtocol] = []
@@ -480,6 +498,7 @@ final class VLCKitEngine: NSObject, PlaybackEngine {
         latestAudioTrackInfosByIndex = [:]
         trueHDDecodeWatch = nil
         verifiedTrueHDTrackID = nil
+        trueHDDecoderFailureBaseline = VLCLibraryLogBridge.shared.trueHDDecoderFailures
         failedAudioDecoderTrackID = nil
         lastObservedTrackCounts = (-1, -1)
         syncRendererPlaybackState()
@@ -1953,26 +1972,51 @@ final class VLCKitEngine: NSObject, PlaybackEngine {
     }
 
     /// The TrueHD/MLP decoder is Dusk's addition, not part of VideoLAN's
-    /// tested builds. Should it fail to open on some stream, libvlc keeps the
-    /// ES selected without a decoder and plays silent, with no error at all.
-    /// So once playback is steady on a TrueHD/MLP track, libvlc's decoded-audio
-    /// counter must move within 5 s of playback. If video blocks decode while
-    /// audio blocks do not, the track is reported in
-    /// `failedAudioDecoderTrackID` and marked undecodable; the view model then
-    /// reroutes it through the Plex audio-conversion fallback. No video
-    /// progress either (audio-only file, statistics off) gives no verdict.
-    /// Each track is verified once per load.
+    /// tested builds. If it fails to open on a stream, libvlc keeps the ES
+    /// selected without a decoder and plays silent; its only trace is the
+    /// error "Codec `trhd' (…) is not supported.", which
+    /// `VLCLibraryLogBridge` counts. A TrueHD/MLP track selected after such an
+    /// error during this load is reported in `failedAudioDecoderTrackID` and
+    /// marked undecodable; the view model then reroutes it through the Plex
+    /// audio-conversion fallback.
+    ///
+    /// Missing audio blocks alone never mark a track: libvlc's decoded-audio
+    /// counter cannot tell a broken decoder from a track whose packets start
+    /// late or pause, and ffmpeg's own decode errors never reach the libvlc
+    /// log (VLC 3 installs no av_log callback). A TrueHD track whose counter
+    /// stays flat for 10 s of steady playback while video decodes is only
+    /// logged, once per track, as evidence for a device report.
     private func watchTrueHDDecoding(at time: TimeInterval) {
         guard VLCKitBuildInfo.decodesTrueHD,
               failedAudioDecoderTrackID == nil,
-              state == .playing,
-              pendingSeekTarget == nil,
-              steadyPlaybackTicks >= 4,
               let trackID = selectedAudioTrackID,
-              trackID != verifiedTrueHDTrackID,
               let index = vlcTrackIndex(forModelID: trackID),
               let fourCC = latestAudioTrackInfosByIndex[index]?.codecFourCC,
-              Self.trueHDAudioFourCCs.contains(fourCC),
+              Self.trueHDAudioFourCCs.contains(fourCC) else {
+            trueHDDecodeWatch = nil
+            return
+        }
+
+        if VLCLibraryLogBridge.shared.trueHDDecoderFailures > trueHDDecoderFailureBaseline {
+            failedAudioDecoderTrackID = trackID
+            trueHDDecodeWatch = nil
+            availableAudioTracks = availableAudioTracks.map { track in
+                var track = track
+                if track.id == trackID {
+                    track.isDecodable = false
+                }
+                return track
+            }
+            vlcKitEngineLogger.error(
+                "libvlc could not open the TrueHD decoder for track \(trackID, privacy: .public); handing it to the Plex fallback"
+            )
+            return
+        }
+
+        guard state == .playing,
+              pendingSeekTarget == nil,
+              steadyPlaybackTicks >= 4,
+              trackID != verifiedTrueHDTrackID,
               let media = mediaPlayer.media else {
             trueHDDecodeWatch = nil
             return
@@ -1988,24 +2032,15 @@ final class VLCKitEngine: NSObject, PlaybackEngine {
             )
             return
         }
-        guard time - watch.startTime >= 5 else { return }
+        guard time - watch.startTime >= 10 else { return }
 
         trueHDDecodeWatch = nil
-        if stats.decodedAudio > watch.decodedAudio || stats.decodedVideo <= watch.decodedVideo {
-            verifiedTrueHDTrackID = trackID
-            return
+        verifiedTrueHDTrackID = trackID
+        if stats.decodedAudio == watch.decodedAudio, stats.decodedVideo > watch.decodedVideo {
+            vlcKitEngineLogger.warning(
+                "TrueHD track \(trackID, privacy: .public) decoded no audio for 10 s while video decoded (\(watch.decodedVideo, privacy: .public)→\(stats.decodedVideo, privacy: .public)); no decoder error was reported, so it stays on VLCKit"
+            )
         }
-        failedAudioDecoderTrackID = trackID
-        availableAudioTracks = availableAudioTracks.map { track in
-            var track = track
-            if track.id == trackID {
-                track.isDecodable = false
-            }
-            return track
-        }
-        vlcKitEngineLogger.error(
-            "TrueHD decoder produced no audio for track \(trackID, privacy: .public) (decoded video \(watch.decodedVideo, privacy: .public)→\(stats.decodedVideo, privacy: .public), audio \(stats.decodedAudio, privacy: .public)); handing it to the Plex fallback"
-        )
     }
 
     /// Packs characters the way libvlc's VLC_FOURCC macro does (little endian),

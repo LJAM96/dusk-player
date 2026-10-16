@@ -997,14 +997,24 @@ so the whole live HUD is derived from one instant.
   - In a remux session, picking a TrueHD track behaves like picking DTS:
     `leaveSpatialAudioRemux` moves to VLCKit direct play with that track
     (lossless audio, no HDR). That is the viewer's explicit choice.
+  - A remux that converts its audio keeps converting when it is rebuilt
+    around the same audio stream (subtitle change, the Dolby Vision 7
+    retry): `PlaybackCoordinator.remuxAudioConversion` records the converted
+    stream, because the codec no longer says so — TrueHD is decodable, and
+    re-deriving it from decodability dropped the remux (and HDR) for VLCKit.
 - Failure case (`VLCKitEngine.watchTrueHDDecoding`): the decoder is Dusk's
-  addition, and a decoder that fails to open leaves the ES selected and
-  silent with no error. Once playback is steady on a TrueHD/MLP track, libvlc's
-  decoded-audio counter must move within 5 s of playback while video blocks
-  decode; otherwise the engine reports `failedAudioDecoderTrackID`, marks the
-  track undecodable, and `PlayerViewModel` hands it to the Plex fallback below
-  once per item. No video progress (audio-only, statistics off) gives no
-  verdict. Offline downloads have no fallback.
+  addition. One that fails to open leaves the ES selected and silent; its
+  only trace is libvlc's error "Codec `trhd' (…) is not supported."
+  (`src/input/decoder.c`), which `VLCLibraryLogBridge` counts. A TrueHD/MLP
+  track selected after such an error during the current load is reported in
+  `failedAudioDecoderTrackID`, marked undecodable, and `PlayerViewModel`
+  hands it to the Plex fallback below once per item. Missing audio blocks
+  alone never trigger it: the decoded-audio counter cannot tell a broken
+  decoder from a track that starts late or pauses, and ffmpeg's runtime
+  decode errors never reach the libvlc log (VLC 3 installs no av_log
+  callback). A TrueHD track whose counter stays flat for 10 s while video
+  decodes is only logged as a warning — that is the device evidence to look
+  for if TrueHD ever plays silent. Offline downloads have no fallback.
 - Plex fallback (stock build, a failed decoder, or a viewer pick of a track
   marked undecodable): `PlayerViewModel.selectAudio` reroutes through
   `transcodeAudioFallbackHandler` → `PlaybackCoordinator.
@@ -1032,8 +1042,9 @@ so the whole live HUD is derived from one instant.
   filter because the server decodes.
 - Not yet verified on hardware: TrueHD 7.1 → 8-channel LPCM on an Apple TV +
   AVR ("Output Channels" should read `current=8`), 7.1 into a 5.1 receiver
-  (patch 0101 mixes down to 5.1), TrueHD Atmos bed levels, the decode
-  watchdog never firing on healthy files, and CPU on Apple TV HD.
+  (patch 0101 mixes down to 5.1), TrueHD Atmos bed levels, no "decoded no
+  audio for 10 s" warning on healthy files, a subtitle change in a
+  converted TrueHD remux staying on the remux, and CPU on Apple TV HD.
 
 ### VLCKit audio output module
 - `VLCKitEngine` runs its players on a single shared `VLCLibrary` with no

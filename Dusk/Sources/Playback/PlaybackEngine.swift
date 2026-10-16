@@ -178,8 +178,8 @@ protocol PlaybackEngine: AnyObject {
     var isReadyForAutomaticAudioSelection: Bool { get }
 
     /// An audio track whose decoder turned out not to work during this load
-    /// (VLCKit: TrueHD selected but no audio decoded while video plays). The
-    /// view model hands it to the server audio-conversion fallback once.
+    /// (VLCKit: libvlc reported that it could not open the TrueHD decoder).
+    /// The view model hands it to the server audio-conversion fallback once.
     var failedAudioDecoderTrackID: Int? { get }
 
     // MARK: - Audio session

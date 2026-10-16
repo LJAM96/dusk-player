@@ -72,6 +72,11 @@ final class PlaybackCoordinator {
     /// ids are implementation-local, so the player maps them back to these ids.
     var activeAudioStreamID: Int?
     var activeSubtitleStreamID: Int?
+    /// Set while a remux session has Plex convert its audio (TrueHD and other
+    /// codecs the fMP4 cannot carry). Rebuilding that remux around the same
+    /// audio stream must keep converting: the stream itself may be locally
+    /// decodable (TrueHD on Dusk's VLCKit), so decodability cannot re-derive it.
+    var remuxAudioConversion: RemuxAudioConversion?
     /// Plex subtitle stream id to select as soon as the player can mount it.
     /// Set by the sidecar-download flow and by the AVPlayer → VLCKit switch,
     /// consumed by `PlayerViewModel.configureAutomaticTrackSelection`.
