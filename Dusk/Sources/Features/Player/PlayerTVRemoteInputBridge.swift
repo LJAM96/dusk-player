@@ -65,7 +65,7 @@ struct PlayerTVRemoteInputBridge: UIViewControllerRepresentable {
     }
 }
 
-final class PlayerTVRemoteInputViewController: UIViewController {
+final class PlayerTVRemoteInputViewController: UIViewController, UIGestureRecognizerDelegate {
     var onInput: ((PlayerTVRemoteInput) -> Void)?
 
     var isCaptureEnabled = false {
@@ -93,6 +93,7 @@ final class PlayerTVRemoteInputViewController: UIViewController {
 
     private let panRecognizer = UIPanGestureRecognizer()
     private let tapRecognizer = UITapGestureRecognizer()
+    private let menuRecognizer = UITapGestureRecognizer()
     private var panAxis: PanAxis = .undetermined
     private var heldArrows: Set<PlayerTVArrow> = []
 
@@ -109,6 +110,7 @@ final class PlayerTVRemoteInputViewController: UIViewController {
         let indirect = [NSNumber(value: UITouch.TouchType.indirect.rawValue)]
 
         panRecognizer.allowedTouchTypes = indirect
+        panRecognizer.allowedPressTypes = []
         panRecognizer.addTarget(self, action: #selector(handlePan(_:)))
         view.addGestureRecognizer(panRecognizer)
 
@@ -119,6 +121,17 @@ final class PlayerTVRemoteInputViewController: UIViewController {
         tapRecognizer.cancelsTouchesInView = false
         tapRecognizer.addTarget(self, action: #selector(handleTap(_:)))
         view.addGestureRecognizer(tapRecognizer)
+
+        // Menu needs a gesture owner as well as a responder-chain owner. A
+        // touch pan can otherwise leave the presentation's Back recognizer to
+        // dismiss the cover before our raw press callback cancels the preview.
+        // Route Menu only here; handling it in pressesBegan too would turn one
+        // Back into both cancel-scrub and dismiss-player.
+        menuRecognizer.allowedPressTypes = [NSNumber(value: UIPress.PressType.menu.rawValue)]
+        menuRecognizer.allowedTouchTypes = []
+        menuRecognizer.delegate = self
+        menuRecognizer.addTarget(self, action: #selector(handleMenu(_:)))
+        view.addGestureRecognizer(menuRecognizer)
 
         sentinelView?.isFocusable = isCaptureEnabled
     }
@@ -152,6 +165,10 @@ final class PlayerTVRemoteInputViewController: UIViewController {
 
         var handled = false
         for press in presses {
+            if press.type == .menu {
+                handled = true
+                continue // The Menu-only recognizer owns this entire press.
+            }
             guard let input = Self.beganInput(for: press.type) else { continue }
             if case let .arrowDown(arrow) = input {
                 heldArrows.insert(arrow)
@@ -177,9 +194,9 @@ final class PlayerTVRemoteInputViewController: UIViewController {
                 handled = true
                 heldArrows.remove(arrow)
                 onInput?(.arrowUp(arrow))
-            } else if Self.beganInput(for: press.type) != nil {
-                // Select / play-pause / menu are acted on at press-down; their
-                // release is ours to swallow, not the system's to re-handle.
+            } else if press.type == .menu || Self.beganInput(for: press.type) != nil {
+                // Select / play-pause act at press-down; Menu belongs to its
+                // recognizer. None may leak into the system's Back handler.
                 handled = true
             }
         }
@@ -216,7 +233,6 @@ final class PlayerTVRemoteInputViewController: UIViewController {
         switch type {
         case .select: return .select
         case .playPause: return .playPause
-        case .menu: return .menu
         default: return nil
         }
     }
@@ -233,6 +249,28 @@ final class PlayerTVRemoteInputViewController: UIViewController {
     }
 
     // MARK: - Gestures
+
+    func gestureRecognizer(
+        _ gestureRecognizer: UIGestureRecognizer,
+        shouldRecognizeSimultaneouslyWith otherGestureRecognizer: UIGestureRecognizer
+    ) -> Bool {
+        // Back must also work with a finger still on the surface. Do not share
+        // it with any enclosing presentation/navigation Menu recognizer.
+        gestureRecognizer === menuRecognizer && otherGestureRecognizer === panRecognizer
+    }
+
+    @objc
+    private func handleMenu(_ recognizer: UITapGestureRecognizer) {
+        guard isCaptureEnabled, recognizer.state == .ended else { return }
+        let isPanning = panRecognizer.state == .began || panRecognizer.state == .changed
+        endActivePan()
+        if isPanning {
+            // Ignore the rest of this touch until lift-off, otherwise its next
+            // panChanged would immediately recreate the cancelled preview.
+            panAxis = .rejected
+        }
+        onInput?(.menu)
+    }
 
     @objc
     private func handleTap(_ recognizer: UITapGestureRecognizer) {

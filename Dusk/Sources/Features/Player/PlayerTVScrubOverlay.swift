@@ -6,7 +6,7 @@ import SwiftUI
 /// say both how to commit and how to back out.
 struct PlayerTVScrubHint: View {
     var body: some View {
-        Text("Click to seek · Menu to cancel")
+        Text("Click to seek · Back to cancel")
             .font(DuskFont.TV.caption)
             .foregroundStyle(.white.opacity(0.66))
             .padding(.horizontal, 14)

@@ -1739,6 +1739,17 @@ so the whole live HUD is derived from one instant.
   (`PlayerSessionView.isTVRemoteCaptureEnabled`). Never add a tvOS
   `onExitCommand` / `onPlayPauseCommand` to the player: the bridge already owns
   Menu and Play/Pause and the two would double-fire.
+- Back has a Menu-only tap recognizer on the bridge, allowed alongside its
+  touch pan. Raw Menu press callbacks are swallowed, so one physical Back is
+  delivered exactly once and cannot also dismiss the enclosing cover. Back
+  rejects the remainder of an active touch pan until lift-off. Any pending
+  scrub or debounced click-seek consumes Back before the mode's normal action;
+  cancellation clears preview/repeat/commit state without seeking or changing
+  play/pause. Scrubbing also rejects queued HUD hides, keeping the visible
+  "Click to seek · Back to cancel" hint consistent with the pending target.
+  `PlayerTVScrubCancellationTests` covers cancellation, playing/paused state,
+  trailing pan updates, visibility races, and the debounced seek task. Physical
+  Siri Remote gesture arbitration still needs an Apple TV.
 - Mode transitions:
   - `hidden`: tap or Select or Up → `transport`; Left/Right → accumulate a seek
     (see below) with a centred badge, stays hidden; horizontal swipe → `scrubbing`;
