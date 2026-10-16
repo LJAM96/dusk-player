@@ -363,6 +363,52 @@ struct DolbyVision7FragmentRewriterTests {
         #expect(isUnsupportedFragment { try rewrite(input) })
     }
 
+    /// tfhd default_sample_size 0 makes every sample empty and a `trun`
+    /// without entries 20 bytes, so only fragment-wide budgets keep many
+    /// runs from describing far more samples than the mdat could hold.
+    @Test func sampleCountIsBudgetedAcrossRuns() throws {
+        func zeroSizeRuns(_ counts: [Int], dataOffset: Int32) -> [UInt8] {
+            moof(sequence: 1, trafs: [
+                fullBox("tfhd", flags: 0x02_0010, u32(1) + u32(0)) + tfdt()
+                    + counts.flatMap { trun(flags: 0x001, sampleCount: $0, dataOffset: dataOffset, entries: []) },
+            ]) + box("mdat", [0, 0, 0, 0])
+        }
+        // tfhd 20 + tfdt 20 + trun 20 → traf 68, moof 92: payload at 100.
+        _ = try rewrite(zeroSizeRuns([3], dataOffset: 100))
+        // Two runs → traf 88, moof 112: 3 + 3 samples for a 4-byte mdat.
+        #expect(isUnsupportedFragment { try rewrite(zeroSizeRuns([3, 3], dataOffset: 120)) })
+    }
+
+    @Test func sampleCountHasAnAbsoluteCeiling() {
+        let count = FMP4FragmentRewriter.maximumSamplesPerFragment + 1
+        let input = moof(sequence: 1, trafs: [
+            fullBox("tfhd", flags: 0x02_0010, u32(1) + u32(0)) + tfdt()
+                + trun(flags: 0x001, sampleCount: count, dataOffset: 100, entries: []),
+        ]) + box("mdat", [UInt8](repeating: 0, count: count))
+        #expect(isUnsupportedFragment { try rewrite(input) })
+    }
+
+    @Test func runsSharingBytesThrow() {
+        // tfhd 16 + tfdt 20 + 2 × trun 24 → traf 92, moof 116: payload at
+        // 124. Both runs claim the same sample.
+        let input = moof(sequence: 1, trafs: [
+            fullBox("tfhd", flags: 0x02_0000, u32(1)) + tfdt()
+                + trun(flags: 0x201, dataOffset: 124, entries: [u32(24)])
+                + trun(flags: 0x201, dataOffset: 124, entries: [u32(24)]),
+        ]) + box("mdat", rpuSample)
+        #expect(isUnsupportedFragment { try rewrite(input) })
+    }
+
+    @Test func cancellationStopsBetweenSamples() async {
+        let sampleRewriter = CancellingSampleRewriter()
+        let rewriter = FMP4FragmentRewriter(info: info, sampleRewriter: sampleRewriter)
+        let input = Data(sizedFragment(sizes: [24, 7], dataOffset: 120) + box("mdat", rpuSample + plainSample))
+
+        let result = await Task { try rewriter.rewrite(input) }.result
+        #expect(throws: CancellationError.self) { try result.get() }
+        #expect(sampleRewriter.calls == 1)
+    }
+
     // MARK: - Helpers
 
     private func rewrite(_ bytes: [UInt8]) throws -> (data: Data, stats: DolbyVisionSampleStats) {
@@ -495,6 +541,26 @@ struct FakeSampleRewriter: DolbyVisionSampleRewriting {
 
     private func lengthPrefix(_ length: Int, size: Int) -> [UInt8] {
         (0..<size).reversed().map { UInt8((length >> ($0 * 8)) & 0xFF) }
+    }
+}
+
+/// Cancels the task it runs on while rewriting the first sample, the way a
+/// seek abandons a segment mid-conversion.
+private final class CancellingSampleRewriter: DolbyVisionSampleRewriting, @unchecked Sendable {
+    private let lock = NSLock()
+    private var count = 0
+
+    var calls: Int { lock.withLock { count } }
+
+    func rewriteSample(
+        _ sample: UnsafeRawBufferPointer,
+        nalLengthSize: Int,
+        appendingTo output: inout Data
+    ) throws -> DolbyVisionSampleStats {
+        lock.withLock { count += 1 }
+        withUnsafeCurrentTask { $0?.cancel() }
+        output.append(contentsOf: sample)
+        return DolbyVisionSampleStats()
     }
 }
 

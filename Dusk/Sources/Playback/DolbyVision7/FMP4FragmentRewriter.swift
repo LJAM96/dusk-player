@@ -17,6 +17,9 @@ import Foundation
 /// other tracks keep their entries and bytes unchanged. `sidx`/`ssix`
 /// (byte ranges no longer valid) are dropped; other top-level boxes such as
 /// `styp` and `emsg` are copied.
+///
+/// Throws `DolbyVision7ConversionError`, or `CancellationError` once the
+/// calling task is cancelled (checked between samples).
 struct FMP4FragmentRewriter: Sendable {
     private static let dataOffsetPresent: UInt32 = 0x1
     private static let firstSampleFlagsPresent: UInt32 = 0x4
@@ -34,6 +37,12 @@ struct FMP4FragmentRewriter: Sendable {
     /// Sample-level metadata that would no longer match a rewritten video
     /// sample (encryption, sub-sample sizes).
     private static let unsupportedVideoBoxes: Set<String> = ["senc", "saiz", "subs"]
+
+    /// Samples one `moof` may describe across all its runs. A real Plex
+    /// fragment holds a few hundred (≤ 10 s of video at ≤ 60 fps plus its
+    /// audio frames); this leaves room for even per-frame PCM while keeping
+    /// the parsed sizes and rebuilt `trun` entries to a few tens of MB.
+    static let maximumSamplesPerFragment = 1 << 20
 
     let info: FMP4InitInfo
     let sampleRewriter: any DolbyVisionSampleRewriting
@@ -112,6 +121,11 @@ struct FMP4FragmentRewriter: Sendable {
         let mdatPayload = mdat.payloadStart..<mdat.end
         var trackFragments: [TrackFragment] = []
         var previousDataEnd: Int?
+        // Budgets across every run of the fragment, so neither many runs nor
+        // runs sharing the same bytes can multiply the work or the output:
+        // every real sample holds at least one byte, and runs never overlap.
+        var remainingSamples = min(max(mdatPayload.count, 1), Self.maximumSamplesPerFragment)
+        var remainingBytes = mdatPayload.count
 
         for traf in moofChildren where traf.type == "traf" {
             let children = try FMP4Box.boxes(in: bytes, range: traf.payloadStart..<traf.end, failure: Self.fail)
@@ -153,7 +167,9 @@ struct FMP4FragmentRewriter: Sendable {
                     base: base,
                     continuingAt: nextRunStart,
                     defaultSize: defaultSize,
-                    mdatPayload: mdatPayload
+                    mdatPayload: mdatPayload,
+                    remainingSamples: &remainingSamples,
+                    remainingBytes: &remainingBytes
                 )
                 nextRunStart = run.dataStart + run.sampleSizes.reduce(0, +)
                 runs.append(run)
@@ -179,7 +195,9 @@ struct FMP4FragmentRewriter: Sendable {
         base: Int,
         continuingAt previousRunEnd: Int,
         defaultSize: UInt32?,
-        mdatPayload: Range<Int>
+        mdatPayload: Range<Int>,
+        remainingSamples: inout Int,
+        remainingBytes: inout Int
     ) throws -> TrackRun {
         var cursor = FMP4Cursor(bytes, payloadOf: trun, failure: Self.fail)
         let (version, flags) = try cursor.readVersionAndFlags()
@@ -188,11 +206,11 @@ struct FMP4FragmentRewriter: Sendable {
         let firstSampleFlags = flags & Self.firstSampleFlagsPresent != 0 ? try cursor.read(UInt32.self) : nil
         let entryLength = (flags & Self.perSampleFields).nonzeroBitCount * 4
         let entriesStart = cursor.offset
-        // Every real sample holds at least one byte; also caps the loop
-        // below on a corrupt count.
-        guard sampleCount * entryLength <= cursor.remaining, sampleCount <= max(mdatPayload.count, 1) else {
+        // Checked before anything is allocated for the run.
+        guard sampleCount * entryLength <= cursor.remaining, sampleCount <= remainingSamples else {
             throw Self.fail("trun sample count \(sampleCount) out of range")
         }
+        remainingSamples -= sampleCount
 
         let durationLength = flags & Self.sampleDurationPresent != 0 ? 4 : 0
         let dataStart = dataOffset.map { base + $0 } ?? previousRunEnd
@@ -211,6 +229,8 @@ struct FMP4FragmentRewriter: Sendable {
             guard sampleStart >= mdatPayload.lowerBound, sampleStart + size <= mdatPayload.upperBound else {
                 throw Self.fail("sample outside its mdat")
             }
+            guard size <= remainingBytes else { throw Self.fail("runs overlap in the mdat") }
+            remainingBytes -= size
             sampleSizes.append(size)
             sampleStart += size
         }
@@ -385,6 +405,8 @@ struct FMP4FragmentRewriter: Sendable {
         sizes.reserveCapacity(run.sampleSizes.count)
         var sampleStart = run.dataStart
         for size in run.sampleSizes {
+            // A seek abandons the segment: stop instead of finishing it.
+            try Task.checkCancellation()
             let outputStart = output.count
             if size > 0 {
                 var sampleStats = try sampleRewriter.rewriteSample(
