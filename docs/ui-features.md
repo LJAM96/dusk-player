@@ -87,18 +87,6 @@ in Dusk. Read this with `docs/codebase-map.md`, `STYLE.md`, and `docs/data-and-p
 - Playback presentation is centralized in `MainTabView` through
   `PlaybackCoordinator.showPlayer` and `PlayerView`; feature screens should call
   `playback.play(...)` or `playback.playVersion(...)`, not present the player.
-- On tvOS, `TVPlaybackFocusRestoration` remembers the actual focused item and
-  weak parent environments before the player takes focus. The cover's `onDismiss`
-  starts restoration after coordinator teardown releases display criteria. It
-  waits for an active/key window and 350 ms without a reported display switch,
-  then requests focus through the scene's `UIFocusSystem`. For eight seconds of
-  display stability it repairs later automatic resets too (30-second overall
-  cap accommodates slow HDMI handshakes); any remote press/touch or directional
-  focus move cancels this window. Missing/disabled items fall back to their
-  nearest surviving content environment, stopping at the page controller so
-  fallback cannot choose the tab bar. Sheets retain ownership of focus.
-  Snapshot/timing regression coverage lives in `TVPlaybackFocusRestorationTests`;
-  HDMI mode-switch timing and the final focus landing require a real Apple TV.
 
 ## Shared UI Primitives
 
