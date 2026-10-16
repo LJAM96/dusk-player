@@ -312,6 +312,9 @@ static void DuskVLCUnlockVideo(void *opaque, void *picture, void *const *planes)
 
 static void DuskVLCDisplayVideo(void *opaque, void *picture)
 {
+    // libVLC 3's vmem path receives a picture with SPU (text/bitmap subtitles)
+    // already CPU-blended by the core. Forward those pixels intact: unlike
+    // AVPlayerItemVideoOutput, this output supports captions with enhancement.
     if (picture == NULL) {
         return;
     }

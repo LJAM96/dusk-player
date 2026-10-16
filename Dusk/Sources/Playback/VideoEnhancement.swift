@@ -96,6 +96,20 @@ struct VideoEnhancementRequest: Sendable, Equatable {
         return .disabled
     }
 
+    /// AVPlayer captions live on its native layer, outside the video output.
+    /// libVLC's vmem output instead blends subtitles into the delivered pixels.
+    func nativeSubtitleRenderingStatus(
+        engine: PlaybackEngineType,
+        hasSelectedSubtitle: Bool
+    ) -> VideoEnhancementStatus? {
+        guard engine == .avPlayer, hasSelectedSubtitle,
+              isPotentiallyEnabled, preflightUnavailabilityReason == nil else { return nil }
+        return VideoEnhancementStatus(
+            state: .disabled,
+            reason: "Native AVPlayer renderer required while subtitles are selected"
+        )
+    }
+
     static func make(
         mode: VideoEnhancementMode,
         media: PlexMedia,
@@ -105,25 +119,12 @@ struct VideoEnhancementRequest: Sendable, Equatable {
         let width = media.width ?? videoStream?.width
         let height = media.height ?? videoStream?.height
         let frameRate = videoStream?.frameRate
-        // AVPlayer and VLCKit composite embedded subtitles in their native
-        // presentation surfaces. The Metal enhancement path displays only the
-        // engines' raw video frames above those surfaces, so enabling it would
-        // make a selected subtitle track appear active while hiding every cue.
-        // Choose the native renderer before loading; VLCKit's raw callback
-        // output cannot be detached from a live player without rebuilding it.
-        let hasEmbeddedSubtitles = part.streams.contains {
-            $0.streamType == .subtitle && $0.key == nil
-        }
-        let needsNativeSubtitleRendering = mode.isPotentiallyEnabled && hasEmbeddedSubtitles
         return VideoEnhancementRequest(
-            mode: needsNativeSubtitleRendering ? .disabled : mode,
+            mode: mode,
             sourceWidth: width,
             sourceHeight: height,
             frameRate: frameRate,
-            isHDR: videoStream?.isHDRVideo == true,
-            disabledReason: needsNativeSubtitleRendering
-                ? "Native renderer required for embedded subtitles"
-                : nil
+            isHDR: videoStream?.isHDRVideo == true
         )
     }
 }

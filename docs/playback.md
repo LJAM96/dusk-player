@@ -1431,13 +1431,27 @@ so the whole live HUD is derived from one instant.
   closely. `enabled` still hard-disables streams above 70 fps so high-frame-rate
   playback does not overload the renderer. `disabled` leaves the native engine
   view path in place.
-- Direct-play and downloaded parts with embedded subtitle streams always keep
-  the native engine renderer, even when enhancement is Auto or On. AVPlayer and
-  VLCKit composite subtitles in their native presentation surfaces, while the
-  opaque Metal view receives only raw video frames and would cover every cue.
-  The decision is made before the engine loads because VLCKit 3's custom-memory
-  video callback cannot be detached from a live player. Playback Info reports
-  `Native renderer required for embedded subtitles` when this constraint wins.
+- Merely containing embedded subtitle tracks never disables enhancement, for
+  direct play or downloads. The actual engine selection determines rendering:
+  - VLCKit supports enhancement with embedded text/ASS/bitmap and mounted
+    sidecar subtitles. libVLC 3's `vmem` output CPU-blends SPU subtitles into
+    the pixels before `DuskVLCRawVideoOutput` forwards them to Metal (see the
+    [callback API contract](https://videolan.videolan.me/vlc-3.0/group__libvlc__media__player.html)).
+    Keep those pixels intact; no separate overlay or Plex burn-in is needed.
+  - AVPlayer's `AVPlayerItemVideoOutput` excludes native captions. While a
+    legible option is selected, `AVPlayerEngine` removes the Metal view to
+    reveal the existing `AVPlayerLayer` and skips enhancement frame submission.
+    Turning subtitles off restores Metal without reloading or seeking; a forced
+    frame refresh handles this while paused too. The cached engine view contains
+    an observing SwiftUI wrapper, so changes apply immediately. Item media
+    selection notifications cover automatic/system choices as well as Dusk's
+    picker; observers are removed on load, stop, recovery, and deinit.
+    Playback Info reports `Native AVPlayer renderer required while subtitles
+    are selected` only while that selection is active (Off/HDR/fps reasons
+    retain precedence). A general AVPlayer overlay is not implemented: copying
+    plain text cues would lose native positioning/styling and bitmap support.
+  - `VideoEnhancementSubtitleTests` covers metadata-only tracks, the preference,
+    engine-specific selection eligibility, and HDR/fps reason precedence.
 - AVPlayer attaches an `AVPlayerItemVideoOutput` and, from a display link,
   pulls the time-current pixel buffer (`itemTime(forHostTime:)` +
   `hasNewPixelBuffer`) into `VideoEnhancementRenderer.submit`. This path paces
