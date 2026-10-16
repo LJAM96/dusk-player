@@ -221,10 +221,38 @@ extension PlaybackCoordinator {
         }
     }
 
+    /// A failed Dolby Vision 7 → 8.1 session: rebuilds the same remux without
+    /// the conversion (the caller has already suppressed it for this item).
+    /// Queued behind any track-change rebuild in flight, so the two never
+    /// race; one that already replaced the failed engine counts as the retry.
+    /// Returns false only when no rebuild could start, so the caller can take
+    /// the next rung of the ladder instead of leaving the error overlay up.
+    func retryRemuxWithoutDolbyVision7Conversion(failureDescription: String) async -> Bool {
+        let failedEngine = engine
+        let previousTask = spatialAudioTransitionTask
+        let retry = Task { @MainActor [weak self] () -> Bool in
+            if let previousTask {
+                await previousTask.value
+            }
+            guard let self else { return true }
+            guard self.engine === failedEngine else { return true }
+            return await self.rebuildSpatialAudioSession(
+                transitionLabel: "retrying the remux without Dolby Vision 7 conversion (\(failureDescription))",
+                declineReason: "Remux unavailable after Dolby Vision 7 conversion failed; direct play"
+            )
+        }
+        // A track change picked meanwhile waits for this retry to land.
+        spatialAudioTransitionTask = Task { _ = await retry.value }
+        return await retry.value
+    }
+
     /// Asks Plex for a fresh remux of the live item around the active tracks
     /// and swaps to it at the live position (the old transcode session is
     /// stopped). When Plex declines, moves to direct play with `declineReason`.
-    func rebuildSpatialAudioSession(transitionLabel: String, declineReason: String) async {
+    /// Returns false when the session is not in a state to rebuild (nothing
+    /// was requested); true once it ran, including when it was superseded.
+    @discardableResult
+    func rebuildSpatialAudioSession(transitionLabel: String, declineReason: String) async -> Bool {
         guard isSpatialAudioSession,
               !isSwitchingQuality,
               !didFinalizeCurrentSession,
@@ -233,7 +261,7 @@ extension PlaybackCoordinator {
               let debugInfo,
               let mediaIndex = details.media.firstIndex(where: { $0.id == debugInfo.media.id }),
               let part = details.media[mediaIndex].parts.first else {
-            return
+            return false
         }
 
         let media = details.media[mediaIndex]
@@ -263,12 +291,12 @@ extension PlaybackCoordinator {
             if let remux {
                 stopTranscodeSessionInBackground(remux.transcodeSessionID, serverID: activePlaybackServerID)
             }
-            return
+            return true
         }
 
         guard let remux else {
             await leaveSpatialAudioRemux(reason: declineReason, keepsExplicitTracks: true)
-            return
+            return true
         }
 
         let wasPlaying = engine?.state != .paused
@@ -293,6 +321,7 @@ extension PlaybackCoordinator {
             startPosition: resumePosition,
             shouldAutoPlay: wasPlaying
         )
+        return true
     }
 
     /// Undecodable-audio fallback (TrueHD on VLCKit): restarts the session as

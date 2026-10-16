@@ -1387,14 +1387,16 @@ extension PlaybackCoordinator {
         // A failed Dolby Vision 7 → 8.1 conversion first retries the same
         // remux without it (the HDR10 base layer). If that fails too, the
         // suppressed conversion lets the branch below leave for direct play.
+        // When the retry cannot even start, that branch runs right away.
         if debugInfo?.decision.isSpatialAudio == true, playbackSource?.dolbyVision7Conversion != nil {
             let failureDescription = engine?.error?.errorDescription ?? "engine reported state .error"
             isDolbyVision7ConversionSuppressed = true
-            await rebuildSpatialAudioSession(
-                transitionLabel: "retrying the remux without Dolby Vision 7 conversion (\(failureDescription))",
-                declineReason: "Remux unavailable after Dolby Vision 7 conversion failed; direct play"
+            if await retryRemuxWithoutDolbyVision7Conversion(failureDescription: failureDescription) {
+                return
+            }
+            playbackSessionLogger.error(
+                "Could not retry the remux without Dolby Vision 7 conversion for ratingKey \(self.ratingKey ?? "unknown", privacy: .public); continuing down the fallback ladder"
             )
-            return
         }
 
         // A failed Dolby Vision profile 5 remux goes down to the server
