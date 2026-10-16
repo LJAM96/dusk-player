@@ -87,18 +87,34 @@ in Dusk. Read this with `docs/codebase-map.md`, `STYLE.md`, and `docs/data-and-p
 - Playback presentation is centralized in `MainTabView` through
   `PlaybackCoordinator.showPlayer` and `PlayerView`; feature screens should call
   `playback.play(...)` or `playback.playVersion(...)`, not present the player.
-- On tvOS, `TVPlaybackFocusRestoration` remembers the actual focused item and
-  weak parent environments before the player takes focus. The cover's `onDismiss`
-  starts restoration after coordinator teardown releases display criteria. It
-  waits for an active/key window and 350 ms without a reported display switch,
-  then requests focus through the scene's `UIFocusSystem`. For eight seconds of
-  display stability it repairs later automatic resets too (30-second overall
-  cap accommodates slow HDMI handshakes); any remote press/touch or directional
-  focus move cancels this window. Missing/disabled items fall back to their
-  nearest surviving content environment, stopping at the page controller so
-  fallback cannot choose the tab bar. Sheets retain ownership of focus.
-  Snapshot/timing regression coverage lives in `TVPlaybackFocusRestorationTests`;
-  HDMI mode-switch timing and the final focus landing require a real Apple TV.
+- On tvOS, `DuskApp` owns `TVPlaybackFocusRestoration` so a host/window rebuild
+  cannot erase the playback origin. Shared posters, episode cards, and Play
+  buttons register a stable control identity with a `FocusState` setter; tabs
+  and carousel titles scope repeated media. Reuse a control's existing focus
+  binding (`tvPlaybackFocusTarget(_:focus:)`); carousel leading-item requests
+  use that same binding. Weak UIKit item/parent snapshots provide fallback.
+- `TVPlaybackFocusHost` hosts the native tab shell, preserving the incoming
+  SwiftUI environment. While restoration is pending, its hosting controller's
+  `preferredFocusEnvironments` points to the original item or selected content
+  controller, and `shouldUpdateFocus` rejects automatic tab-bar focus. The
+  full-screen player remains presented by `MainTabView`, outside this host.
+- The cover's `onDismiss` arms restoration after coordinator teardown releases
+  display criteria. AVDisplayManager KVO/start/end notifications, scene/app
+  activation, screen-mode/key-window changes, and host layout/focus events
+  request a deferred focus pass. There is no retry deadline: an HDMI handshake
+  can outlast the OS's switch flag. Reconstructed controls re-register against
+  the saved identity. Actual remote press/touch or tab navigation releases the
+  preference; profile/auth changes reset it. Player presses do not erase the
+  origin. Sheets keep focus. Home refreshes metadata but preserves hero selection
+  and suppresses its initial-focus reset while the playback origin is held.
+- DEBUG logs use category `TVPlaybackFocus` (lifecycle, binding availability,
+  restore requests, and rejected tab defaults; no media titles/IDs or URLs).
+  A tvOS simulator launch argument `-DuskSimulateDisplayFocusReset` simulates a
+  12-second inactive/display-switch interval on dismissal, then asks UIKit for
+  tab-bar focus and emits display-return events. It cannot simulate HDMI itself.
+  `TVPlaybackFocusRestorationTests` covers window/host/control replacement,
+  repeated/delayed lifecycle events, hosting preference/tab protection, and
+  remote-input cancellation. Only a real Apple TV can establish final HDMI timing.
 
 ## Shared UI Primitives
 

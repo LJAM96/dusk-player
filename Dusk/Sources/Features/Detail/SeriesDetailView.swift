@@ -293,6 +293,7 @@ struct SeriesDetailView: View {
                 )
             }
             .detailHeroNativePrimaryButtonStyle()
+            .tvPlaybackFocusTarget("series.play.\(episode.id.storageKey)")
             .contextMenu {
                 PlayVersionContextMenu(versions: focusedEpisodeVersions(in: season)) { version in
                     Task {
@@ -723,6 +724,7 @@ private struct SeriesEpisodeCard: View {
             }
             .duskSuppressTVOSButtonChrome()
             .focused($isFocused)
+            .tvPlaybackFocusTarget("episode.\(episode.id.storageKey)", focus: $isFocused)
             .duskTVOSFocusEffectShape(artworkShape, scales: false)
             .accessibilityLabel("Play \(episode.title)")
             .frame(width: artworkWidth, height: artworkHeight, alignment: .leading)

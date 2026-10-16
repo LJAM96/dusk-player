@@ -91,6 +91,7 @@ struct DuskApp: App {
     @State private var supporterStore: SupporterStore
     #if os(tvOS)
     @State private var topShelfLinks = TopShelfLinkRouter()
+    @State private var tvPlaybackFocus = TVPlaybackFocusRestoration()
     #endif
 
     init() {
@@ -139,6 +140,9 @@ struct DuskApp: App {
                 .environment(analytics)
                 #if os(tvOS)
                 .environment(topShelfLinks)
+                .environment(\.tvPlaybackFocusRestoration, tvPlaybackFocus)
+                .onChange(of: plexService.activeProfileID) { _, _ in tvPlaybackFocus.reset() }
+                .onChange(of: plexService.isAuthenticated) { _, _ in tvPlaybackFocus.reset() }
                 .onOpenURL { url in
                     topShelfLinks.open(url)
                 }

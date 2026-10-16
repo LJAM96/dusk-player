@@ -1,60 +1,114 @@
 #if os(tvOS)
 import Foundation
+import SwiftUI
 import Testing
 import UIKit
 @testable import Dusk
 
-struct TVPlaybackFocusRestorationTimingTests {
-    private func expectResult(_ result: Bool, sourceLocation: SourceLocation = #_sourceLocation) {
-        #expect(result, sourceLocation: sourceLocation)
-    }
-
-    @Test func dismissalWaitsForDelayedSwitchAndFinalLayout() {
-        var timing = TVPlaybackFocusRestorationTiming()
-        timing.begin(at: 10)
-        expectResult(!timing.shouldRestore(at: 10.1, isSwitching: false, isActive: true))
-        expectResult(!timing.shouldRestore(at: 10.3, isSwitching: true, isActive: true))
-        expectResult(!timing.shouldRestore(at: 12, isSwitching: true, isActive: true))
-        expectResult(!timing.shouldRestore(at: 12.2, isSwitching: false, isActive: true))
-        expectResult(timing.shouldRestore(at: 12.4, isSwitching: false, isActive: true))
-        // A second mode/layout transition after the initial restoration.
-        expectResult(!timing.shouldRestore(at: 13, isSwitching: true, isActive: true))
-        expectResult(timing.shouldRestore(at: 13.4, isSwitching: false, isActive: true))
-    }
-
-    @Test func inactiveSceneAndNoModeSwitchBothSettle() {
-        var timing = TVPlaybackFocusRestorationTiming()
-        timing.begin(at: 10)
-        expectResult(timing.shouldRestore(at: 10.4, isSwitching: false, isActive: true))
-        expectResult(!timing.shouldRestore(at: 11, isSwitching: false, isActive: false))
-        expectResult(!timing.shouldRestore(at: 11.2, isSwitching: false, isActive: true))
-        expectResult(timing.shouldRestore(at: 11.4, isSwitching: false, isActive: true))
-    }
-
-    @Test func slowHDMISwitchStillRestoresAfterItFinishes() {
-        var timing = TVPlaybackFocusRestorationTiming()
-        timing.begin(at: 10)
-        for time in stride(from: 10.1, through: 22, by: 0.1) {
-            expectResult(!timing.shouldRestore(at: time, isSwitching: true, isActive: true))
+struct TVPlaybackFocusRestorationStateTests {
+    @Test func delayedAndRepeatedDisplaySwitchesDoNotExpireRestoration() {
+        var state = TVPlaybackFocusRestorationState()
+        state.playerWillPresent()
+        state.playerDidDismiss()
+        #expect(state.canRestore)
+        // Unlike the previous timer, any number of events, arbitrarily far
+        // apart, keeps the same restoration intent until actual remote input.
+        for _ in 0..<100 {
+            state.isDisplaySwitching = true
+            state.isSceneActive = false
+            #expect(!state.canRestore)
+            state.isDisplaySwitching = false
+            #expect(!state.canRestore)
+            state.isSceneActive = true
+            #expect(state.canRestore)
         }
-        expectResult(timing.shouldRestore(at: 22.5, isSwitching: false, isActive: true))
-        expectResult(!timing.shouldRestore(at: 40, isSwitching: true, isActive: true))
-        expectResult(timing.startedAt == nil)
+        state.userDidInteract()
+        state.isDisplaySwitching = true
+        state.isDisplaySwitching = false
+        #expect(!state.canRestore)
     }
 
-    @Test func userInputTimeoutAndNewPlaybackInvalidateOldRestoration() {
-        var timing = TVPlaybackFocusRestorationTiming()
-        timing.begin(at: 10)
-        timing.cancel()
-        expectResult(!timing.shouldRestore(at: 11, isSwitching: false, isActive: true))
-        timing.begin(at: 20)
-        expectResult(!timing.shouldRestore(
-            at: 20 + TVPlaybackFocusRestorationTiming.maximumDuration,
-            isSwitching: false, isActive: true
-        ))
-        expectResult(timing.startedAt == nil)
-        timing.begin(at: 30)
-        expectResult(!timing.shouldRestore(at: 30.1, isSwitching: false, isActive: true))
+    @Test func exitPressDuringPlaybackDoesNotEraseTheOrigin() {
+        var state = TVPlaybackFocusRestorationState()
+        state.playerWillPresent()
+        state.userDidInteract()
+        #expect(state.phase == .playing)
+        state.playerDidDismiss()
+        #expect(state.canRestore)
+        state.playerWillPresent()
+        #expect(!state.canRestore)
+    }
+}
+
+@MainActor
+struct TVPlaybackFocusReconstructionTests {
+    private final class AutomaticFocusUpdate: UIFocusUpdateContext {
+        var destination: (any UIFocusItem)?
+        override var nextFocusedItem: (any UIFocusItem)? { destination }
+        override var focusHeading: UIFocusHeading { [] }
+    }
+
+    @Test func hostingPreferenceRejectsTabDefaultUntilRemoteInputReleasesIt() {
+        let restoration = TVPlaybackFocusRestoration()
+        let host = TVPlaybackFocusHostingController(rootView: AnyView(EmptyView()), restoration: restoration)
+        let tabs = UITabBarController()
+        let content = UIViewController()
+        tabs.setViewControllers([content], animated: false)
+        host.addChild(tabs)
+        host.view.addSubview(tabs.view)
+        tabs.didMove(toParent: host)
+        let window = UIWindow()
+        window.rootViewController = host
+        window.addSubview(host.view)
+        restoration.attach(host: host, window: window)
+        restoration.playerWillPresent()
+        restoration.playerDidDismiss()
+
+        // UIKit's default destination is a synthetic item inside the real bar.
+        let tabItem = UIView()
+        tabs.tabBar.addSubview(tabItem)
+        let context = AutomaticFocusUpdate()
+        context.destination = tabItem
+        #expect(host.preferredFocusEnvironments.first === content)
+        #expect(restoration.shouldBlockAutomaticTabFocus(context))
+        #expect(!host.shouldUpdateFocus(in: context))
+        restoration.userDidInteract()
+        #expect(!restoration.shouldBlockAutomaticTabFocus(context))
+    }
+
+    @Test func sceneWindowAndSwiftUITargetReplacementPreserveTheSameOrigin() {
+        let restoration = TVPlaybackFocusRestoration()
+        let id = TVPlaybackFocusRestoration.TargetID(scope: [AnyHashable("Home"), AnyHashable("Continue Watching")], control: AnyHashable("server:item"))
+        let oldToken = UUID()
+        restoration.registerTarget(id, token: oldToken, setFocused: { _ in }, isFocused: { true })
+        restoration.rememberTarget(id)
+        restoration.playerWillPresent()
+        restoration.userDidInteract() // The Back press that closes the player.
+        restoration.displaySwitchChanged(true)
+        restoration.playerDidDismiss()
+        restoration.sceneActivationChanged(false)
+
+        let oldHost = TVPlaybackFocusHostingController(rootView: AnyView(EmptyView()), restoration: restoration)
+        let oldWindow = UIWindow()
+        oldWindow.rootViewController = oldHost
+        restoration.attach(host: oldHost, window: oldWindow)
+        restoration.unregisterTarget(id, token: oldToken)
+        restoration.detach(host: oldHost)
+        oldWindow.rootViewController = nil
+        #expect(restoration.savedTargetID == id)
+
+        let newHost = TVPlaybackFocusHostingController(rootView: AnyView(EmptyView()), restoration: restoration)
+        let newWindow = UIWindow()
+        newWindow.rootViewController = newHost
+        restoration.attach(host: newHost, window: newWindow)
+        restoration.registerTarget(id, token: UUID(), setFocused: { _ in }, isFocused: { false })
+        restoration.displaySwitchChanged(false)
+        restoration.sceneActivationChanged(true)
+        #expect(restoration.state.canRestore)
+        #expect(restoration.savedTargetID == id)
+        restoration.userDidInteract()
+        #expect(!restoration.state.canRestore)
+        #expect(restoration.savedTargetID == nil)
     }
 }
 

@@ -1551,10 +1551,12 @@ so the whole live HUD is derived from one instant.
   mode (`23.976 Hz SDR`) or why nothing was requested. Use it to confirm the
   feature before diagnosing anything else about picture quality.
 - Releasing criteria on player dismissal can reset the window's focus after the
-  cover is already gone. `MainTabView` owns `TVPlaybackFocusRestoration` to restore
-  the originating content after display matching settles; see `ui-features.md`
-  → App Shell. Do not move this into either playback engine or restore solely
-  when `showPlayer` becomes false.
+  cover is already gone. `DuskApp` owns `TVPlaybackFocusRestoration`;
+  `MainTabView` freezes/arms it around the cover and `TVPlaybackFocusHost` owns
+  the shell's preferred-focus chain. Display/scene events restore stable content
+  identities without a timer deadline; see `ui-features.md` → App Shell for the
+  DEBUG simulation and logging. Do not move this into either engine or restore
+  solely when `showPlayer` becomes false.
 
 ## PlayerViewModel and Overlays
 - `PlayerView` is the full-screen shell. It reads coordinator state and creates

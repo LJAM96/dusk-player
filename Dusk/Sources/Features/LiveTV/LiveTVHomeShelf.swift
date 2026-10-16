@@ -42,7 +42,7 @@ struct LiveTVHomeShelf: View {
                                 .duskTVOSFocusEffectShape(
                                     RoundedRectangle(cornerRadius: 16, style: .continuous)
                                 )
-                                .carouselLeadingFocusTarget()
+                                .carouselLeadingFocusTarget(playbackFocusID: "live.home.\(program.id)")
                                 .carouselItemFocusLock(isLeadingItem: program.id == currentPrograms.first?.1.id)
                             }
                         }

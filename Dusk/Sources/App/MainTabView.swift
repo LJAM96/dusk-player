@@ -23,7 +23,7 @@ struct MainTabView: View {
     @Environment(TopShelfLinkRouter.self) private var topShelfLinks
     @State private var isHomeScrolledOffTop = false
     @State private var homeScrollToTopRevision = 0
-    @State private var playbackFocusRestoration = TVPlaybackFocusRestoration()
+    @Environment(\.tvPlaybackFocusRestoration) private var playbackFocusRestoration
     #endif
 
     var body: some View {
@@ -72,7 +72,7 @@ struct MainTabView: View {
             .fullScreenCover(isPresented: $bindablePlayback.showPlayer, onDismiss: {
                 playback.onPlayerDismissed()
                 #if os(tvOS)
-                playbackFocusRestoration.playerDidDismiss()
+                playbackFocusRestoration?.playerDidDismiss()
                 #endif
             }) {
                 PlayerView()
@@ -90,13 +90,10 @@ struct MainTabView: View {
             .modifier(ScreenshotSheetPresenter())
             #endif
             #if os(tvOS)
-            .background {
-                TVPlaybackFocusAttachment(restoration: playbackFocusRestoration) { playback.showPlayer }
-                    .frame(width: 0, height: 0)
-            }
             .onChange(of: playback.showPlayer) { _, isPresented in
-                if isPresented { playbackFocusRestoration.playerWillPresent() }
+                if isPresented { playbackFocusRestoration?.playerWillPresent() }
             }
+            .onChange(of: selectedTab) { _, _ in playbackFocusRestoration?.userDidInteract() }
             // Re-checked whenever a server connects: a cold launch from the
             // Top Shelf delivers the link before the item's server is up.
             .task(id: TopShelfLinkAttempt(link: topShelfLinks.pending, revision: plexService.serverContentRevision)) {
@@ -117,16 +114,28 @@ struct MainTabView: View {
     @ViewBuilder
     private var shellView: some View {
         #if os(tvOS)
+        if let playbackFocusRestoration {
+            TVPlaybackFocusHost(restoration: playbackFocusRestoration, isPlayerPresented: { playback.showPlayer }) {
+                tvShell
+            }
+        } else {
+            tvShell
+        }
+        #else
+        MainTabIOSShell(tabs: availableTabs, selection: tabSelection, content: tabRootView(for:))
+        #endif
+    }
+
+    #if os(tvOS)
+    private var tvShell: some View {
         MainTabTVShell(
             tabs: availableTabs,
             selection: tabSelection,
             rootBackAction: rootBackAction,
             content: tabRootView(for:)
         )
-        #else
-        MainTabIOSShell(tabs: availableTabs, selection: tabSelection, content: tabRootView(for:))
-        #endif
     }
+    #endif
 
     #if os(tvOS)
     /// What the Siri Remote's Back press does at the root of a tab, or `nil`

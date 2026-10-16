@@ -271,6 +271,7 @@ struct MovieDetailView: View {
             )
         }
         .detailHeroNativePrimaryButtonStyle()
+        .tvPlaybackFocusTarget("movie.play.\(details.id.storageKey)")
         .disabled(viewModel.isUsingCachedData && !viewModel.isPlayableOffline)
         .contextMenu {
             if !viewModel.isUsingCachedData || viewModel.isPlayableOffline {

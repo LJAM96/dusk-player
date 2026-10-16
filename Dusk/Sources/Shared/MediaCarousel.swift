@@ -28,6 +28,7 @@ struct MediaCarousel<Content: View>: View {
                 LazyHStack(alignment: .top, spacing: DuskPosterMetrics.carouselItemSpacing) {
                     content()
                 }
+                .tvPlaybackFocusScope(title)
                 .padding(.horizontal, horizontalPadding)
                 .padding(.bottom, DuskPosterMetrics.carouselBottomPadding)
             }
@@ -108,8 +109,8 @@ extension View {
 
     /// Put this on the focusable view of a carousel item (the button, not its
     /// container). It takes focus when a `.focus` request reaches it.
-    func carouselLeadingFocusTarget() -> some View {
-        modifier(CarouselLeadingFocusTarget())
+    func carouselLeadingFocusTarget(focus: FocusState<Bool>.Binding? = nil, playbackFocusID: AnyHashable? = nil) -> some View {
+        modifier(CarouselLeadingFocusTarget(externalFocus: focus, playbackFocusID: playbackFocusID))
     }
 }
 
@@ -185,6 +186,8 @@ private struct CarouselItemFocusLock: ViewModifier {
 }
 
 private struct CarouselLeadingFocusTarget: ViewModifier {
+    var externalFocus: FocusState<Bool>.Binding?
+    var playbackFocusID: AnyHashable?
     #if os(tvOS)
     @Environment(\.carouselLeadingItemRequest) private var request
     @Environment(\.carouselLeadingFocusGeneration) private var generation
@@ -194,25 +197,41 @@ private struct CarouselLeadingFocusTarget: ViewModifier {
     func body(content: Content) -> some View {
         #if os(tvOS)
         let wantsFocus = request == .focus
+        let focus = externalFocus ?? $isFocused
 
         content
-            .focused($isFocused)
+            .focused(focus)
+            .modifier(CarouselPlaybackFocusRegistration(id: playbackFocusID, focus: focus))
             // A task rather than `onChange`, so an item that only materialises
             // after the request was made still answers it.
             .task(id: wantsFocus ? generation : nil) {
                 guard wantsFocus else { return }
-                isFocused = true
+                focus.wrappedValue = true
                 // An item that has only just materialised may not be in the
                 // focus system yet. Withdrawing the request cancels this.
                 try? await Task.sleep(for: .milliseconds(120))
-                if !Task.isCancelled, !isFocused {
-                    isFocused = true
+                if !Task.isCancelled, !focus.wrappedValue {
+                    focus.wrappedValue = true
                 }
             }
-            .preference(key: CarouselLeadingItemFocusedKey.self, value: wantsFocus && isFocused)
-            .preference(key: CarouselItemFocusedKey.self, value: isFocused)
+            .preference(key: CarouselLeadingItemFocusedKey.self, value: wantsFocus && focus.wrappedValue)
+            .preference(key: CarouselItemFocusedKey.self, value: focus.wrappedValue)
         #else
         content
         #endif
+    }
+}
+
+private struct CarouselPlaybackFocusRegistration: ViewModifier {
+    let id: AnyHashable?
+    let focus: FocusState<Bool>.Binding
+
+    @ViewBuilder
+    func body(content: Content) -> some View {
+        if let id {
+            content.tvPlaybackFocusTarget(id, focus: focus)
+        } else {
+            content
+        }
     }
 }
