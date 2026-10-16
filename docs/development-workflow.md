@@ -23,7 +23,10 @@ Docs can lag source. Confirm current behavior in code before making specific cla
 - `docs/codebase-map.md`: intended code boundaries and extension patterns.
 - `docs/product-and-scope.md`: product requirements and non-goals; check
   `project.yml` for current platform details.
-- `Frameworks/`: vendored VLCKit binaries. Refresh only when explicitly asked.
+- `Frameworks/`: vendored VLCKit binaries and the locally built
+  `DuskDovi.xcframework` (all git-ignored). Refresh VLCKit only when explicitly asked.
+- `Native/DuskDovi/`: the Rust crate behind `DuskDovi.xcframework` (Dolby Vision 7 → 8.1
+  sample conversion over quietvoid's `dolby_vision`); its C header is the frozen ABI.
 
 ## Current Source Layout
 
@@ -101,6 +104,27 @@ Prefer existing files and same-type extension patterns for small additions. Add 
   are retried, with partial downloads resumed; do not weaken the checksum or
   replace this with an unverified framework fallback.
 
+## DuskDovi Bootstrap
+
+- `Frameworks/DuskDovi.xcframework` is a static library (iOS + tvOS, device + simulator,
+  arm64 only) built from `Native/DuskDovi` and linked into both apps, never embedded.
+  It is git-ignored; after cloning run `./ci_scripts/install_dusk_dovi.sh` once (needs
+  [rustup](https://rustup.rs)). `ci_post_clone.sh` runs it too, installing rustup on CI.
+- The installer stamps a hash of the crate, `Cargo.lock`, the toolchain pin, the build
+  script and the `project.yml` deployment targets into the xcframework, and is a no-op
+  until one of them changes. `scripts/build_dusk_dovi_xcframework.sh` forces a rebuild.
+- Toolchain: pinned in `Native/DuskDovi/rust-toolchain.toml`, installed with the four
+  Apple targets on demand. Deployment targets are read from `project.yml`.
+- Homebrew trap: `/opt/homebrew/bin/cargo` and `rustc` usually come first on PATH and
+  have no iOS/tvOS standard library (`can't find crate for core`). Recent rustup no
+  longer puts the toolchain first on PATH for `rustup run`, so even
+  `rustup run 1.96.0 cargo build` reaches Homebrew's `rustc`. The build script pins
+  `RUSTC` and cargo via `rustup which`; do the same for manual builds:
+  `RUSTC="$(rustup which rustc --toolchain 1.96.0)" "$(rustup which cargo --toolchain 1.96.0)" test --manifest-path Native/DuskDovi/Cargo.toml`.
+- Changing `dusk_dovi.h` means bumping `DUSK_DOVI_ABI_VERSION` (and the check in
+  `DoviBridgeTests`). New crates in `Cargo.lock` need an entry in
+  `Dusk/Resources/ThirdPartyNotices.txt` and `Native/DuskDovi/THIRD_PARTY_LICENSES.md`.
+
 ## Metal Toolchain
 
 - Xcode 26 and later ship the Metal compiler as a separate component that is not
@@ -137,7 +161,8 @@ scripts/testflight.sh [ref] [--platform ios|tvos|all] [--dry-run] [--no-wait]
   `archive.log` / `export.log` in the work dir. One failing platform doesn't stop the other.
 - `--dry-run`: archive, sign and export the `.ipa` locally, no upload. `--no-wait`: upload only.
 - Before building it copies the checkout's `Frameworks/*.xcframework` into the build copy and runs
-  `ci_scripts/ci_post_clone.sh` (verifies VLCKit or downloads the pinned version, installs the Metal toolchain).
+  `ci_scripts/ci_post_clone.sh` (verifies VLCKit or downloads the pinned version, rebuilds
+  DuskDovi only if its sources changed, installs the Metal toolchain).
 - Apple assigns the build number (`manageAppVersionAndBuildNumber`); versions in the repo are
   never changed. A VALID build lands in the internal TestFlight group automatically.
 
@@ -229,3 +254,4 @@ For docs-only changes, a build is normally unnecessary. Verify the file and `git
 - Putting AVPlayer/VLCKit-specific behavior into generic player UI.
 - Assuming docs platform versions are newer than `project.yml`.
 - Editing vendored VLCKit binaries or unrelated worktree changes.
+- Building `Native/DuskDovi` with Homebrew's `cargo` (see DuskDovi Bootstrap).

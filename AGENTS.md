@@ -24,7 +24,7 @@ If `AGENTS.local.md` exists, read it immediately after this file. It contains ch
 - SwiftUI views backed by `@Observable` ViewModels
 - ViewModels call `PlexService`, views never touch the network directly
 - Async/await throughout, no Combine unless wrapping VLCKit callbacks
-- Minimal dependencies: VLCKit is the only third-party dependency
+- Minimal dependencies: VLCKit plus DuskDovi (`Native/DuskDovi`, a small Rust wrapper over quietvoid's MIT `dolby_vision` crate for Dolby Vision 7 → 8.1 conversion) are the only third-party code. New crates need a license entry in `Dusk/Resources/ThirdPartyNotices.txt`
 
 ## Documentation Maintenance
 
@@ -66,6 +66,16 @@ idempotent and a no-op once the pinned version is present:
 
 ```bash
 ./ci_scripts/install_vlckit.sh
+```
+
+`Frameworks/DuskDovi.xcframework` (static, Dolby Vision 7 → 8.1) is likewise
+not committed; it is built from `Native/DuskDovi` with a pinned Rust toolchain
+(needs [rustup](https://rustup.rs); never Homebrew's `cargo`). Run once after
+cloning; it is a no-op until the crate changes. See
+`docs/development-workflow.md` → DuskDovi Bootstrap.
+
+```bash
+./ci_scripts/install_dusk_dovi.sh
 ```
 
 ## Important
