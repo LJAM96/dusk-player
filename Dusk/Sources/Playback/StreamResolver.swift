@@ -344,7 +344,7 @@ enum StreamResolver {
     ///
     /// Audio must be copyable (E-AC-3/AC-3/AAC): converting DTS & co. to
     /// keep the picture would trade a lossless track for a lossy one, so
-    /// those files keep VLCKit. A TrueHD-only file is the exception, see
+    /// those files keep VLCKit. DV7 + TrueHD is the exception, see
     /// `convertedTrueHDRemuxBlocker`.
     /// The display gate is the one the Atmos remux uses: Plex declares the
     /// variant HDR, which AVFoundation refuses on an SDR display.
@@ -374,62 +374,33 @@ enum StreamResolver {
         return nil
     }
 
-    /// Whether a file whose only in-scope audio is TrueHD/MLP should still
-    /// start on the converted-audio remux (Plex: video copied, TrueHD →
-    /// E-AC-3 5.1) although Dusk's VLCKit decodes TrueHD losslessly. Only
-    /// where the remux buys what VLCKit cannot give:
-    /// - HDR picture: the HDR remux qualifies apart from the audio. TrueHD
-    ///   reached that remux through the undecodable-audio fallback before
-    ///   VLCKit decoded it, and HDR10/DV on an HDR display outweighs the
-    ///   lossless 7.1 bed.
-    /// - iPhone/iPad: spatial audio for a 5.1+ track with the spatial-audio
-    ///   setting on. The phone downmixes the lossless track to stereo anyway
-    ///   (the same reason `platformAudioCodecAdjustment` demotes lossless).
-    /// Everything else (tvOS SDR above all) direct plays the TrueHD as
-    /// discrete PCM. DV7 + TrueHD also stays local: that hybrid remux fails
-    /// on Apple TV. DV7 with copyable audio keeps its normal conversion path.
-    /// Returns why not, or nil when the remux should be tried.
+    /// DV7 picture takes priority over local lossless TrueHD: start with a
+    /// video-copy remux, Plex converting TrueHD/MLP to E-AC-3, and the on-device
+    /// DV7 → 8.1 proxy. Other TrueHD files retain local decoding. This startup
+    /// choice does not depend on VLCKit's TrueHD capability or spatial audio.
+    /// Returns why not, or nil when the remux should be requested up front.
     static func convertedTrueHDRemuxBlocker(
         media: PlexMedia,
         decision: Decision,
         audioStream: PlexStream,
         subtitleStream: PlexStream?,
         displaySupportsHDR: Bool,
-        hdrVideoRemuxEnabled: Bool,
-        spatialAudioRemuxEnabled: Bool
+        hdrVideoRemuxEnabled: Bool
     ) -> String? {
-        // DV7 + TrueHD is already playable by Dusk's VLCKit. Do not replace
-        // that path with the converted-audio HLS + DV7 proxy combination:
-        // Apple TV rejects these hybrid remuxes before falling back to VLC.
-        // This gate is only used for the proactive remux with local TrueHD
-        // decoding available; stock builds/failed decoders retain recovery.
-        if dolbyVision7ConversionStream(in: media) != nil {
-            return "Dolby Vision 7 with TrueHD uses local VLCKit decoding"
+        guard ["truehd", "mlp"].contains(audioStream.codec?.lowercased() ?? "") else {
+            return "audio is not TrueHD/MLP"
         }
-        let hdrBlocker = hdrVideoRemuxEnabled
-            ? hdrVideoRemuxBlocker(
-                media: media,
-                decision: decision,
-                audioStream: nil,
-                subtitleStream: subtitleStream,
-                displaySupportsHDR: displaySupportsHDR
-            )
-            : "HDR remux is off"
-        guard hdrBlocker != nil else { return nil }
-        #if os(tvOS)
-        return hdrBlocker
-        #else
-        guard spatialAudioRemuxEnabled else { return hdrBlocker }
-        guard (audioStream.channels ?? 0) >= 6 else { return "TrueHD track is not multichannel" }
-        return spatialAudioRemuxBlocker(
+        guard dolbyVision7ConversionStream(in: media) != nil else {
+            return "non-DV7 TrueHD uses local decoding"
+        }
+        guard hdrVideoRemuxEnabled else { return "HDR remux is off" }
+        return hdrVideoRemuxBlocker(
             media: media,
             decision: decision,
-            audioStream: audioStream,
+            audioStream: nil,
             subtitleStream: subtitleStream,
-            displaySupportsHDR: displaySupportsHDR,
-            convertsAudio: true
+            displaySupportsHDR: displaySupportsHDR
         )
-        #endif
     }
 
     /// HDR video AVPlayer can show from an HEVC remux: a PQ or HLG transfer,

@@ -373,11 +373,10 @@ so the whole live HUD is derived from one instant.
   subtitle if any, and audio Plex can **copy** (E-AC-3/AC-3/AAC). DTS,
   FLAC, PCM & co. keep VLCKit: converting a lossless track to keep the
   picture would lower audio quality, and the remux never lowers quality.
-  A TrueHD-only file still takes the video-copy remux with converted audio
-  (`convertedTrueHDRemuxBlocker`), as it did through the undecodable-audio
-  fallback before VLCKit decoded TrueHD, except DV7 + TrueHD on Dusk's
-  TrueHD-capable VLCKit build (direct play; see below). TrueHD with a
-  copyable sibling remuxes the sibling (see "Dolby TrueHD decoding").
+  DV7 + TrueHD is the picture-priority exception: request converted E-AC-3
+  audio up front and keep DV7 → 8.1 on AVPlayer. Other TrueHD-only files
+  use local lossless decoding on Dusk's VLCKit build. TrueHD with a copyable
+  sibling remuxes the sibling (see "Dolby TrueHD decoding").
 - Delivery and acceptance are the Atmos remux's
   (`requestSpatialAudioRemux`, session type `.spatialAudio`, lossless only,
   any failure → plain direct play). A file can qualify for Atmos, HDR or
@@ -448,23 +447,24 @@ so the whole live HUD is derived from one instant.
   `convertedFromProfile = 7`); `DisplayModeMatcher` gets it in place of
   `dolbyVisionRemux`. VLCKit taking over a remux URL never converts.
   `StreamResolver.dolbyVisionSignalingStream` still excludes profile 7.
-- Startup exception with Dusk's TrueHD decoder: when the remux audio pick is
-  TrueHD/MLP (no usable copyable sibling), `convertedTrueHDRemuxBlocker`
-  keeps DV7 files on VLCKit direct play. The demo clips `DV P7 MEL - Hybrid
+- Picture-priority startup: when the remux audio pick is TrueHD/MLP,
+  `convertedTrueHDRemuxBlocker` qualifies DV7 for AVPlayer, regardless of
+  whether VLCKit can decode TrueHD. The demo clips `DV P7 MEL - Hybrid
   HDR10 TrueHD Atmos (2020)` (7.1/48 kHz) and `DV P7 MEL - Hybrid HDR10+
   TrueHD 5.1 (2020)` (5.1/96 kHz, forced SRT) have this combination. The
-  previous startup policy overrode the local decoder with converted-audio
-  HLS plus DV7 conversion; Apple TV testing reported a decoder error before
-  recovery. This chooses the working local path immediately (lossless PCM
-  bed, VLCKit's SDR video output). DV7 with AC-3/E-AC-3, including copyable
-  siblings, still remuxes/converts; stock builds and actual local decoder
-  failures retain the server-audio fallback. The exact native decoder
-  failure requires device logs; the approximate reported wording is not a
-  Dusk string. AVPlayer's item error is surfaced through
-  `PlaybackError.fromPlaybackFailure`; the VLCKit TrueHD-decoder failure
-  message is a log that requests server recovery, not an alert.
-- Architecture: Plex's remux is unchanged (same request, same acceptance).
-  `AVPlayerEngine` starts a `DolbyVision7HLSProxy` for the source instead of
+  request chooses audio conversion before contacting Plex: video copied,
+  E-AC-3 surround, then DV7 → 8.1 on device. It never first loads TrueHD
+  into AVPlayer or waits for a local decoder failure. Before loading the
+  engine, acceptance requires MP4, copied H.264/HEVC, converted E-AC-3,
+  and 6 or 8 output channels for a surround source. The profile allows 7.1;
+  current PMS commonly encodes 5.1. Only output E-AC-3 Atmos metadata
+  authorizes restoring JOC; a TrueHD Atmos input must not turn ordinary
+  DD+ into falsely signalled Atmos. Existing JOC signaling is preserved.
+  The HDR/display/subtitle gates still apply; turning conversion off keeps
+  the HDR10 base-layer remux. DV7 with copyable AC-3/E-AC-3 stays lossless,
+  and non-DV7 TrueHD-only files stay on local decoding.
+- Proxy architecture: after Plex confirms the remux, `AVPlayerEngine`
+  starts a `DolbyVision7HLSProxy` for the source instead of
   `RemuxHLSLoader` (`usesRemuxHLSLoader` is false with a conversion) and
   hands AVPlayer `http://127.0.0.1:<port>/<token>/master.m3u8`:
   - Proxy (`Playback/DolbyVision7/DolbyVision7HLSProxy.swift`,
@@ -570,8 +570,8 @@ so the whole live HUD is derived from one instant.
     Display Mode reads "Dolby Vision 8.1 (from profile 7)"; the first-segment log shows RPUs ≈ samples
     and EL NALs dropped (FEL and MEL).
   - Audio: E-AC-3 Atmos (receiver shows Atmos), AC-3; DV7 + TrueHD-only
-    starts locally on Dusk's build (PCM bed, SDR), while stock VLCKit uses
-    the converted-audio fallback.
+    starts on the converted-audio remux with real DV, on custom and stock
+    VLCKit builds. Plain converted DD+ must not be labelled Atmos.
   - DV display mode switch on the TV (Match Content on).
   - Seeking: scrub forward/back, skip ±10 s, resume from a saved position.
   - WebVTT subtitles on and switching tracks (rebuilds the remux, conversion
@@ -1007,20 +1007,15 @@ so the whole live HUD is derived from one instant.
     UHD remux with TrueHD Atmos + E-AC-3/AC-3 from HDR/Atmos on AVPlayer into
     VLCKit without HDR. These files keep exactly their old remux; only when
     no remux qualifies does direct play open on the TrueHD track.
-  - TrueHD-only files (`StreamResolver.convertedTrueHDRemuxBlocker`): the
-    converted-audio remux (video copied, Plex converts TrueHD to E-AC-3 5.1)
-    is still requested at startup when it buys what VLCKit cannot give — HDR
-    picture (the HDR remux qualifies apart from the audio) or, on iPhone/iPad
-    with the spatial-audio setting on, spatial audio for a 5.1+ track.
-    DV7 + TrueHD is the exception: direct play on the custom VLCKit build
-    avoids the failing converted-audio/DV7 startup path, with no decoder
-    attempt on AVPlayer. Non-DV7 TrueHD-only behavior is unchanged.
-    Everything else (tvOS SDR above all) decodes locally to discrete PCM.
-    For eligible non-DV7 files the remux is chosen up front, replacing the
-    old direct-play-then-undecodable-audio-fallback path.
-  - In a remux session, picking a TrueHD track behaves like picking DTS:
-    `leaveSpatialAudioRemux` moves to VLCKit direct play with that track
-    (lossless audio, no HDR). That is the viewer's explicit choice.
+  - TrueHD-only files (`StreamResolver.convertedTrueHDRemuxBlocker`): DV7
+    takes the converted-audio remux up front to preserve Dolby Vision/HDR.
+    `requestSpatialAudioRemux` makes the choice before its first server
+    request, also on stock builds and track changes. Other TrueHD-only
+    files retain local lossless decoding; spatial audio alone does not
+    force an audio transcode.
+  - In a remux session, picking a TrueHD track retains DV7 picture by
+    converting audio. For non-DV7, picking TrueHD behaves like picking DTS:
+    `leaveSpatialAudioRemux` moves to VLCKit direct play with that track.
   - A remux that converts its audio keeps converting when it is rebuilt
     around the same audio stream (subtitle change, the Dolby Vision 7
     retry): `PlaybackCoordinator.remuxAudioConversion` records the converted
@@ -1047,9 +1042,13 @@ so the whole live HUD is derived from one instant.
   tries `playConvertedAudioRemux`: the Atmos-path fMP4 remux with
   `directStreamAudio=0`, so the video (4K/HDR) is copied and Plex converts only
   the chosen stream (`directStreamAudio=1` makes Plex silently substitute a
-  copyable sibling instead). Plex caps converted audio at 6 channels whatever
-  the codec or limitation (verified against PMS 1.43.4), so TrueHD 7.1 arrives
-  as 5.1. A bitmap subtitle cannot ride the remux and is dropped. Only when the
+  copyable sibling instead). Converted-audio profiles request only fMP4/E-AC-3
+  with up to 8 channels, and reject incompatible or stereo-surround decisions
+  before an engine starts. PMS 1.43.4 caps conversion at 6 channels regardless
+  of the advertised limit, so TrueHD 7.1 normally arrives as DD+ 5.1. Output
+  JOC metadata is carried in `RemuxAudioConversion` across source rebuilds;
+  no Atmos signaling is inferred from a TrueHD input. A bitmap subtitle
+  cannot ride the remux and is dropped. Only when the
   remux is refused (e.g. HDR on an SDR display) does it fall back to the
   quality-preset transcode — which re-encodes the video and, on servers
   without HDR tone mapping, fails for HDR sources (Plex emits 8-bit H.264

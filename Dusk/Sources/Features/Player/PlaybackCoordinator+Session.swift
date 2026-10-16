@@ -258,7 +258,7 @@ extension PlaybackCoordinator {
             var engineType = resolverDecision.engine
             var resolverReason = resolverDecision.reason
             var transcodeSessionID: String?
-            var spatialAudioStreamIDs: (audio: Int?, subtitle: Int?, convertsAudio: Bool)?
+            var spatialAudioStreamIDs: (audio: Int?, subtitle: Int?, convertsAudio: Bool, restoresDolbyAtmos: Bool)?
 
             if let localURL {
                 playbackURL = localURL
@@ -358,7 +358,10 @@ extension PlaybackCoordinator {
                         transcodeSessionID = dolbyVisionRemux.transcodeSessionID
                         engineType = .avPlayer
                         resolverReason = dolbyVisionRemux.reason
-                        spatialAudioStreamIDs = (audioStreamID, subtitleStreamID, dolbyVisionRemux.convertsAudio)
+                        spatialAudioStreamIDs = (
+                            audioStreamID, subtitleStreamID,
+                            dolbyVisionRemux.convertsAudio, dolbyVisionRemux.restoresDolbyAtmos
+                        )
                     } else {
                         let serverStreamSessionID = UUID().uuidString
                         do {
@@ -404,7 +407,9 @@ extension PlaybackCoordinator {
                         forcedOnly: preferences.subtitleForcedOnly
                     )
                     let mediaIndex = details.media.firstIndex { $0.id == media.id } ?? 0
-                    var remux = await requestSpatialAudioRemux(
+                    // The request decides conversion before contacting Plex:
+                    // DV7 + TrueHD starts on AVPlayer with E-AC-3 audio.
+                    let remux = await requestSpatialAudioRemux(
                         ratingKey: ratingKey,
                         mediaIndex: mediaIndex,
                         media: media,
@@ -414,45 +419,6 @@ extension PlaybackCoordinator {
                         sessionIdentifier: sessionIdentifier,
                         serverID: itemServerID
                     )
-                    // TrueHD-only file: VLCKit decodes it losslessly, but the
-                    // converted-audio remux still wins where it buys what
-                    // VLCKit cannot give (HDR picture; spatial audio on
-                    // iPhone/iPad), except DV7 + TrueHD hybrid remuxes that
-                    // fail on Apple TV. Those direct play the TrueHD up front.
-                    if remux == nil,
-                       let remuxAudioStream,
-                       VLCKitBuildInfo.decodesTrueHD,
-                       PlayerViewModel.isTrueHDAudioCodec(remuxAudioStream.codec) {
-                        let subtitleStream = subtitleStreamID.flatMap { id in
-                            part.streams.first { $0.streamType == .subtitle && $0.id == id }
-                        }
-                        let blocker = StreamResolver.convertedTrueHDRemuxBlocker(
-                            media: media,
-                            decision: resolverDecision,
-                            audioStream: remuxAudioStream,
-                            subtitleStream: subtitleStream,
-                            displaySupportsHDR: AVPlayer.eligibleForHDRPlayback,
-                            hdrVideoRemuxEnabled: preferences.hdrVideoRemuxEnabled,
-                            spatialAudioRemuxEnabled: preferences.spatialAudioRemuxEnabled
-                        )
-                        if let blocker {
-                            playbackSessionLogger.notice(
-                                "TrueHD decodes locally for ratingKey \(ratingKey, privacy: .public): \(blocker, privacy: .public)"
-                            )
-                        } else {
-                            remux = await requestSpatialAudioRemux(
-                                ratingKey: ratingKey,
-                                mediaIndex: mediaIndex,
-                                media: media,
-                                part: part,
-                                audioStreamID: remuxAudioStream.id,
-                                subtitleStreamID: subtitleStreamID,
-                                convertsAudio: true,
-                                sessionIdentifier: sessionIdentifier,
-                                serverID: itemServerID
-                            )
-                        }
-                    }
                     if let remux {
                         playbackURL = remux.url
                         sanitizedURL = plexService.sanitizedPlaybackURLString(for: remux.url)
@@ -460,7 +426,7 @@ extension PlaybackCoordinator {
                         transcodeSessionID = remux.transcodeSessionID
                         engineType = .avPlayer
                         resolverReason = remux.reason
-                        spatialAudioStreamIDs = (audioStreamID, subtitleStreamID, remux.convertsAudio)
+                        spatialAudioStreamIDs = (audioStreamID, subtitleStreamID, remux.convertsAudio, remux.restoresDolbyAtmos)
                     }
                 }
             }
@@ -564,7 +530,10 @@ extension PlaybackCoordinator {
                 activeAudioStreamID = spatialAudioStreamIDs.audio
                 activeSubtitleStreamID = spatialAudioStreamIDs.subtitle
                 remuxAudioConversion = spatialAudioStreamIDs.convertsAudio
-                    ? RemuxAudioConversion(audioStreamID: spatialAudioStreamIDs.audio)
+                    ? RemuxAudioConversion(
+                        audioStreamID: spatialAudioStreamIDs.audio,
+                        restoresDolbyAtmos: spatialAudioStreamIDs.restoresDolbyAtmos
+                    )
                     : nil
             } else if !wantsAirPlay {
                 remuxAudioConversion = nil

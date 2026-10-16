@@ -21,6 +21,7 @@ extension PlaybackCoordinator {
         let reason: String
         /// Plex converts the audio (instead of copying it) in this remux.
         let convertsAudio: Bool
+        let restoresDolbyAtmos: Bool
     }
 
     var isSpatialAudioSession: Bool {
@@ -33,17 +34,17 @@ extension PlaybackCoordinator {
         isAirPlaySession || isSpatialAudioSession
     }
 
-    /// Asks Plex for a lossless remux around the given streams and returns it
-    /// only when the file qualifies and Plex confirms video and audio are both
-    /// copied. Every other outcome returns nil (and releases any session Plex
-    /// started) so the caller keeps plain direct play.
+    /// Requests a copy-remux, or video copied with E-AC-3 audio conversion.
+    /// Validates Plex's container/codecs before loading an engine. A declined
+    /// decision releases the server session and keeps plain direct play.
     ///
     /// Dolby Vision profile 5 files take the same remux for their video
     /// (AVPlayer renders DV5 from MP4; libvlc cannot) regardless of the
     /// spatial-audio setting, and have Plex convert any audio the fMP4 cannot
     /// carry instead of refusing. Other HDR files (HDR10, HDR10+, HLG, Dolby
     /// Vision 7/8) take it when `hdrVideoRemuxEnabled` is on and the audio can
-    /// be copied: VLCKit has no HDR output on iOS/tvOS.
+    /// be copied. DV7 + TrueHD instead requests audio conversion up front:
+    /// picture wins over local lossless audio on that combination.
     func requestSpatialAudioRemux(
         ratingKey: String,
         mediaIndex: Int,
@@ -56,8 +57,28 @@ extension PlaybackCoordinator {
         serverID: String?
     ) async -> SpatialAudioRemux? {
         let isDolbyVisionRemux = StreamResolver.isDolbyVisionProfile5(media)
-        // Audio conversion is the undecodable-audio fallback, not a spatial
-        // audio preference, so the setting only gates the Dolby remux.
+        let resolverDecision = StreamResolver.evaluate(media: media)
+        let audioStream = part.streams.first { $0.streamType == .audio && $0.id == audioStreamID }
+        let subtitleStream = subtitleStreamID.flatMap { id in
+            part.streams.first { $0.streamType == .subtitle && $0.id == id }
+        }
+        // Picture wins for DV7 + TrueHD even when VLCKit decodes it. Decide
+        // before the first Plex request, including on stock builds and track
+        // changes, so no undecodable local/copy-only attempt precedes the remux.
+        let convertsDV7TrueHD = audioStream.map {
+            StreamResolver.convertedTrueHDRemuxBlocker(
+                media: media,
+                decision: resolverDecision,
+                audioStream: $0,
+                subtitleStream: subtitleStream,
+                displaySupportsHDR: AVPlayer.eligibleForHDRPlayback,
+                hdrVideoRemuxEnabled: preferences.hdrVideoRemuxEnabled
+            ) == nil
+        } ?? false
+        let convertsAudio = convertsAudio || convertsDV7TrueHD
+            || (isDolbyVisionRemux && audioStream.map { !StreamResolver.canCopyIntoRemux(audio: $0) } == true)
+        // Audio conversion serves picture preservation/decoder recovery, so
+        // it does not depend on the spatial-audio preference.
         let considersSpatialAudio = preferences.spatialAudioRemuxEnabled || convertsAudio
         let considersHDRVideo = preferences.hdrVideoRemuxEnabled
         guard considersSpatialAudio || considersHDRVideo || isDolbyVisionRemux,
@@ -66,13 +87,6 @@ extension PlaybackCoordinator {
             return nil
         }
 
-        let resolverDecision = StreamResolver.evaluate(media: media)
-        let audioStream = part.streams.first { $0.streamType == .audio && $0.id == audioStreamID }
-        let subtitleStream = subtitleStreamID.flatMap { id in
-            part.streams.first { $0.streamType == .subtitle && $0.id == id }
-        }
-        let convertsAudio = convertsAudio
-            || (isDolbyVisionRemux && audioStream.map { !StreamResolver.canCopyIntoRemux(audio: $0) } == true)
         let blocker: String?
         // Which of the two non-DV5 reasons qualified, for the session reason.
         var qualifiesForSpatialAudio = false
@@ -150,14 +164,14 @@ extension PlaybackCoordinator {
                 serverID: serverID
             )
             let acceptsStreams = convertsAudio
-                ? result.streams.isVideoCopyRemux
+                ? result.streams.isConvertedAudioRemux(sourceChannels: audioStream?.channels)
                 : result.streams.isLosslessRemux
             guard case .transcodeAvailable = result.outcome,
                   acceptsStreams,
                   subtitleStreamID == nil || result.streams.subtitleLocation == "segments-subs" else {
                 stopTranscodeSessionInBackground(transcodeSessionID, serverID: serverID)
                 spatialAudioLogger.notice(
-                    "Plex declined a lossless spatial-audio remux for ratingKey \(ratingKey, privacy: .public) (outcome \(String(describing: result.outcome), privacy: .public), \(result.streams.logDescription, privacy: .public)); keeping direct play"
+                    "Plex declined a compatible spatial-audio remux for ratingKey \(ratingKey, privacy: .public) (outcome \(String(describing: result.outcome), privacy: .public), \(result.streams.logDescription, privacy: .public)); keeping direct play"
                 )
                 return nil
             }
@@ -194,7 +208,8 @@ extension PlaybackCoordinator {
                 url: result.url,
                 transcodeSessionID: transcodeSessionID,
                 reason: reason,
-                convertsAudio: convertsAudio
+                convertsAudio: convertsAudio,
+                restoresDolbyAtmos: result.streams.hasDolbyAtmosAudio
             )
         } catch {
             stopTranscodeSessionInBackground(transcodeSessionID, serverID: serverID)
@@ -314,7 +329,9 @@ extension PlaybackCoordinator {
             stopTranscodeSessionInBackground(oldTranscodeSessionID, serverID: activePlaybackServerID)
         }
         activeTranscodeSessionID = remux.transcodeSessionID
-        remuxAudioConversion = remux.convertsAudio ? RemuxAudioConversion(audioStreamID: audioStreamID) : nil
+        remuxAudioConversion = remux.convertsAudio
+            ? RemuxAudioConversion(audioStreamID: audioStreamID, restoresDolbyAtmos: remux.restoresDolbyAtmos)
+            : nil
         activateReplacementAttempt(
             transitionLabel: transitionLabel,
             attemptID: UUID(),
@@ -392,7 +409,9 @@ extension PlaybackCoordinator {
         activeTranscodeSessionID = remux.transcodeSessionID
         activeAudioStreamID = audioStreamID
         activeSubtitleStreamID = subtitleStreamID
-        remuxAudioConversion = RemuxAudioConversion(audioStreamID: audioStreamID)
+        remuxAudioConversion = RemuxAudioConversion(
+            audioStreamID: audioStreamID, restoresDolbyAtmos: remux.restoresDolbyAtmos
+        )
         activateReplacementAttempt(
             transitionLabel: "converting undecodable audio on the server (video copied)",
             attemptID: UUID(),
@@ -522,6 +541,9 @@ extension PlaybackCoordinator {
     /// go through `RemuxHLSLoader`: claiming Atmos for a plain 5.1 E-AC-3
     /// track would mislabel it to the decoder (and to an HDMI receiver).
     func activeAudioStreamIsDolbyAtmos(in part: PlexMediaPart) -> Bool {
+        if let conversion = remuxAudioConversion, conversion.audioStreamID == activeAudioStreamID {
+            return conversion.restoresDolbyAtmos
+        }
         guard let stream = part.streams.first(where: {
             $0.streamType == .audio && $0.id == activeAudioStreamID
         }) else {
@@ -549,6 +571,7 @@ extension PlaybackCoordinator {
 /// `PlaybackCoordinator.remuxAudioConversion`).
 struct RemuxAudioConversion: Sendable, Equatable {
     let audioStreamID: Int?
+    var restoresDolbyAtmos = false
 }
 
 /// Plex stream ids the viewer explicitly chose, carried across an engine swap
