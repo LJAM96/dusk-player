@@ -47,7 +47,9 @@ struct FMP4FragmentRewriter: Sendable {
         try segment.withUnsafeBytes { bytes in
             let topLevel = try FMP4Box.boxes(in: bytes, range: 0..<bytes.count, failure: Self.fail)
             var output = Data()
-            output.reserveCapacity(bytes.count + 4096)
+            // Room for added size fields and the bridge's per-sample output
+            // slack, so a 10–20 MB segment is written without regrowing.
+            output.reserveCapacity(bytes.count + 64 * 1024)
             var stats = DolbyVisionSampleStats()
 
             var index = 0

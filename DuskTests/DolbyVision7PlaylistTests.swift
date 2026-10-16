@@ -136,7 +136,8 @@ struct DolbyVision7PlaylistTests {
         let byteRange = "#EXTM3U\n#EXT-X-MAP:URI=\"header\"\n#EXTINF:6.0,\n#EXT-X-BYTERANGE:1000@0\n0.m4s\n"
         let mapByteRange = "#EXTM3U\n#EXT-X-MAP:URI=\"header\",BYTERANGE=\"1000@0\"\n#EXTINF:6.0,\n0.m4s\n"
         let encrypted = "#EXTM3U\n#EXT-X-KEY:METHOD=AES-128,URI=\"key\"\n#EXT-X-MAP:URI=\"header\"\n#EXTINF:6.0,\n0.m4s\n"
-        for playlist in [byteRange, mapByteRange, encrypted] {
+        let lowLatencyPart = "#EXTM3U\n#EXT-X-MAP:URI=\"header\"\n#EXT-X-PART:DURATION=1.0,URI=\"0.1.m4s\"\n#EXTINF:6.0,\n0.m4s\n"
+        for playlist in [byteRange, mapByteRange, encrypted, lowLatencyPart] {
             #expect(isUnsupportedPlaylist { try rewrite(playlist, baseURL: mediaURL) })
         }
     }

@@ -327,8 +327,24 @@ final class DolbyVision7HLSProxy: @unchecked Sendable {
             requestTasks[key] = task
             return true
         }
-        if !isOpen {
+        if isOpen {
+            watchForPeerClose(on: connection)
+        } else {
             task.cancel()
+        }
+    }
+
+    /// The player hanging up (a seek, a cancelled load) only shows as end of
+    /// stream on the read side; the connection itself stays `.ready`. Keep a
+    /// read pending so that cancels the fetch and conversion behind it and
+    /// frees its segment slot, instead of finishing work nobody will read.
+    private func watchForPeerClose(on connection: NWConnection) {
+        connection.receive(minimumIncompleteLength: 1, maximumLength: 4096) { [weak self] _, _, isComplete, error in
+            if isComplete || error != nil {
+                connection.cancel()
+            } else {
+                self?.watchForPeerClose(on: connection)
+            }
         }
     }
 

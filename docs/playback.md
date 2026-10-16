@@ -455,9 +455,11 @@ so the whole live HUD is derived from one instant.
     `p/<b64url>.m3u8` rendition (subtitle/audio) playlists, `i/<b64url>.mp4`
     init segments (converted once, cached with their `FMP4InitInfo`;
     concurrent first requests share one fetch), `s/<init id>/<b64url>.m4s`
-    media segments (fetched, converted, never cached; at most two at once). Upstream non-2xx is forwarded, network
-    errors are 502, and a closed player connection cancels its fetch. Logs
-    never carry the token or upstream query strings.
+    media segments (fetched, converted, never cached; at most two at once).
+    Upstream non-2xx is forwarded, network errors are 502, and a player
+    hanging up (seen as end of stream on a read kept pending after the
+    request head) cancels the fetch and conversion behind it. Logs never
+    carry the token or upstream query strings.
   - Playlists (`DolbyVision7PlaylistRewriter`): `SUPPLEMENTAL-CODECS=
     "dvh1.08.LL/db1p"`, `VIDEO-RANGE=PQ`, level cap as for DV8; I-frame
     playlists dropped; WebVTT renditions (no `EXT-X-MAP`) keep their segment

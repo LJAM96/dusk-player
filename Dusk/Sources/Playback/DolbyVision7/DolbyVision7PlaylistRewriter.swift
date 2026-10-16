@@ -63,6 +63,9 @@ enum DolbyVision7PlaylistRewriter {
                 lines.append(mapped.line)
             } else if line.hasPrefix("#EXT-X-BYTERANGE") {
                 throw DolbyVision7ConversionError.unsupportedPlaylist("EXT-X-BYTERANGE")
+            } else if line.hasPrefix("#EXT-X-PART:") || line.hasPrefix("#EXT-X-PRELOAD-HINT") {
+                // Low-latency partial segments would reach AVPlayer unconverted.
+                throw DolbyVision7ConversionError.unsupportedPlaylist("low-latency HLS parts")
             } else if line.hasPrefix("#EXT-X-KEY") {
                 let method = HLSAttributeList(line: line)?.value(of: "METHOD")
                 guard method == "NONE" else {
