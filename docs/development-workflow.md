@@ -103,14 +103,25 @@ Prefer existing files and same-type extension patterns for small additions. Add 
 - The archives are checksum-verified. Network, TLS, and CDN transfer failures
   are retried, with partial downloads resumed; do not weaken the checksum or
   replace this with an unverified framework fallback.
-- The archives are Dusk's own build, published as assets of the GitHub release
-  `vlckit-<version>` (currently `vlckit-3.7.3-dusk1`). A stale stock VideoLAN
-  framework still builds and runs, but Playback Info's "VLCKit Build" row
-  says "Stock VLCKit 3.x" and TrueHD goes through Plex.
-- "Already installed" is decided from each slice's `DuskVLCKitBuild` stamp,
-  not from the tracked `Frameworks/VLCKit-VERSION.txt`: that file names the
-  new version as soon as you pull, while the git-ignored frameworks (and the
-  copies `scripts/testflight.sh` takes from the checkout) are still old.
+- The archives are Dusk's own build (TrueHD), assets of the release
+  `vlckit-<version>` (currently `vlckit-3.7.3-dusk1`) in the PRIVATE repo
+  `marvinvr/dusk-vlckit` — private on purpose: a public binary with the
+  Dolby TrueHD decoder is a distribution Marvin decided against. The
+  installer downloads them with `gh release download`, so it needs `gh` with a
+  login (or `GH_TOKEN`) that can read that repo; `gh auth status` checks it.
+- Without that access the installer falls back to VideoLAN's stock 3.7.3
+  (public CocoaPods archives, thinned to arm64, also checksum-pinned). The app
+  builds and runs with it; Playback Info's "VLCKit Build" row says "Stock
+  VLCKit 3.x" and TrueHD goes through Plex. Once access exists, the next run
+  replaces the stock install. `DUSK_VLCKIT_REQUIRE_DUSK=1` makes the fallback
+  an error; `scripts/testflight.sh` sets it, so a release can never ship the
+  stock build by accident.
+- "Already installed" is decided from each slice's `DuskVLCKitBuild` stamp
+  (Dusk) or the `vlckit-installed.txt` marker the installer writes into each
+  xcframework (stock), never from the tracked `Frameworks/VLCKit-VERSION.txt`:
+  that file names the new version as soon as you pull, while the git-ignored
+  frameworks (and the copies `scripts/testflight.sh` takes from the checkout)
+  are still old. A stock fallback leaves `VLCKit-VERSION.txt` untouched.
 
 ## VLCKit Build
 
@@ -133,7 +144,9 @@ Prefer existing files and same-type extension patterns for small additions. Add 
   `<Name>-<version>.tar.xz` + `.sha256` to `.build/vlckit/out/`.
 - Releasing a new build: bump `DUSK_VLCKIT_BUILD` in `build_vlckit.sh`, build
   both platforms, then
-  `gh release create vlckit-<version> .build/vlckit/out/*.tar.xz`, and pin
+  `gh release create vlckit-<version> --repo marvinvr/dusk-vlckit
+  .build/vlckit/out/*.tar.xz .build/vlckit/out/*.sha256` (upload the archives
+  unchanged; repacking changes the checksums), and pin
   `VLCKIT_VERSION` plus both SHA-256 values in `install_vlckit.sh` in the same
   commit. Test locally before publishing with
   `DUSK_VLCKIT_CACHE_DIR=.build/vlckit/out ci_scripts/install_vlckit.sh`.

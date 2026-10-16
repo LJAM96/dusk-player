@@ -960,6 +960,10 @@ so the whole live HUD is derived from one instant.
   technical default. Reverting is one step: drop patch 0100, bump
   `DUSK_VLCKIT_BUILD`, rebuild and republish — the app then falls back to the
   Plex route below on its own (`VLCKitBuildInfo.decodesTrueHD` is false).
+  The binaries are hosted only in the private repo `marvinvr/dusk-vlckit`,
+  never as a public download; builds without access to it get VideoLAN's
+  stock VLCKit and the Plex route (`development-workflow.md` → "VLCKit
+  Bootstrap").
   Never add Atmos object rendering (TrueHD/DTS:X → APAC): it is lossy, needs a
   new audio path, and carries the object-audio patent risk Firecore declined.
 - Capability gate: the build script stamps every framework slice's Info.plist

@@ -36,8 +36,9 @@ PROJECT_SUBDIR=""          # directory with project.yml / the .xcodeproj, relati
 SCHEMES="ios:Dusk tvos:Dusk-tvOS"  # space separated <platform>:<scheme>, platform ios or tvos
 # optional shell line run in the project dir before building ($REPO = checkout). VLCKit is not in git:
 # reuse the checkout's copy, then the Xcode Cloud post-clone step verifies it (or downloads the pinned
-# version) and makes sure the Metal toolchain is installed.
-PREPARE='mkdir -p Frameworks && cp -R "$REPO"/Frameworks/*.xcframework Frameworks/ 2>/dev/null; ci_scripts/ci_post_clone.sh'
+# version) and makes sure the Metal toolchain is installed. Release builds must carry Dusk's VLCKit
+# (TrueHD), so the stock-VLCKit fallback is an error here (needs gh access to marvinvr/dusk-vlckit).
+PREPARE='mkdir -p Frameworks && cp -R "$REPO"/Frameworks/*.xcframework Frameworks/ 2>/dev/null; DUSK_VLCKIT_REQUIRE_DUSK=1 ci_scripts/ci_post_clone.sh'
 # -------------------------------------------------------------------------------------------
 
 REPO=$(cd "$(dirname "$0")" && git rev-parse --show-toplevel) || { echo "TESTFLIGHT FAIL code=8 reason=not in a git repo log=-"; exit 8; }

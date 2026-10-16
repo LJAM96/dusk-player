@@ -393,7 +393,7 @@ final class VLCKitEngine: NSObject, PlaybackEngine {
             return (false, "UNEXPECTED build (libvlc \(version)) — expected the stable 3.x line; clean build / reinstall")
         }
         guard let duskBuild = VLCKitBuildInfo.duskBuild else {
-            return (false, "Stock VLCKit 3.x (libvlc \(version)) — expected Dusk's build; TrueHD goes through Plex. Run ci_scripts/install_vlckit.sh")
+            return (false, "Stock VLCKit 3.x (libvlc \(version)) — not Dusk's build, TrueHD goes through Plex. Needs gh access to marvinvr/dusk-vlckit, then ci_scripts/install_vlckit.sh")
         }
         let trueHD = VLCKitBuildInfo.decodesTrueHD ? "TrueHD" : "no TrueHD"
         return (true, "Dusk VLCKit \(duskBuild) (libvlc \(version), \(trueHD))")

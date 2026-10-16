@@ -23,8 +23,9 @@ set -euo pipefail
 # Output (DUSK_VLCKIT_OUT_DIR, default .build/vlckit/out):
 #   MobileVLCKit-<version>.tar.xz / TVVLCKit-<version>.tar.xz, laid out like
 #   VideoLAN's CocoaPods archives (<Name>-binary/<Name>.xcframework +
-#   COPYING.txt), plus their SHA-256 sums. Publish them as GitHub release
-#   assets (tag vlckit-<version>) and pin name + checksum in install_vlckit.sh.
+#   COPYING.txt), plus their SHA-256 sums. Publish them as release assets
+#   (tag vlckit-<version>) in the PRIVATE repo marvinvr/dusk-vlckit and pin
+#   name + checksum in install_vlckit.sh. Never publish them publicly.
 #   To install a fresh build locally without publishing:
 #     DUSK_VLCKIT_CACHE_DIR=.build/vlckit/out ci_scripts/install_vlckit.sh
 #
