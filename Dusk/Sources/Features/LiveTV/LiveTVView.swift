@@ -168,7 +168,6 @@ struct LiveTVChannelGuideRow: View {
                             #endif
                     }
                     .detailHeroNativePrimaryButtonStyle()
-                    .tvPlaybackFocusTarget("live.watch.\(current.id)")
                 }
             }
 
@@ -191,7 +190,6 @@ struct LiveTVChannelGuideRow: View {
                                 )
                             }
                             .buttonStyle(.plain)
-                            .tvPlaybackFocusTarget("live.guide.\(program.id)")
                             .duskTVOSFocusEffectShape(
                                 RoundedRectangle(cornerRadius: 16, style: .continuous)
                             )

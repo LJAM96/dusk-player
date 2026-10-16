@@ -213,8 +213,7 @@ struct PlexItemActionCarouselSection<ContextMenuContent: View>: View {
                     progress: progress(item),
                     width: posterWidth,
                     imageAspectRatio: imageAspectRatio,
-                    showsPlayOverlay: true,
-                    playbackFocusID: item.id.storageKey
+                    showsPlayOverlay: true
                 ) {
                     contextMenuContent(item)
                 }

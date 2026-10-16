@@ -74,10 +74,7 @@ blocking wall, and Downloads stays reachable throughout.
 
 `MainTabView` owns independent `NavigationPath`s per tab and presents
 `PlayerView` as a full-screen cover when `PlaybackCoordinator.showPlayer` is
-true. On tvOS, `DuskApp` retains `TVPlaybackFocusRestoration` across window/host
-changes; `TVPlaybackFocusHost` gives the native tab shell an explicit preferred
-focus chain and restores registered content controls after display matching.
-App-wide routes are declared in `AppNavigationRoute`; new top-level
+true. App-wide routes are declared in `AppNavigationRoute`; new top-level
 destinations should normally be added there. Content tabs cover library types
 (Movies, TV Shows, Videos) and Live TV when the highest-priority connected
 server exposes it, with visibility and order supplied by `UserPreferences`;

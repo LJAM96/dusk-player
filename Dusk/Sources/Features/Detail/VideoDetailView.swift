@@ -210,7 +210,6 @@ struct VideoDetailView: View {
             )
         }
         .detailHeroNativePrimaryButtonStyle()
-        .tvPlaybackFocusTarget("video.play.\(details.id.storageKey)")
         .disabled(viewModel.isUsingCachedData && !viewModel.isPlayableOffline)
         .contextMenu {
             if !viewModel.isUsingCachedData || viewModel.isPlayableOffline {

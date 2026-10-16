@@ -87,7 +87,6 @@ struct MainTabTVShell<Content: View>: View {
                     // content, and an explicit tint makes system glass buttons
                     // go white-on-white on focus. Content gets no tint at all.
                     .tint(nil)
-                    .tvPlaybackFocusScope(tab)
                     .background {
                         DuskTVTabBarTintPin()
                             .frame(width: 0, height: 0)

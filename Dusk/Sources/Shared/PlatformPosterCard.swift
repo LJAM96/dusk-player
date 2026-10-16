@@ -39,8 +39,7 @@ struct PosterNavigationCard<ContextMenuContent: View>: View {
             }
             .duskSuppressTVOSButtonChrome()
             .focused($isFocused)
-            .tvPlaybackFocusTarget(route, focus: $isFocused)
-            .carouselLeadingFocusTarget(focus: $isFocused)
+            .carouselLeadingFocusTarget()
             .duskTVOSFocusEffectShape(artworkShape, scales: false)
             .contextMenu {
                 contextMenuContent()
@@ -121,7 +120,6 @@ struct PosterActionCard<ContextMenuContent: View>: View {
     var showsPlayOverlay = false
     var availabilityBadge: String? = nil
     var isDimmed = false
-    var playbackFocusID: String? = nil
     @ViewBuilder let contextMenuContent: () -> ContextMenuContent
     #if os(tvOS)
     @FocusState private var isFocused: Bool
@@ -149,8 +147,7 @@ struct PosterActionCard<ContextMenuContent: View>: View {
             }
             .duskSuppressTVOSButtonChrome()
             .focused($isFocused)
-            .tvPlaybackFocusTarget(playbackFocusID ?? title, focus: $isFocused)
-            .carouselLeadingFocusTarget(focus: $isFocused)
+            .carouselLeadingFocusTarget()
             .duskTVOSFocusEffectShape(artworkShape, scales: false)
             .contextMenu {
                 contextMenuContent()

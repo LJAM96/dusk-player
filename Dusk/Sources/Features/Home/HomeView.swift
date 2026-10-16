@@ -4,9 +4,6 @@ import UIKit
 #endif
 
 struct HomeView: View {
-    #if os(tvOS)
-    @Environment(\.tvPlaybackFocusRestoration) private var playbackFocusRestoration
-    #endif
     @Environment(PlexService.self) private var plexService
     @Environment(PlaybackCoordinator.self) private var playback
     @Environment(UserPreferences.self) private var preferences
@@ -168,11 +165,6 @@ struct HomeView: View {
     }
 
     private func resetHeroSelection() {
-        #if os(tvOS)
-        // Display reactivation and dismissal refresh metadata; they must not
-        // move the hero off the page whose Play button is being restored.
-        guard playbackFocusRestoration?.isPreservingOrigin != true else { return }
-        #endif
         heroSelectionResetRevision += 1
     }
 }

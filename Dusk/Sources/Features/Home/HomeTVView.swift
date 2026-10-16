@@ -9,7 +9,6 @@ import UIKit.UIGestureRecognizerSubclass
 struct HomeTVView: View {
     @FocusState private var focusedTarget: FocusTarget?
     #if os(tvOS)
-    @Environment(\.tvPlaybackFocusRestoration) private var playbackFocusRestoration
     @Environment(\.resetFocus) private var resetFocus
     @Namespace private var homeFocusScope
     #endif
@@ -204,7 +203,6 @@ struct HomeTVView: View {
                                     #if os(tvOS)
                                     .homeHeroNativeButtonStyle()
                                     .focused($focusedTarget, equals: .heroPrimaryAction(key))
-                                    .tvPlaybackFocusTarget("home.play.\(key)", focus: $focusedTarget, equals: .heroPrimaryAction(key))
                                     .prefersDefaultFocus(key == currentHeroKey, in: homeFocusScope)
                                     // The other pages' buttons are only reachable
                                     // from a play button (left/right). Coming in
@@ -709,9 +707,6 @@ struct HomeTVView: View {
 
     @MainActor
     private func requestHeroPrimaryFocusIfNeeded(hasHeroItems: Bool) async {
-        #if os(tvOS)
-        guard playbackFocusRestoration?.isPreservingOrigin != true else { return }
-        #endif
         guard hasHeroItems else { return }
 
         cancelHeroExit()

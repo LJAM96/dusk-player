@@ -307,7 +307,6 @@
 		8D3162CB3C9E1CC7D1F54AD2 /* FMP4Boxes.swift in Sources */ = {isa = PBXBuildFile; fileRef = B8C76B894881274BB55084FF /* FMP4Boxes.swift */; };
 		8D3984567EE5764F10CE1A86 /* HomeHubArrangement.swift in Sources */ = {isa = PBXBuildFile; fileRef = E4518CB0D635B36FCF8A5DF7 /* HomeHubArrangement.swift */; };
 		8DA07452B06EF7B90CAE1984 /* MobileVLCKit.xcframework in Frameworks */ = {isa = PBXBuildFile; fileRef = 95F9E42CD3371CAA984F60B3 /* MobileVLCKit.xcframework */; };
-		8E3073851A1CCF6933A9A093 /* TVPlaybackFocusHost.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9FC237E77059DF3F1E09AC9A /* TVPlaybackFocusHost.swift */; };
 		8FB92F26D505D22DDDE1B367 /* PlayerViewModel+TrackSelection.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1E3EAF2638D0F06CB02215DF /* PlayerViewModel+TrackSelection.swift */; };
 		8FDA89BC315B5418004E3FFB /* HLSProxyHTTP.swift in Sources */ = {isa = PBXBuildFile; fileRef = D21B1CD893CD92808A901B71 /* HLSProxyHTTP.swift */; };
 		90B4759F16458CFCAC3EC189 /* PlayerTVRemoteInputBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = EE23F90315CD7FAABAF89713 /* PlayerTVRemoteInputBridge.swift */; };
@@ -469,7 +468,6 @@
 		DBBFA2144BEA4B9FC3946DFB /* DuskVLCRawVideoOutput.m in Sources */ = {isa = PBXBuildFile; fileRef = 3975EBC9E9E7D0BF6E3C56E3 /* DuskVLCRawVideoOutput.m */; };
 		DBE7DFA22BC2F3DD5A858CCF /* HomeTVView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 40A953137995A3B7C019749D /* HomeTVView.swift */; };
 		DC066ABFB46B0DF1015C3A34 /* TVPlaybackFocusRestoration.swift in Sources */ = {isa = PBXBuildFile; fileRef = B18E2B369B46E67382903E93 /* TVPlaybackFocusRestoration.swift */; };
-		DCAA4216376678CD5A04312A /* TVPlaybackFocusHost.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9FC237E77059DF3F1E09AC9A /* TVPlaybackFocusHost.swift */; };
 		DCE0CE91A1D0DC8C77797878 /* ServerAvailability.swift in Sources */ = {isa = PBXBuildFile; fileRef = A067A5BFA04A7B11FCF48EED /* ServerAvailability.swift */; };
 		DD32CD2536C5003D5418EB53 /* PlayerUpNextOverlayView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 79F09C85294EBFDDC944AE87 /* PlayerUpNextOverlayView.swift */; };
 		DD354CD48519507F850756EE /* DoviBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8A37F161D5207983207B147A /* DoviBridge.swift */; };
@@ -784,7 +782,6 @@
 		9C9365E3E7C263F42FE01371 /* PlexLibraryCollection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlexLibraryCollection.swift; sourceTree = "<group>"; };
 		9E6A19842481580689AEC855 /* HomeCinematicHero.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HomeCinematicHero.swift; sourceTree = "<group>"; };
 		9EF057A9635F25B051D84230 /* SiriTitleMatching.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SiriTitleMatching.swift; sourceTree = "<group>"; };
-		9FC237E77059DF3F1E09AC9A /* TVPlaybackFocusHost.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TVPlaybackFocusHost.swift; sourceTree = "<group>"; };
 		A067A5BFA04A7B11FCF48EED /* ServerAvailability.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ServerAvailability.swift; sourceTree = "<group>"; };
 		A09EA98DBA7E79D3476F1D39 /* PlayerControlsTVOverlay.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlayerControlsTVOverlay.swift; sourceTree = "<group>"; };
 		A3658E173CAB9A21489A636A /* Dusk-tvOS.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = "Dusk-tvOS.app"; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -1336,7 +1333,6 @@
 				CF112C2CD6A3121CE87B5DF9 /* MoreView.swift */,
 				4A8A2A92BBA7E5E1FA944E6A /* ScreenshotMode.swift */,
 				46FC23599DFC642C5B1C521C /* ServerConnectionCoordinator.swift */,
-				9FC237E77059DF3F1E09AC9A /* TVPlaybackFocusHost.swift */,
 				B18E2B369B46E67382903E93 /* TVPlaybackFocusRestoration.swift */,
 			);
 			path = App;
@@ -1931,7 +1927,6 @@
 				E11160FD9D54382AE0BEFF1C /* SupporterPrompt.swift in Sources */,
 				DB8A8ABC3546C8C0F380CB9F /* SupporterStore.swift in Sources */,
 				9DF9958B1EA93A662CD33B34 /* SupporterView.swift in Sources */,
-				DCAA4216376678CD5A04312A /* TVPlaybackFocusHost.swift in Sources */,
 				21489D64A14F02FD0E5B3D11 /* TVPlaybackFocusRestoration.swift in Sources */,
 				BA9E74091F704ED4565A42AA /* TVSettingsComponents.swift in Sources */,
 				E6750EC6A3BF901FD8F1F7BE /* TopShelfLink.swift in Sources */,
@@ -2175,7 +2170,6 @@
 				B044861B19D09D652F5DF3DC /* SupporterPrompt.swift in Sources */,
 				FF63BB828C968E2E35006F18 /* SupporterStore.swift in Sources */,
 				57532B38BDC3B883642E1FEA /* SupporterView.swift in Sources */,
-				8E3073851A1CCF6933A9A093 /* TVPlaybackFocusHost.swift in Sources */,
 				DC066ABFB46B0DF1015C3A34 /* TVPlaybackFocusRestoration.swift in Sources */,
 				3FE983092FCE0D8477FB79CD /* TVSettingsComponents.swift in Sources */,
 				6A3CDB296A780EA52525F3C1 /* TopShelfLink.swift in Sources */,
