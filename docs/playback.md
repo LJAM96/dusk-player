@@ -1551,6 +1551,11 @@ so the whole live HUD is derived from one instant.
 - Playback Info shows a `Display Mode` row (tvOS only) with either the requested
   mode (`23.976 Hz SDR`) or why nothing was requested. Use it to confirm the
   feature before diagnosing anything else about picture quality.
+- Releasing criteria on player dismissal can reset the window's focus after the
+  cover is already gone. `MainTabView` owns `TVPlaybackFocusRestoration` to restore
+  the originating content after display matching settles; see `ui-features.md`
+  → App Shell. Do not move this into either playback engine or restore solely
+  when `showPlayer` becomes false.
 
 ## PlayerViewModel and Overlays
 - `PlayerView` is the full-screen shell. It reads coordinator state and creates

@@ -23,6 +23,7 @@ struct MainTabView: View {
     @Environment(TopShelfLinkRouter.self) private var topShelfLinks
     @State private var isHomeScrolledOffTop = false
     @State private var homeScrollToTopRevision = 0
+    @State private var playbackFocusRestoration = TVPlaybackFocusRestoration()
     #endif
 
     var body: some View {
@@ -70,6 +71,9 @@ struct MainTabView: View {
             }
             .fullScreenCover(isPresented: $bindablePlayback.showPlayer, onDismiss: {
                 playback.onPlayerDismissed()
+                #if os(tvOS)
+                playbackFocusRestoration.playerDidDismiss()
+                #endif
             }) {
                 PlayerView()
                     .environment(plexService)
@@ -86,6 +90,13 @@ struct MainTabView: View {
             .modifier(ScreenshotSheetPresenter())
             #endif
             #if os(tvOS)
+            .background {
+                TVPlaybackFocusAttachment(restoration: playbackFocusRestoration) { playback.showPlayer }
+                    .frame(width: 0, height: 0)
+            }
+            .onChange(of: playback.showPlayer) { _, isPresented in
+                if isPresented { playbackFocusRestoration.playerWillPresent() }
+            }
             // Re-checked whenever a server connects: a cold launch from the
             // Top Shelf delivers the link before the item's server is up.
             .task(id: TopShelfLinkAttempt(link: topShelfLinks.pending, revision: plexService.serverContentRevision)) {
