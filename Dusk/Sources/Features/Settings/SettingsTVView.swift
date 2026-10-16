@@ -126,6 +126,10 @@ struct SettingsTVView: View {
                 }
 
                 TVSettingsSection(title: "Home", footer: SettingsSupport.homeFooterText) {
+                    TVSettingsToggleRow(title: "Personalized shelves", isOn: $preferences.personalizedShelvesEnabled)
+
+                    tvRowDivider
+
                     TVSettingsToggleRow(title: "Show Live TV", isOn: $preferences.showsLiveTVOnHome)
                 }
 

@@ -214,6 +214,17 @@ in Dusk. Read this with `docs/codebase-map.md`, `STYLE.md`, and `docs/data-and-p
   the outgoing model can let its in-flight load suppress the incoming user's load.
 - Home data combines global hubs from `getHubs()`, continue watching from
   `getContinueWatching()`, and personalized shelves from `HomeRecommendationEngine`.
+- Settings › Home › Personalized shelves is a device-local switch, on by default.
+  `HomeView` passes it into `HomeViewModel` and applies changes immediately: off
+  clears generated shelves, cancels their task and skips recommendation loading
+  on subsequent refreshes; on reloads them. Cancellation and a publication guard
+  prevent an old request from restoring shelves after they were disabled. Plex
+  hubs, Continue Watching, and library-tab recommendations are unaffected.
+- `HomeHubArrangement` places library rows in Library Order even when PMS omits
+  the hub's section ID: it uses the paging URL, numeric identifier suffix, or
+  consistent item section IDs from the representative server. Unscoped Recently
+  Added rows can also use the only matching library type on that server. Ambiguous
+  rows remain global; mixed/global rows such as Continue Watching keep their place.
 - `LiveTVHomeShelf` adds currently airing channels when Live TV is available and
   `UserPreferences.showsLiveTVOnHome` (Settings › Home › Show Live TV, off by
   default) is on. When off, Home neither renders the shelf nor requests the

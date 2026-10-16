@@ -16,6 +16,7 @@ struct PlexItem: Decodable, Sendable, Identifiable {
     let key: String
     let type: PlexMediaType
     let subtype: String?
+    let librarySectionID: String?
     let title: String
 
     let summary: String?
@@ -71,7 +72,7 @@ struct PlexItem: Decodable, Sendable, Identifiable {
     let guids: [PlexGuid]
 
     enum CodingKeys: String, CodingKey {
-        case ratingKey, key, type, subtype, title, guid
+        case ratingKey, key, type, subtype, librarySectionID, title, guid
         case summary, studio, contentRating, year, originallyAvailableAt
         case thumb, art, banner, clearLogo
         case rating, audienceRating
@@ -97,6 +98,11 @@ struct PlexItem: Decodable, Sendable, Identifiable {
         key = try container.decode(String.self, forKey: .key)
         type = try container.decode(PlexMediaType.self, forKey: .type)
         subtype = try container.decodeIfPresent(String.self, forKey: .subtype)
+        if let sectionID = try? container.decode(Int.self, forKey: .librarySectionID) {
+            librarySectionID = String(sectionID)
+        } else {
+            librarySectionID = try container.decodeIfPresent(String.self, forKey: .librarySectionID)
+        }
         title = try container.decode(String.self, forKey: .title)
 
         summary = try container.decodeIfPresent(String.self, forKey: .summary)

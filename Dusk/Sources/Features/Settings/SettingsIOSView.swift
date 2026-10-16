@@ -191,6 +191,8 @@ struct SettingsIOSView: View {
             .listRowBackground(Color.duskSurface)
 
             Section {
+                Toggle("Personalized shelves", isOn: $preferences.personalizedShelvesEnabled)
+                    .foregroundStyle(Color.duskTextPrimary)
                 Toggle("Show Live TV", isOn: $preferences.showsLiveTVOnHome)
                     .foregroundStyle(Color.duskTextPrimary)
             } header: {
