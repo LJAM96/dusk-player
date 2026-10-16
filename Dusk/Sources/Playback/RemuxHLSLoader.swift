@@ -92,6 +92,27 @@ struct DolbyVisionConfiguration: Sendable, Equatable {
     let lumaPictureSize: Double?
     /// Average video bitrate in kbit/s, when Plex reports it.
     let bitrateKbps: Int?
+    /// The source profile when this is the target of an on-device
+    /// conversion (Dolby Vision 7 played as 8.1); nil for Plex's own.
+    let convertedFromProfile: Int?
+
+    init(
+        profile: Int,
+        level: Int,
+        blSignalCompatibilityID: Int,
+        lumaSampleRate: Double?,
+        lumaPictureSize: Double?,
+        bitrateKbps: Int?,
+        convertedFromProfile: Int? = nil
+    ) {
+        self.profile = profile
+        self.level = level
+        self.blSignalCompatibilityID = blSignalCompatibilityID
+        self.lumaSampleRate = lumaSampleRate
+        self.lumaPictureSize = lumaPictureSize
+        self.bitrateKbps = bitrateKbps
+        self.convertedFromProfile = convertedFromProfile
+    }
 
     init?(stream: PlexStream) {
         guard let profile = stream.doviProfile, (0...127).contains(profile) else { return nil }
@@ -107,6 +128,22 @@ struct DolbyVisionConfiguration: Sendable, Equatable {
             lumaSampleRate = nil
         }
         bitrateKbps = stream.bitrate.flatMap { $0 > 0 ? $0 : nil }
+        convertedFromProfile = nil
+    }
+
+    /// Profile 8.1 at the same level and stream metrics: what a profile 7
+    /// stream becomes once its RPUs are converted and its enhancement layer
+    /// dropped (`DolbyVision7InitRewriter`, `FMP4FragmentRewriter`).
+    func convertedToProfile81() -> DolbyVisionConfiguration {
+        DolbyVisionConfiguration(
+            profile: 8,
+            level: level,
+            blSignalCompatibilityID: 1,
+            lumaSampleRate: lumaSampleRate,
+            lumaPictureSize: lumaPictureSize,
+            bitrateKbps: bitrateKbps,
+            convertedFromProfile: profile
+        )
     }
 
     /// RFC 6381 codec string for an HLS `CODECS` attribute, e.g. `dvh1.05.06`.
@@ -150,11 +187,13 @@ struct DolbyVisionConfiguration: Sendable, Equatable {
         return codecString + (hasHLGBaseLayer ? "/db4h" : "/db1p")
     }
 
-    /// Short human label, e.g. `Dolby Vision 8.1`.
+    /// Short human label, e.g. `Dolby Vision 8.1` or, converted,
+    /// `Dolby Vision 8.1 (from profile 7)`.
     var displayName: String {
-        hasCompatibleBaseLayer
+        let name = hasCompatibleBaseLayer
             ? "Dolby Vision \(profile).\(blSignalCompatibilityID)"
             : "Dolby Vision profile \(profile)"
+        return convertedFromProfile.map { "\(name) (from profile \($0))" } ?? name
     }
 
     /// The level Dolby's pixel-rate table gives the stream, for when Plex
@@ -334,7 +373,7 @@ enum DolbyVisionSignaling {
     /// base media file format, v2.x): version 1.0, then
     /// profile(7) level(6) rpu(1) el(1) bl(1), bl_signal_compatibility_id(4),
     /// and reserved bits up to 24 bytes. Profiles above 7 use `dvvC`.
-    private static func configurationBox(_ configuration: DolbyVisionConfiguration) -> [UInt8] {
+    static func configurationBox(_ configuration: DolbyVisionConfiguration) -> [UInt8] {
         var flags = UInt16(configuration.profile & 0x7F) << 9
         flags |= UInt16(configuration.level & 0x3F) << 3
         flags |= 0b101 // rpu_present_flag and bl_present_flag; single layer, no EL
@@ -402,9 +441,14 @@ struct HLSAttributeList {
         tag + ":" + attributes.map { "\($0.name)=\($0.value)" }.joined(separator: ",")
     }
 
+    /// An attribute's raw value (a quoted string keeps its quotes).
+    func value(of name: String) -> String? {
+        attributes.first(where: { $0.name == name })?.value
+    }
+
     /// The value of a quoted-string attribute without its quotes.
     func quotedValue(of name: String) -> String? {
-        guard let value = attributes.first(where: { $0.name == name })?.value,
+        guard let value = value(of: name),
               value.count >= 2, value.hasPrefix("\""), value.hasSuffix("\"") else {
             return nil
         }
