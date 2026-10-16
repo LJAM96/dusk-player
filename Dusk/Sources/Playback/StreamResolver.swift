@@ -439,6 +439,25 @@ enum StreamResolver {
             }
     }
 
+    /// The Dolby Vision profile 7 HEVC video stream a remux can convert to
+    /// profile 8.1 on device (`DolbyVision7HLSProxy`), if any.
+    static func dolbyVision7ConversionStream(in media: PlexMedia) -> PlexStream? {
+        media.parts.lazy
+            .flatMap(\.streams)
+            .first { stream in
+                stream.streamType == .video
+                    && stream.codec?.lowercased() == "hevc"
+                    && stream.doviProfile == 7
+            }
+    }
+
+    /// The 8.1 configuration a profile 7 file is converted to and signalled as.
+    static func dolbyVision7ConversionTarget(in media: PlexMedia) -> DolbyVisionConfiguration? {
+        dolbyVision7ConversionStream(in: media)
+            .flatMap(DolbyVisionConfiguration.init(stream:))?
+            .convertedToProfile81()
+    }
+
     static func canRideRemux(subtitle stream: PlexStream) -> Bool {
         remuxTextSubtitleCodecs.contains(stream.codec?.lowercased() ?? "")
     }

@@ -144,10 +144,14 @@ struct PlaybackSource: Sendable {
     /// `RemuxHLSLoader`). AVPlayer only; `.spatialAudio` sessions of Dolby
     /// Vision profile 5 and 8.1/8.4.
     var dolbyVisionRemux: DolbyVisionConfiguration? = nil
+    /// Convert a Dolby Vision profile 7 remux to this 8.1 configuration on
+    /// device (through `DolbyVision7HLSProxy`, which also restores Atmos).
+    /// AVPlayer only; nil for every other session.
+    var dolbyVision7Conversion: DolbyVisionConfiguration? = nil
 
     /// Route the HLS playlists and init segment through `RemuxHLSLoader`.
     var usesRemuxHLSLoader: Bool {
-        restoresDolbyAtmos || dolbyVisionRemux != nil
+        (restoresDolbyAtmos || dolbyVisionRemux != nil) && dolbyVision7Conversion == nil
     }
     /// Present only for a tuned Plex Live TV session. The player uses it for
     /// channel identity, channel switching, and live-window seek semantics.

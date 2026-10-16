@@ -409,13 +409,11 @@ so the whole live HUD is derived from one instant.
     content satisfies is truthful everywhere. A wrong guess (peaks above the
     average) costs one decoder error, which the failure watch turns into
     VLCKit direct play — the same outcome as an uncapped refusal.
-  - **Dolby Vision 7** (FEL/MEL, dual layer): Apple has no profile 7
-    decoder, and its RPU is not valid as 8.1 without per-frame conversion
-    (libdovi RPU rewrite, EL NAL removal, `trun`/`mdat` rewrite). That would
-    need every media segment to pass through the app — which
-    `AVAssetResourceLoader` cannot do for HLS media segments — so it would
-    take a local HTTP proxy. Not done. Profile 7 rides the remux unsignalled
-    and plays its HDR10 base layer on AVPlayer (EL/RPU NALs are ignored).
+  - **Dolby Vision 7** (FEL/MEL, dual layer): converted to 8.1 on device
+    while `dolbyVision7ConversionEnabled` is on — see "Dolby Vision 7
+    (on-device 8.1 conversion)" below. With the setting off, or after a
+    failed conversion, it rides the remux unsignalled and plays its HDR10
+    base layer on AVPlayer (EL/RPU NALs are ignored).
 - Turning `hdrVideoRemuxEnabled` off restores the previous behavior exactly:
   no HDR-only remux, and no profile 8 signaling on Atmos/converted-audio
   remuxes.
@@ -424,6 +422,105 @@ so the whole live HUD is derived from one instant.
   whether Plex declares `VIDEO-RANGE=HLG` for plain HLG sources, that the
   RPU is actually applied (an L2-trim test clip pulses visibly), HDR10+ on
   an HDR10+ TV, and the level cap on 4K60 and high-bitrate sources.
+
+## Dolby Vision 7 (on-device 8.1 conversion)
+
+- Why: profile 7 (UHD Blu-ray, base layer + MEL/FEL enhancement layer) has
+  no Apple decoder, and its RPU is not valid as 8.1 without per-frame
+  rewriting. Converting it the way dovi_tool mode 2 does (drop the EL, rewrite
+  every RPU as 8.1) gives a single-layer stream Apple plays as real Dolby
+  Vision. FEL detail is lost, as with every player that does this.
+- Gate (one place: `PlaybackCoordinator.remuxDolbyVision7Conversion`): any
+  `.spatialAudio` remux (HDR, Atmos or converted audio) of a file whose HEVC
+  video is profile 7 (`StreamResolver.dolbyVision7ConversionStream` /
+  `dolbyVision7ConversionTarget`), while `hdrVideoRemuxEnabled` and
+  `dolbyVision7ConversionEnabled` are on and the conversion has not failed for
+  this item (`isDolbyVision7ConversionSuppressed`, reset at the top of
+  `startPlaybackSession`, never by replacement attempts). The result is
+  `PlaybackSource.dolbyVision7Conversion` (8.1, compat ID 1, source level,
+  `convertedFromProfile = 7`); `DisplayModeMatcher` gets it in place of
+  `dolbyVisionRemux`. VLCKit taking over a remux URL never converts.
+  `StreamResolver.dolbyVisionSignalingStream` still excludes profile 7.
+- Architecture: Plex's remux is unchanged (same request, same acceptance).
+  `AVPlayerEngine` starts a `DolbyVision7HLSProxy` for the source instead of
+  `RemuxHLSLoader` (`usesRemuxHLSLoader` is false with a conversion) and
+  hands AVPlayer `http://127.0.0.1:<port>/<token>/master.m3u8`:
+  - Proxy (`Playback/DolbyVision7/DolbyVision7HLSProxy.swift`,
+    `HLSProxyHTTP.swift`): Network.framework listener bound to the loopback
+    interface, local-only, random 128-bit path token (wrong token → 403),
+    every relayed URL must share the master playlist's scheme/host/port
+    (→ 403, never an open relay). GET/HEAD, single byte ranges (206/416),
+    `Connection: close`, `Cache-Control: no-store`. Routes: `master.m3u8`
+    (cached from preflight), `p/<b64url>.m3u8` playlists, `i/<b64url>.mp4`
+    init segments (converted once, cached with their `FMP4InitInfo`),
+    `s/<init id>/<b64url>.m4s` media segments (fetched, converted, never
+    cached; at most two at once). Upstream non-2xx is forwarded, network
+    errors are 502, and a closed player connection cancels its fetch. Logs
+    never carry the token or upstream query strings.
+  - Playlists (`DolbyVision7PlaylistRewriter`): `SUPPLEMENTAL-CODECS=
+    "dvh1.08.LL/db1p"`, `VIDEO-RANGE=PQ`, level cap as for DV8; I-frame
+    playlists dropped; WebVTT renditions (no `EXT-X-MAP`) keep their segment
+    URLs on the server.
+  - Init (`DolbyVision7InitRewriter`): one `hvc1`/`dvh1` video track becomes
+    `hvc1` + an 8.1 `dvvC`; the Atmos `dec3` patch (`EAC3JOCSignaling`) runs
+    here too when `restoresDolbyAtmos`.
+  - Segments (`FMP4FragmentRewriter` + `DoviBridgeSampleRewriter`): every
+    video sample goes through the Rust bridge (`Native/DuskDovi`, libdovi
+    `ConversionMode::To81`): NAL 63 (EL) dropped, NAL 62 (RPU) rewritten;
+    `trun` sizes and data offsets are rebuilt, `sidx` dropped, audio bytes
+    copied.
+- Preflight (`DolbyVision7HLSProxy.start()`): listener ready, master has a
+  variant that takes 8.1 signaling, its media playlist is fMP4
+  (`EXT-X-MAP`, no byte ranges or encryption), and the init segment
+  converts. Segment 0 is not prefetched.
+- Fallback ladder:
+  1. Preflight failure fails the load; a segment that cannot be converted, a
+     video segment with samples but no RPU, or a listener that dies twice
+     calls `onFatalError` (once), which sets the engine to `.error` for the
+     same attempt; AVPlayer item failures (e.g. -11848) do the same.
+  2. The failure watch (armed for `.spatialAudio`) runs
+     `performDirectPlayServerStreamFallback`, whose first branch sets
+     `isDolbyVision7ConversionSuppressed` and calls
+     `rebuildSpatialAudioSession(transitionLabel:declineReason:)`: a fresh
+     Plex remux (old transcode session stopped) at the live position, now
+     without conversion — the HDR10 base layer through `RemuxHLSLoader`.
+  3. Plex declining that, or the unconverted remux failing as well, leaves
+     the remux for direct play (VLCKit) like any failed remux. The flag stops
+     a loop.
+- Setting: `dolbyVision7ConversionEnabled` ("Dolby Vision 7 → 8.1", default
+  on, disabled while "HDR & Dolby Vision" is off). Off restores the HDR10
+  base-layer remux exactly.
+- AirPlay: a receiver cannot reach 127.0.0.1. Remux sessions already become
+  Plex AirPlay HLS on a route change (see "AirPlay"), so the proxy is never
+  handed to a receiver on purpose. tvOS has no background playback; on iOS
+  the listener is re-created once (same port) if the system tears it down
+  while backgrounded, then the ladder takes over.
+- Unverified (no real PMS/hardware yet): that Plex copies NAL 62/63 into the
+  fMP4 for single-track BL+EL MKVs (dual-track MKVs carry no EL at all —
+  harmless), that Plex never writes its own `dvcC`/`dvvC`/`dvh1` for profile
+  7, AVPlayer behaviour with a loopback HLS source on device, sustained CPU
+  and memory on 4K FEL, and listener survival across iOS backgrounding.
+- Manual hardware checklist (Apple TV 4K + a Dolby Vision TV; iPhone/iPad
+  for the iOS parts). Log categories: `DolbyVision7` (proxy, init, first
+  segment stats, fatal errors), `SpatialAudio` (remux request/acceptance),
+  `PlaybackSession` (attempts, retry label), `AVPlayerEngine` (preflight,
+  item failures), `DisplayMode`.
+  - DV7 **FEL** MKV and DV7 **MEL** MKV: the TV shows its Dolby Vision badge;
+    the session reason (Playback Info) names "Dolby Vision 7 → 8.1" and
+    Display Mode reads "Dolby Vision 8.1 (from profile 7)"; the first-segment log shows RPUs ≈ samples
+    and EL NALs dropped (FEL and MEL).
+  - Audio: E-AC-3 Atmos (receiver shows Atmos), TrueHD (converted-audio
+    remux, still DV), AC-3.
+  - DV display mode switch on the TV (Match Content on).
+  - Seeking: scrub forward/back, skip ±10 s, resume from a saved position.
+  - WebVTT subtitles on and switching tracks (rebuilds the remux, conversion
+    stays).
+  - Setting off → the same file plays as HDR10 (no DV badge); "HDR & Dolby
+    Vision" off disables the toggle.
+  - Fallback: a file Plex delivers without RPUs (or a forced fatal error) →
+    one retry log line "retrying the remux without Dolby Vision 7 conversion",
+    playback continues as HDR10 at the same position.
+  - iOS: AirPlay mid-session, background/foreground, Picture in Picture.
 
 ## AirPlay (iOS/iPadOS)
 
@@ -1734,7 +1831,9 @@ so the whole live HUD is derived from one instant.
   Spatial Audio" on iOS, under Playback Advanced) gates the Atmos remux.
   `hdrVideoRemuxEnabled` (default on; "HDR & Dolby Vision" on both) gates
   the HDR remux and profile 8 Dolby Vision signaling. Either forced engine
-  also disables both.
+  also disables both. `dolbyVision7ConversionEnabled` (default on; "Dolby
+  Vision 7 → 8.1" on both, disabled while HDR is off) gates the on-device
+  profile 7 conversion.
 - Settings UI is split by platform; shared labels/options live in
   `SettingsSupport`.
 - Adding a playback preference usually requires edits in `UserPreferences`,
@@ -1768,6 +1867,14 @@ so the whole live HUD is derived from one instant.
   session logic in `PlaybackCoordinator+SpatialAudio.swift`, Atmos and Dolby
   Vision init-segment/playlist fixes in `Playback/RemuxHLSLoader.swift`
   (tests: `DuskTests/HDRVideoRemuxTests.swift`).
+- Dolby Vision 7 → 8.1: gate in `remuxDolbyVision7Conversion`
+  (`PlaybackCoordinator+SpatialAudio.swift`) and
+  `StreamResolver.dolbyVision7ConversionTarget`, retry branch in
+  `performDirectPlayServerStreamFallback`, proxy lifecycle in
+  `AVPlayerEngine`, proxy/fMP4/playlist rewriting in
+  `Playback/DolbyVision7/`, RPU conversion in `Native/DuskDovi` (Rust,
+  libdovi) behind `DoviBridge.swift` (tests:
+  `DuskTests/DolbyVision7*Tests.swift`, `DuskTests/DoviBridgeTests.swift`).
 - Session orchestration: `PlaybackCoordinator+Session.swift`; timeline:
   `PlaybackCoordinator+Timeline.swift`; Up Next: `PlaybackCoordinator+UpNext.swift`.
 - Display mode matching (tvOS): `Features/Player/DisplayModeMatcher.swift`,

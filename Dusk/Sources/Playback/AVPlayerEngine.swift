@@ -74,6 +74,11 @@ final class AVPlayerEngine: NSObject, PlaybackEngine {
     /// asset's resource loader holds its delegate weakly, so the engine owns it
     /// for as long as the item plays.
     @ObservationIgnored private var remuxHLSLoader: RemuxHLSLoader?
+    /// Loopback front for a Dolby Vision 7 → 8.1 session (see
+    /// `DolbyVision7HLSProxy`), alive for as long as the source is loaded,
+    /// and the master playlist URL it serves.
+    @ObservationIgnored nonisolated(unsafe) private var dolbyVision7Proxy: DolbyVision7HLSProxy?
+    @ObservationIgnored private var dolbyVision7ProxyURL: URL?
     @ObservationIgnored nonisolated(unsafe) private var enhancedVideoDisplayLink: CADisplayLink?
     @ObservationIgnored nonisolated(unsafe) private var enhancedVideoDisplayLinkTarget: AVPlayerDisplayLinkTarget?
 
@@ -142,6 +147,7 @@ final class AVPlayerEngine: NSObject, PlaybackEngine {
 
     deinit {
         loadValidationTask?.cancel()
+        dolbyVision7Proxy?.stop()
         #if os(iOS)
         externalPlaybackObserver?.invalidate()
         externalPlaybackObserver = nil
@@ -169,6 +175,7 @@ final class AVPlayerEngine: NSObject, PlaybackEngine {
 
     func load(source: PlaybackSource) {
         loadValidationTask?.cancel()
+        stopDolbyVision7Proxy()
         removeEnhancedVideoOutput()
         removeTimeObserver()
         removePlaybackEndedObserver()
@@ -206,6 +213,13 @@ final class AVPlayerEngine: NSObject, PlaybackEngine {
         let attemptID = source.context.attemptID
         loadValidationTask = Task { [weak self] in
             guard let self else { return }
+
+            if let target = source.dolbyVision7Conversion {
+                // The proxy's preflight fetches the master playlist, which
+                // validates the URL too.
+                await self.startDolbyVision7Proxy(source: source, target: target, attemptID: attemptID)
+                return
+            }
 
             if let validationError = await PlaybackError.validateDirectPlayURL(source.url) {
                 guard !Task.isCancelled else { return }
@@ -287,6 +301,7 @@ final class AVPlayerEngine: NSObject, PlaybackEngine {
     func stop() {
         loadValidationTask?.cancel()
         loadValidationTask = nil
+        stopDolbyVision7Proxy()
         removeEnhancedVideoOutput()
         player.pause()
         player.defaultRate = 1
@@ -574,7 +589,20 @@ final class AVPlayerEngine: NSObject, PlaybackEngine {
         guard currentAttemptContext?.attemptID == attemptID else { return }
 
         let item: AVPlayerItem
-        if source.usesRemuxHLSLoader {
+        if source.dolbyVision7Conversion != nil {
+            // Never the bare remux in its place: without the proxy, fail so
+            // the coordinator retries the remux without conversion.
+            guard let dolbyVision7ProxyURL else {
+                failLoad(
+                    .unknown("Dolby Vision 7 conversion is unavailable for this stream."),
+                    attemptID: attemptID,
+                    message: "Dolby Vision 7 proxy is not running"
+                )
+                return
+            }
+            remuxHLSLoader = nil
+            item = AVPlayerItem(url: dolbyVision7ProxyURL)
+        } else if source.usesRemuxHLSLoader {
             let loader = RemuxHLSLoader(
                 restoresDolbyAtmos: source.restoresDolbyAtmos,
                 dolbyVision: source.dolbyVisionRemux
@@ -608,6 +636,72 @@ final class AVPlayerEngine: NSObject, PlaybackEngine {
         observePlaybackStall(for: item)
         addTimeObserver()
         loadValidationTask = nil
+    }
+
+    // MARK: - Private: Dolby Vision 7 conversion
+
+    /// Brings the loopback proxy up for `source` and loads its master
+    /// playlist; a failed preflight fails the load, which the coordinator
+    /// answers by retrying the remux without conversion.
+    private func startDolbyVision7Proxy(
+        source: PlaybackSource,
+        target: DolbyVisionConfiguration,
+        attemptID: UUID
+    ) async {
+        let proxy = DolbyVision7HLSProxy(
+            upstreamMasterURL: source.url,
+            target: target,
+            restoresDolbyAtmos: source.restoresDolbyAtmos
+        )
+        proxy.onFatalError = { [weak self] error in
+            Task { @MainActor [weak self] in
+                self?.failDolbyVision7Conversion(error, attemptID: attemptID)
+            }
+        }
+        dolbyVision7Proxy = proxy
+
+        do {
+            let url = try await proxy.start()
+            guard !Task.isCancelled, dolbyVision7Proxy === proxy else {
+                if dolbyVision7Proxy === proxy {
+                    stopDolbyVision7Proxy()
+                } else {
+                    proxy.stop()
+                }
+                return
+            }
+            dolbyVision7ProxyURL = url
+            finishValidatedLoad(source: source, attemptID: attemptID)
+        } catch {
+            let isCurrentProxy = dolbyVision7Proxy === proxy
+            if isCurrentProxy {
+                stopDolbyVision7Proxy()
+            }
+            guard isCurrentProxy, !Task.isCancelled else { return }
+            failLoad(
+                .unknown("Dolby Vision 7 conversion is unavailable for this stream."),
+                attemptID: attemptID,
+                message: "Dolby Vision 7 proxy preflight failed (\(String(describing: error)))"
+            )
+        }
+    }
+
+    /// The proxy hit something it cannot convert mid-session.
+    private func failDolbyVision7Conversion(_ conversionError: DolbyVision7ConversionError, attemptID: UUID) {
+        guard currentAttemptContext?.attemptID == attemptID, state != .error else { return }
+        avPlayerEngineLogger.error(
+            "Playback attempt \(self.currentAttemptContext?.attemptLabel ?? "unknown", privacy: .public) Dolby Vision 7 conversion failed: \(String(describing: conversionError), privacy: .public)"
+        )
+        player.pause()
+        error = .unknown("Dolby Vision 7 conversion failed.")
+        state = .error
+        isBuffering = false
+    }
+
+    private func stopDolbyVision7Proxy() {
+        dolbyVision7Proxy?.stop()
+        dolbyVision7Proxy = nil
+        dolbyVision7ProxyURL = nil
     }
 
     private func failLoad(_ error: PlaybackError, attemptID: UUID, message: String) {

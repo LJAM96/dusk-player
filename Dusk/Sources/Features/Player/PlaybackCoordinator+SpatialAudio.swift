@@ -172,13 +172,18 @@ extension PlaybackCoordinator {
             } else if convertsAudio {
                 let source = audioStream?.codec?.uppercased() ?? "audio"
                 let target = result.streams.audioCodec?.uppercased() ?? "a supported codec"
-                reason = "\(source) converted to \(target) by Plex, video copied (\(resolverDecision.reason))"
+                let videoNote = remuxDolbyVision7Conversion(for: media, decision: .spatialAudio) != nil
+                    ? ", Dolby Vision 7 → 8.1 on device"
+                    : ""
+                reason = "\(source) converted to \(target) by Plex, video copied\(videoNote) (\(resolverDecision.reason))"
             } else {
                 var labels: [String] = []
                 if qualifiesForSpatialAudio {
                     labels.append(audioStream.map { StreamResolver.isDolbyAtmos($0) ? "Dolby Atmos" : "multichannel Dolby" } ?? "Dolby")
                 }
-                if qualifiesForHDRVideo {
+                if remuxDolbyVision7Conversion(for: media, decision: .spatialAudio) != nil {
+                    labels.append("Dolby Vision 7 → 8.1")
+                } else if qualifiesForHDRVideo {
                     labels.append(StreamResolver.hdrVideoLabel(for: media))
                 }
                 reason = "\(labels.joined(separator: " + ")) via lossless Plex remux (\(resolverDecision.reason))"
@@ -209,11 +214,17 @@ extension PlaybackCoordinator {
                 await previousTask.value
             }
             guard !Task.isCancelled else { return }
-            await self?.rebuildSpatialAudioSessionForTrackChange()
+            await self?.rebuildSpatialAudioSession(
+                transitionLabel: "rebuilding the spatial-audio remux for selected tracks",
+                declineReason: "Selected tracks cannot ride the spatial-audio remux; direct play"
+            )
         }
     }
 
-    private func rebuildSpatialAudioSessionForTrackChange() async {
+    /// Asks Plex for a fresh remux of the live item around the active tracks
+    /// and swaps to it at the live position (the old transcode session is
+    /// stopped). When Plex declines, moves to direct play with `declineReason`.
+    func rebuildSpatialAudioSession(transitionLabel: String, declineReason: String) async {
         guard isSpatialAudioSession,
               !isSwitchingQuality,
               !didFinalizeCurrentSession,
@@ -256,10 +267,7 @@ extension PlaybackCoordinator {
         }
 
         guard let remux else {
-            await leaveSpatialAudioRemux(
-                reason: "Selected tracks cannot ride the spatial-audio remux; direct play",
-                keepsExplicitTracks: true
-            )
+            await leaveSpatialAudioRemux(reason: declineReason, keepsExplicitTracks: true)
             return
         }
 
@@ -270,7 +278,7 @@ extension PlaybackCoordinator {
         }
         activeTranscodeSessionID = remux.transcodeSessionID
         activateReplacementAttempt(
-            transitionLabel: "rebuilding the spatial-audio remux for selected tracks",
+            transitionLabel: transitionLabel,
             attemptID: UUID(),
             details: details,
             ratingKey: ratingKey,
@@ -449,6 +457,24 @@ extension PlaybackCoordinator {
             includesProfile8: preferences.hdrVideoRemuxEnabled
         )
         .flatMap(DolbyVisionConfiguration.init(stream:))
+    }
+
+    /// The 8.1 configuration a remux of a Dolby Vision profile 7 file is
+    /// converted to on device (`DolbyVision7HLSProxy`): any remux of it (HDR,
+    /// Atmos or converted audio) while the HDR and conversion settings are
+    /// on and the conversion has not failed for this item; nil otherwise.
+    /// The single place that decides; extend it rather than checking elsewhere.
+    func remuxDolbyVision7Conversion(
+        for media: PlexMedia,
+        decision: PlaybackDecision
+    ) -> DolbyVisionConfiguration? {
+        guard decision.isSpatialAudio,
+              preferences.hdrVideoRemuxEnabled,
+              preferences.dolbyVision7ConversionEnabled,
+              !isDolbyVision7ConversionSuppressed else {
+            return nil
+        }
+        return StreamResolver.dolbyVision7ConversionTarget(in: media)
     }
 
     /// Whether the remux's audio is E-AC-3 + JOC. Only then does the session

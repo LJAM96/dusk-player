@@ -436,6 +436,10 @@ struct SettingsIOSView: View {
                 Toggle("HDR & Dolby Vision", isOn: $preferences.hdrVideoRemuxEnabled)
                     .foregroundStyle(Color.duskTextPrimary)
 
+                Toggle("Dolby Vision 7 → 8.1", isOn: $preferences.dolbyVision7ConversionEnabled)
+                    .foregroundStyle(Color.duskTextPrimary)
+                    .disabled(!preferences.hdrVideoRemuxEnabled)
+
                 Toggle("Force AVPlayer", isOn: $preferences.forceAVPlayer)
                     .foregroundStyle(Color.duskTextPrimary)
 

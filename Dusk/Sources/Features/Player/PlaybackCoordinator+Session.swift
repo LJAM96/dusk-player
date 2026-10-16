@@ -155,6 +155,9 @@ extension PlaybackCoordinator {
         qualitySwitchError = nil
         cancelUpNextCountdown()
         cancelDirectPlayFallbackWatch()
+        // A new item gets the Dolby Vision 7 conversion back. Reset here, not
+        // at the commit below: the remux request labels its session with it.
+        isDolbyVision7ConversionSuppressed = false
         // Any Up Next overlay stays visible as the loading state for the next
         // episode; it's cleared when the new engine commits below.
         // Plex session hygiene: a replaced session that was never finalized
@@ -537,11 +540,12 @@ extension PlaybackCoordinator {
             // Ahead of the engine so the display's mode switch (which blanks the
             // screen briefly) overlaps buffering instead of playback.
             let dolbyVisionRemux = remuxDolbyVisionConfiguration(for: media, decision: playbackDecision)
+            let dolbyVision7Conversion = remuxDolbyVision7Conversion(for: media, decision: playbackDecision)
             DisplayModeMatcher.apply(
                 media: media,
                 part: part,
                 decision: playbackDecision,
-                dolbyVision: dolbyVisionRemux
+                dolbyVision: dolbyVision7Conversion ?? dolbyVisionRemux
             )
             engine = newEngine
             let preferredAudioTrackPosition: Int? = switch playbackDecision {
@@ -577,7 +581,8 @@ extension PlaybackCoordinator {
                 ),
                 locality: sourceLocality(for: playbackURL, serverID: serverID),
                 restoresDolbyAtmos: playbackDecision.isSpatialAudio && activeAudioStreamIsDolbyAtmos(in: part),
-                dolbyVisionRemux: dolbyVisionRemux
+                dolbyVisionRemux: dolbyVisionRemux,
+                dolbyVision7Conversion: dolbyVision7Conversion
             )
             debugInfo = PlaybackDebugInfo(
                 title: details.title,
@@ -1103,11 +1108,16 @@ extension PlaybackCoordinator {
         // server transcode of an HDR source lands as SDR), so the criteria is
         // re-evaluated rather than carried over from the previous attempt.
         let dolbyVisionRemux = remuxDolbyVisionConfiguration(for: media, decision: playbackDecision)
+        // VLCKit can take over a remux URL (external subtitle mount); it
+        // plays the copy as is, so there is nothing to convert.
+        let dolbyVision7Conversion = engineType == .avPlayer
+            ? remuxDolbyVision7Conversion(for: media, decision: playbackDecision)
+            : nil
         DisplayModeMatcher.apply(
             media: media,
             part: part,
             decision: playbackDecision,
-            dolbyVision: dolbyVisionRemux
+            dolbyVision: dolbyVision7Conversion ?? dolbyVisionRemux
         )
         engine = newEngine
         let preferredAudioTrackPosition: Int? = switch playbackDecision {
@@ -1132,7 +1142,8 @@ extension PlaybackCoordinator {
             ),
             locality: sourceLocality(for: playbackURL, serverID: activePlaybackServerID),
             restoresDolbyAtmos: playbackDecision.isSpatialAudio && activeAudioStreamIsDolbyAtmos(in: part),
-            dolbyVisionRemux: dolbyVisionRemux
+            dolbyVisionRemux: dolbyVisionRemux,
+            dolbyVision7Conversion: dolbyVision7Conversion
         )
         debugInfo = PlaybackDebugInfo(
             title: details.title,
@@ -1371,6 +1382,19 @@ extension PlaybackCoordinator {
         defer {
             isAutomaticDirectPlayFallbackAvailable = false
             isAutomaticDirectPlayFallbackActive = false
+        }
+
+        // A failed Dolby Vision 7 → 8.1 conversion first retries the same
+        // remux without it (the HDR10 base layer). If that fails too, the
+        // suppressed conversion lets the branch below leave for direct play.
+        if debugInfo?.decision.isSpatialAudio == true, playbackSource?.dolbyVision7Conversion != nil {
+            let failureDescription = engine?.error?.errorDescription ?? "engine reported state .error"
+            isDolbyVision7ConversionSuppressed = true
+            await rebuildSpatialAudioSession(
+                transitionLabel: "retrying the remux without Dolby Vision 7 conversion (\(failureDescription))",
+                declineReason: "Remux unavailable after Dolby Vision 7 conversion failed; direct play"
+            )
+            return
         }
 
         // A failed Dolby Vision profile 5 remux goes down to the server

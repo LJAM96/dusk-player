@@ -34,6 +34,7 @@ final class UserPreferences {
         static let forceVLCKit = "forceVLCKit"
         static let spatialAudioRemuxEnabled = "spatialAudioRemuxEnabled"
         static let hdrVideoRemuxEnabled = "hdrVideoRemuxEnabled"
+        static let dolbyVision7ConversionEnabled = "dolbyVision7ConversionEnabled"
         static let appearanceMode = "appearanceMode"
         static let libraryTabOrder = "libraryTabOrder"
         static let hiddenLibraryTabs = "hiddenLibraryTabs"
@@ -194,6 +195,13 @@ final class UserPreferences {
     /// renders into an 8-bit SDR surface on iOS/tvOS.
     var hdrVideoRemuxEnabled: Bool {
         didSet { UserDefaults.standard.set(hdrVideoRemuxEnabled, forKey: Keys.hdrVideoRemuxEnabled) }
+    }
+
+    /// Convert Dolby Vision profile 7 to 8.1 on device during the HDR remux,
+    /// so a Dolby Vision display shows Dolby Vision instead of the HDR10
+    /// base layer. Only applies while `hdrVideoRemuxEnabled` is on.
+    var dolbyVision7ConversionEnabled: Bool {
+        didSet { UserDefaults.standard.set(dolbyVision7ConversionEnabled, forKey: Keys.dolbyVision7ConversionEnabled) }
     }
 
     /// App-wide appearance override.
@@ -472,6 +480,7 @@ final class UserPreferences {
         self.forceVLCKit = forceVLCKit
         self.spatialAudioRemuxEnabled = defaults.object(forKey: Keys.spatialAudioRemuxEnabled) as? Bool ?? true
         self.hdrVideoRemuxEnabled = defaults.object(forKey: Keys.hdrVideoRemuxEnabled) as? Bool ?? true
+        self.dolbyVision7ConversionEnabled = defaults.object(forKey: Keys.dolbyVision7ConversionEnabled) as? Bool ?? true
         self.appearanceMode = appearanceMode
         self.libraryTabOrder = libraryTabOrder
         self.hiddenLibraryTabs = hiddenLibraryTabs

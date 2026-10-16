@@ -55,6 +55,9 @@ final class PlaybackCoordinator {
     /// (quality switch, delivery-ladder fallback, Picture in Picture restore);
     /// cleared when the next item's session commits.
     @ObservationIgnored var spentAutoSkipMarkerIDs: Set<Int> = []
+    /// The Dolby Vision 7 → 8.1 conversion failed for the item now playing,
+    /// so its remux is rebuilt (and kept) without it. Reset for each new item.
+    @ObservationIgnored var isDolbyVision7ConversionSuppressed = false
     var isSwitchingQuality = false
     var qualitySwitchError: String?
     /// System AirPlay route state shared by playback preparation and the iOS

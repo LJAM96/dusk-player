@@ -237,6 +237,12 @@ struct SettingsTVView: View {
 
                     tvRowDivider
 
+                    TVSettingsToggleRow(title: "Dolby Vision 7 → 8.1", isOn: $preferences.dolbyVision7ConversionEnabled)
+                        .disabled(!preferences.hdrVideoRemuxEnabled)
+                        .opacity(preferences.hdrVideoRemuxEnabled ? 1 : 0.5)
+
+                    tvRowDivider
+
                     TVSettingsToggleRow(title: "Force AVPlayer", isOn: $preferences.forceAVPlayer)
 
                     tvRowDivider
