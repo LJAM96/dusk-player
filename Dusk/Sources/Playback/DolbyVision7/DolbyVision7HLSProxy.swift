@@ -193,7 +193,8 @@ final class DolbyVision7HLSProxy: @unchecked Sendable {
     private func listener(_ listener: NWListener, didChange state: NWListener.State) {
         switch state {
         case .ready:
-            let continuation = lock.withLock {
+            let continuation = lock.withLock { () -> CheckedContinuation<NWEndpoint.Port, any Error>? in
+                guard self.listener === listener else { return nil }
                 port = listener.port
                 defer { readyContinuation = nil }
                 return readyContinuation
@@ -205,23 +206,28 @@ final class DolbyVision7HLSProxy: @unchecked Sendable {
             }
         case let .failed(error):
             listener.cancel()
-            let continuation = lock.withLock {
-                defer { readyContinuation = nil }
-                return readyContinuation
-            }
+            let continuation = takeReadyContinuation(of: listener)
             if let continuation {
                 continuation.resume(throwing: DolbyVision7ConversionError.proxyUnavailable("listener failed: \(error)"))
             } else {
                 listenerFailedAfterStart(listener, error: error)
             }
         case .cancelled:
-            let continuation = lock.withLock {
-                defer { readyContinuation = nil }
-                return readyContinuation
-            }
+            let continuation = takeReadyContinuation(of: listener)
             continuation?.resume(throwing: CancellationError())
         default:
             break
+        }
+    }
+
+    /// The pending `start` continuation, only while `listener` is the current
+    /// one: a listener replaced after a failure still reports `.cancelled`
+    /// later and must not resolve its successor's wait.
+    private func takeReadyContinuation(of listener: NWListener) -> CheckedContinuation<NWEndpoint.Port, any Error>? {
+        lock.withLock {
+            guard self.listener === listener else { return nil }
+            defer { readyContinuation = nil }
+            return readyContinuation
         }
     }
 
