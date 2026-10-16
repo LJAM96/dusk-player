@@ -107,7 +107,6 @@ enum PlayerTVActionItem: Equatable, Identifiable {
 /// Transient feedback shown over the video while the HUD is hidden.
 enum PlayerTVTransientBadge: Equatable {
     case seek(direction: PlayerSeekFeedbackPresentation.Direction, seconds: Int)
-    case playPause(isPlaying: Bool)
 }
 
 /// Owns the tvOS HUD's state machine.
@@ -504,16 +503,9 @@ final class PlayerTVHUDController {
     private func togglePlayPause() {
         guard let viewModel else { return }
 
-        let staysHidden = mode == .hidden
-        viewModel.suppressControlsReveal = staysHidden
         viewModel.togglePlayPause()
-        viewModel.suppressControlsReveal = false
-
-        if staysHidden {
-            showBadge(.playPause(isPlaying: viewModel.state == .playing))
-        } else {
-            noteInteraction()
-        }
+        syncControlsVisibility(viewModel.showControls)
+        noteInteraction()
     }
 
     // MARK: - Hold-to-seek

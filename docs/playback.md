@@ -604,9 +604,9 @@ so the whole live HUD is derived from one instant.
   cannot grow the bar it sits in or take a touch target wider than the circle.
 - `PlayerAirPlayRemoteBackground` is the phone's screen while video is on the
   receiver: a clamped, clipped, blurred wash of the item's backdrop, the poster
-  in the half above the HUD's centered play/pause button, and a "Playing on
-  <route>" pill in the half below it. Both halves are equally flexible, so the
-  split stays on the transport button in any orientation; short layouts
+  in the upper half, and a "Playing on <route>" pill in the lower half. Both
+  halves are equally flexible; the compact transport stays above the scrubber
+  at the bottom. Short layouts
   (iPhone landscape) drop the poster and title and keep the pill. **Any
   full-bleed artwork added here must keep the
   `.frame(maxWidth:.infinity, maxHeight:.infinity).clipped()` clamp**: a
@@ -1621,17 +1621,12 @@ so the whole live HUD is derived from one instant.
   coordinator can still read final time/duration before finalization.
 - iOS uses touch overlays, a gear menu for playback info, quality, and track
   selection, sheets for quality/audio/subtitle choices, and double-tap seek
-  zones when enabled. The center play/pause button is replaced by the shared
-  spinner for as long as that spinner is up
-  (`PlaybackCoordinator.playerLoadingState.isVisible`): startup (engine
-  `.idle`/`.loading`, which includes the VLCKit audio warmup, also covered
-  same-frame by `PlayerViewModel.isAwaitingPlaybackStart`), mid-play
-  buffering, and
-  automatic direct-play recovery. So the two never stack in the center slot,
-  and startup never flashes a play icon that immediately flips to pause. The
-  button stays mounted at zero opacity instead of being removed, for the same
-  reason the HUD does (see the fade note above) and so the HUD's layout does
-  not change when buffering starts.
+  zones when enabled. Play/pause and the optional episode buttons are compact
+  controls above the scrubber, leaving the center of the picture clear for the
+  shared loading spinner. Play/pause stays mounted at zero opacity while the
+  loading presentation is active so startup and buffering cannot shift the HUD
+  or offer a misleading transport action. The compact transport row fades out
+  during scrubbing to leave room for the thumbnail above the track.
 - The iOS/iPadOS controls expose a round zoom button at the top-right that
   toggles `PlayerViewModel.aspectFillEnabled` and calls
   `PlaybackEngine.setVideoFillEnabled(_:)`. Fill zooms the picture to cover the
@@ -1657,11 +1652,11 @@ so the whole live HUD is derived from one instant.
   base delay) via `PlayerViewModel.noteSettingsMenuInteraction()`, so the HUD
   does not hide while the menu is open. iOS detects the gear's opening tap with
   a `simultaneousGesture` (a native `Menu` exposes no presentation callback).
-- Controls auto-hide while playing on every platform. **tvOS also auto-hides
-  while paused** (`PlayerViewModel.stateAllowsControlsAutoHide`): the picture is
-  the point, the remote has a dedicated play/pause button, and any click brings
-  the transport straight back. iOS keeps the HUD up while paused because the
-  play button is the only way back.
+- Controls auto-hide only while playing on every platform. Pausing reveals the
+  full HUD (including pauses from system transport, AirPlay or SharePlay) and
+  cancels its hide deadline. Resuming starts a fresh normal auto-hide window.
+  There is no transient center play/pause badge on tvOS; the transport provides
+  the feedback. Explicit HUD dismissal still works while paused.
 - With a mouse/trackpad (Mac or iPad), the system pointer hides together with the
   controls and returns the moment the pointer moves. The non-tvOS
   `PlayerTapInteractionOverlay` owns this: a `UIPointerInteraction` returns
@@ -1752,7 +1747,7 @@ so the whole live HUD is derived from one instant.
 - Mode transitions:
   - `hidden`: tap or Select or Up → `transport`; Left/Right → accumulate a seek
     (see below) with a centred badge, stays hidden; horizontal swipe → `scrubbing`;
-    Down → `panel`; Play/Pause → toggles with a transient badge, stays hidden;
+    Down → `panel`; Play/Pause → toggles and reveals `transport`;
     Menu → dismiss the player. While a Skip Intro chip or an Up Next poster is on
     screen, Select activates it and Down dismisses it (the chip has nothing to
     dismiss, so Down falls through to the panel).
@@ -1801,7 +1796,7 @@ so the whole live HUD is derived from one instant.
   `syncControlsVisibility(_:)` so a reveal that came from playback code (an
   auto-skip, a marker jump) still lands in a coherent mode.
   `PlayerViewModel.suppressControlsReveal` is the tvOS-only escape hatch for the
-  actions that must *not* raise the HUD (play/pause and Skip Intro from `hidden`).
+  Skip Intro activation from `hidden`, which must not raise the HUD.
   The panel and an in-flight scrub hold the HUD up via the existing
   `beginControlsInteractionHold()` / `endControlsInteractionHold()` pair.
 - Chapters are marker-backed only. Plex exposes no chapter list through the

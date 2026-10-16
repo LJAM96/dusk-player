@@ -61,7 +61,7 @@ final class PlayerViewModel {
     #if os(tvOS)
     /// tvOS routes every HUD reveal through `PlayerTVHUDController`. Set while
     /// the controller performs an action that must not raise the HUD — a
-    /// play/pause press or a Skip Intro activation from the hidden state.
+    /// Skip Intro activation from the hidden state.
     @ObservationIgnored var suppressControlsReveal = false
     #endif
 

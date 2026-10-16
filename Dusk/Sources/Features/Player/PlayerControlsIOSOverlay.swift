@@ -18,8 +18,6 @@ struct PlayerControlsIOSOverlay: View {
                 VStack {
                     topBar
                     Spacer()
-                    centerControls
-                    Spacer()
                     bottomBar
                 }
                 .padding(.horizontal, PlayerOverlayLayout.controlsHorizontalPadding)
@@ -107,35 +105,24 @@ struct PlayerControlsIOSOverlay: View {
         .accessibilityLabel(viewModel.aspectFillEnabled ? "Fit video to screen" : "Zoom video to fill screen")
     }
 
-    private var centerControls: some View {
+    private var transportControls: some View {
         let isPlaying = viewModel.state == .playing
         let isSpinnerActive = isLoadingPresentationActive
 
-        return HStack(spacing: 44) {
+        return HStack(spacing: 20) {
             Spacer(minLength: 0)
             if showsEpisodeButtons {
                 episodeButton(.previous)
             }
-            // The center slot belongs to `PlayerView`'s shared spinner whenever
-            // that spinner is up: startup (including the VLCKit audio warmup,
-            // masked as .loading), delayed mid-play buffering, and the automatic
-            // direct-play → server-stream recovery. Stacking the button under it
-            // reads as a double control, and during startup it would render
-            // "play" while video is already moving, then flip the moment the
-            // warmup completes.
-            //
-            // The button stays mounted at zero opacity rather than being removed:
-            // a removal transition here is re-decided on every render pass, and
-            // sync republishes `currentTime` 4x/sec, so it would pop instead of
-            // fade (same trap as the HUD itself, see `PlayerSessionView`).
             Button { viewModel.togglePlayPause() } label: {
                 Image(systemName: isPlaying ? "pause.fill" : "play.fill")
-                    .font(.system(size: 44))
+                    .font(.title3.weight(.semibold))
                     .contentTransition(.symbolEffect(.replace, options: .speed(2)))
                     .foregroundStyle(.white)
-                    .frame(width: 72, height: 72)
+                    .frame(width: 44, height: 44)
                     .background(.ultraThinMaterial, in: Circle())
             }
+            .accessibilityLabel(isPlaying ? "Pause" : "Play")
             .opacity(isSpinnerActive ? 0 : 1)
             .allowsHitTesting(!isSpinnerActive)
             .accessibilityHidden(isSpinnerActive)
@@ -163,9 +150,9 @@ struct PlayerControlsIOSOverlay: View {
             playback.playAdjacentEpisode(direction, isPastCredits: viewModel.isPastCreditsMarker)
         } label: {
             Image(systemName: direction == .next ? "forward.end.fill" : "backward.end.fill")
-                .font(.title2.weight(.semibold))
+                .font(.title3.weight(.semibold))
                 .foregroundStyle(.white)
-                .frame(width: 56, height: 56)
+                .frame(width: 44, height: 44)
                 .background(.ultraThinMaterial, in: Circle())
         }
         .disabled(!isEnabled)
@@ -197,6 +184,12 @@ struct PlayerControlsIOSOverlay: View {
 
     private var bottomBar: some View {
         VStack(spacing: 4) {
+            transportControls
+                // The scrub thumbnail occupies this space above the track.
+                .opacity(viewModel.isScrubbing ? 0 : 1)
+                .allowsHitTesting(!viewModel.isScrubbing)
+                .accessibilityHidden(viewModel.isScrubbing)
+
             PlayerSeekBar(
                 viewModel: viewModel,
                 isInteractive: true,

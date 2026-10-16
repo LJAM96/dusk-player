@@ -38,6 +38,7 @@ extension PlayerViewModel {
     }
 
     func sync() {
+        let previousState = state
         let engineState = engine.state
         let now = Date()
 
@@ -56,6 +57,12 @@ extension PlayerViewModel {
             pendingPlaybackState = nil
             pendingPlaybackStateExpiration = nil
             state = engineState
+        }
+
+        // System transport, AirPlay and SharePlay can pause the engine without
+        // going through the on-screen toggle. Reveal the HUD for those too.
+        if state == .paused, previousState != .paused {
+            touchControls()
         }
 
         if !isScrubbing {
@@ -289,8 +296,7 @@ extension PlayerViewModel {
 
     func touchControls() {
         #if os(tvOS)
-        // The tvOS HUD controller owns reveals; some of its actions (play/pause
-        // or Skip Intro while the HUD is hidden) must not raise it.
+        // Skip Intro can run without revealing the tvOS HUD.
         if suppressControlsReveal {
             scheduleHide()
             return
@@ -492,16 +498,10 @@ extension PlayerViewModel {
             state != .error
     }
 
-    /// iOS keeps the HUD up while paused: the play button is the only way back
-    /// and the overlay is the touch target. tvOS hides it anyway — the picture
-    /// is the point, the remote has a dedicated play/pause button, and any
-    /// click brings the transport straight back.
+    /// Pausing keeps the full HUD visible on both platforms. Resuming arms a
+    /// fresh deadline through the normal interaction / sync path.
     private var stateAllowsControlsAutoHide: Bool {
-        #if os(tvOS)
-        state == .playing || state == .paused
-        #else
         state == .playing
-        #endif
     }
 
     private func cancelScheduledHide() {
