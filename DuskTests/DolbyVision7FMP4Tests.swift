@@ -400,6 +400,63 @@ struct DolbyVision7FragmentRewriterTests {
     }
 }
 
+/// The fragment rewriter and the real DuskDovi bridge together: a FEL
+/// sample from dovi_tool's test vectors loses its enhancement layer and its
+/// RPU comes out as the mode 2 golden, inside a correctly resized fragment.
+@Suite("Dolby Vision 7 fragment rewrite through DuskDovi")
+struct DolbyVision7EndToEndTests {
+    private let info = FMP4InitInfo(
+        video: FMP4VideoTrackInfo(trackID: 1, nalLengthSize: 4),
+        trexDefaults: [:]
+    )
+    private let slice: [UInt8] = [0x02, 0x01, 0xD0, 0x11, 0x22, 0x33]
+    private let enhancementLayer: [UInt8] = [0x7E, 0x01, 0x40, 0x01, 0x0C, 0x01, 0xFF, 0xFF]
+    private let audio: [UInt8] = [0xA0, 0xA1, 0xA2, 0xA3, 0xA4, 0xA5, 0xA6]
+
+    /// mfhd 16 + two trafs of tfhd 16 + tfdt 20 + trun 0x201 (one entry) 24
+    /// = 68 each → moof 160; the first run starts at 160 + 8.
+    private func fragment(videoSample: [UInt8]) -> [UInt8] {
+        func traf(trackID: UInt32, size: Int, dataOffset: Int) -> [UInt8] {
+            box("traf",
+                fullBox("tfhd", flags: 0x02_0000, u32(trackID))
+                    + fullBox("tfdt", version: 1, flags: 0, u64(900_000))
+                    + fullBox("trun", flags: 0x201, u32(1) + i32(Int32(dataOffset)) + u32(UInt32(size))))
+        }
+        let moof = box("moof",
+            fullBox("mfhd", flags: 0, u32(7))
+                + traf(trackID: 1, size: videoSample.count, dataOffset: 168)
+                + traf(trackID: 2, size: audio.count, dataOffset: 168 + videoSample.count))
+        return moof + box("mdat", videoSample + audio)
+    }
+
+    @Test func felSampleDropsTheEnhancementLayerAndConvertsTheRPU() throws {
+        let rpu = [UInt8](DolbyVision7Fixtures.rpuNAL(DolbyVision7Fixtures.felOriginal))
+        let convertedRPU = [UInt8](DolbyVision7Fixtures.rpuNAL(DolbyVision7Fixtures.felConverted))
+        let sample = nal(slice) + nal(enhancementLayer) + nal(rpu)
+        let expectedSample = nal(slice) + nal(convertedRPU)
+
+        let input = fragment(videoSample: sample)
+        #expect(input.count == 160 + 8 + sample.count + audio.count)
+
+        let (data, stats) = try FMP4FragmentRewriter(info: info, sampleRewriter: DoviBridgeSampleRewriter())
+            .rewrite(Data(input))
+
+        // Same layout with the new video size; the audio run's data_offset
+        // follows the shorter video sample.
+        #expect([UInt8](data) == fragment(videoSample: expectedSample))
+        #expect(stats == DolbyVisionSampleStats(
+            sampleCount: 1,
+            nalCount: 3,
+            rpuCount: 1,
+            enhancementLayerNALCount: 1,
+            sourceProfile: 7,
+            sourceELType: .fel,
+            inputBytes: sample.count,
+            outputBytes: expectedSample.count
+        ))
+    }
+}
+
 /// Stands in for the libdovi bridge: drops enhancement-layer NAL units
 /// (type 63), replaces each RPU (type 62) with `convertedRPU`, copies the
 /// rest.
