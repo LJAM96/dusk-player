@@ -1059,13 +1059,13 @@ private struct PlayerSessionView: View {
         #endif
     }
 
-    /// A failed direct-play engine is only an intermediate state while the
-    /// automatic Plex server-stream replacement is active. Keep the existing
+    /// A failed direct-play or remux engine is an intermediate state while
+    /// automatic recovery is pending. Keep the existing
     /// loading presentation and controls alive until recovery succeeds or this
     /// becomes the final error the user needs to act on.
     private var hasVisiblePlaybackError: Bool {
         viewModel.playbackError != nil &&
-            !playback.isAutomaticDirectPlayFallbackAvailable
+            !playback.isAutomaticDirectPlayFallbackPending
     }
 
     private var scrubPreviewPartID: Int? {

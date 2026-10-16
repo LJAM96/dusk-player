@@ -86,6 +86,55 @@ struct TrueHDAudioRoutingTests {
 
     // MARK: - Converted TrueHD remux gate
 
+    @Test(arguments: [6, 8], ["truehd", "mlp"])
+    func dv7TrueHDStartsLocally(channels: Int, codec: String) throws {
+        // The HDR10 Atmos demo has 8 channels; the HDR10+ sibling has 6
+        // and a forced SRT. HDR10+ is not distinguished in Plex metadata.
+        let media = try makeMedia(
+            video: dv7Video,
+            audio: #"{ "id": 2, "streamType": 2, "codec": "\#(codec)", "channels": \#(channels), "default": true }"#,
+            subtitleCodec: channels == 6 ? "srt" : nil
+        )
+        let streams = media.parts[0].streams
+        let decision = StreamResolver.evaluate(media: media)
+        let audio = PlayerViewModel.preferredRemuxAudioStream(inPart: media.parts[0], preferredLanguage: nil)
+        let subtitle = streams.first { $0.streamType == .subtitle }
+        #expect(decision.engine == .vlcKit)
+        #expect(!decision.requiresServerTranscode)
+        #expect(StreamResolver.hdrVideoRemuxBlocker(
+            media: media, decision: decision, audioStream: audio,
+            subtitleStream: subtitle, displaySupportsHDR: true
+        ) != nil)
+        #expect(StreamResolver.spatialAudioRemuxBlocker(
+            media: media, decision: decision, audioStream: audio,
+            subtitleStream: subtitle, displaySupportsHDR: true
+        ) != nil)
+        #expect(convertedBlocker(for: media, subtitleID: subtitle?.id) != nil)
+        #expect(PlayerViewModel.preferredLocalAudioStream(
+            inPart: media.parts[0], preferredLanguage: nil, decodesTrueHD: true
+        )?.id == 2)
+    }
+
+    @Test func dv7WithCopyableAudioKeepsConversion() throws {
+        for audio in [bluRayAudio, #"{ "id": 2, "streamType": 2, "codec": "eac3", "channels": 6 }"#] {
+            let media = try makeMedia(video: dv7Video, audio: audio)
+            let stream = PlayerViewModel.preferredRemuxAudioStream(inPart: media.parts[0], preferredLanguage: nil)
+            #expect(StreamResolver.hdrVideoRemuxBlocker(
+                media: media, decision: StreamResolver.evaluate(media: media),
+                audioStream: stream, subtitleStream: nil, displaySupportsHDR: true
+            ) == nil)
+            #expect(StreamResolver.dolbyVision7ConversionTarget(in: media) != nil)
+        }
+    }
+
+    @Test func dv8TrueHDKeepsConvertedHDRRemux() throws {
+        let media = try makeMedia(
+            video: #""DOVIPresent": true, "DOVIProfile": 8, "DOVIBLCompatID": 1, "colorTrc": "smpte2084""#,
+            audio: trueHDOnlyAudio
+        )
+        #expect(convertedBlocker(for: media) == nil)
+    }
+
     @Test func hdrTrueHDOnlyFileKeepsTheConvertedRemux() throws {
         let media = try makeMedia(video: #""colorTrc": "smpte2084""#, audio: trueHDOnlyAudio)
         #expect(convertedBlocker(for: media) == nil)
@@ -123,6 +172,8 @@ struct TrueHDAudioRoutingTests {
     }
 
     // MARK: - Helpers
+
+    private let dv7Video = #""DOVIPresent": true, "DOVIProfile": 7, "DOVILevel": 6, "DOVIBLCompatID": 6, "colorTrc": "smpte2084""#
 
     private let bluRayAudio = """
         { "id": 2, "streamType": 2, "codec": "truehd", "channels": 8, "languageCode": "eng", "default": true, "displayTitle": "English (TrueHD 7.1)" },

@@ -386,7 +386,9 @@ enum StreamResolver {
     ///   setting on. The phone downmixes the lossless track to stereo anyway
     ///   (the same reason `platformAudioCodecAdjustment` demotes lossless).
     /// Everything else (tvOS SDR above all) direct plays the TrueHD as
-    /// discrete PCM. Returns why not, or nil when the remux should be tried.
+    /// discrete PCM. DV7 + TrueHD also stays local: that hybrid remux fails
+    /// on Apple TV. DV7 with copyable audio keeps its normal conversion path.
+    /// Returns why not, or nil when the remux should be tried.
     static func convertedTrueHDRemuxBlocker(
         media: PlexMedia,
         decision: Decision,
@@ -396,6 +398,14 @@ enum StreamResolver {
         hdrVideoRemuxEnabled: Bool,
         spatialAudioRemuxEnabled: Bool
     ) -> String? {
+        // DV7 + TrueHD is already playable by Dusk's VLCKit. Do not replace
+        // that path with the converted-audio HLS + DV7 proxy combination:
+        // Apple TV rejects these hybrid remuxes before falling back to VLC.
+        // This gate is only used for the proactive remux with local TrueHD
+        // decoding available; stock builds/failed decoders retain recovery.
+        if dolbyVision7ConversionStream(in: media) != nil {
+            return "Dolby Vision 7 with TrueHD uses local VLCKit decoding"
+        }
         let hdrBlocker = hdrVideoRemuxEnabled
             ? hdrVideoRemuxBlocker(
                 media: media,

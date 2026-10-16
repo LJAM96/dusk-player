@@ -229,6 +229,10 @@ so the whole live HUD is derived from one instant.
   presentation and player controls remain visible across the handoff.
   `PlaybackCoordinator.playerLoadingState` is the single presentation state for
   preparation, startup, delayed mid-play buffering, and automatic recovery.
+  Remux recovery uses the same loading/error suppression as direct play.
+  Cleanup is scoped to the failed presentation: a DV7 retry or return to
+  direct play re-arms its own watch, whose flags the outgoing attempt must
+  not clear.
   `PlayerView` owns its only spinner above the replaceable player-session
   identity, so loading phases cannot stack indicators and its native animation
   phase does not restart when the engine swaps. A failed fallback reveals the
@@ -371,8 +375,9 @@ so the whole live HUD is derived from one instant.
   picture would lower audio quality, and the remux never lowers quality.
   A TrueHD-only file still takes the video-copy remux with converted audio
   (`convertedTrueHDRemuxBlocker`), as it did through the undecodable-audio
-  fallback before VLCKit decoded TrueHD; TrueHD with a copyable sibling
-  remuxes the sibling (see "Dolby TrueHD decoding").
+  fallback before VLCKit decoded TrueHD, except DV7 + TrueHD on Dusk's
+  TrueHD-capable VLCKit build (direct play; see below). TrueHD with a
+  copyable sibling remuxes the sibling (see "Dolby TrueHD decoding").
 - Delivery and acceptance are the Atmos remux's
   (`requestSpatialAudioRemux`, session type `.spatialAudio`, lossless only,
   any failure → plain direct play). A file can qualify for Atmos, HDR or
@@ -443,6 +448,21 @@ so the whole live HUD is derived from one instant.
   `convertedFromProfile = 7`); `DisplayModeMatcher` gets it in place of
   `dolbyVisionRemux`. VLCKit taking over a remux URL never converts.
   `StreamResolver.dolbyVisionSignalingStream` still excludes profile 7.
+- Startup exception with Dusk's TrueHD decoder: when the remux audio pick is
+  TrueHD/MLP (no usable copyable sibling), `convertedTrueHDRemuxBlocker`
+  keeps DV7 files on VLCKit direct play. The demo clips `DV P7 MEL - Hybrid
+  HDR10 TrueHD Atmos (2020)` (7.1/48 kHz) and `DV P7 MEL - Hybrid HDR10+
+  TrueHD 5.1 (2020)` (5.1/96 kHz, forced SRT) have this combination. The
+  previous startup policy overrode the local decoder with converted-audio
+  HLS plus DV7 conversion; Apple TV testing reported a decoder error before
+  recovery. This chooses the working local path immediately (lossless PCM
+  bed, VLCKit's SDR video output). DV7 with AC-3/E-AC-3, including copyable
+  siblings, still remuxes/converts; stock builds and actual local decoder
+  failures retain the server-audio fallback. The exact native decoder
+  failure requires device logs; the approximate reported wording is not a
+  Dusk string. AVPlayer's item error is surfaced through
+  `PlaybackError.fromPlaybackFailure`; the VLCKit TrueHD-decoder failure
+  message is a log that requests server recovery, not an alert.
 - Architecture: Plex's remux is unchanged (same request, same acceptance).
   `AVPlayerEngine` starts a `DolbyVision7HLSProxy` for the source instead of
   `RemuxHLSLoader` (`usesRemuxHLSLoader` is false with a conversion) and
@@ -549,8 +569,9 @@ so the whole live HUD is derived from one instant.
     the session reason (Playback Info) names "Dolby Vision 7 → 8.1" and
     Display Mode reads "Dolby Vision 8.1 (from profile 7)"; the first-segment log shows RPUs ≈ samples
     and EL NALs dropped (FEL and MEL).
-  - Audio: E-AC-3 Atmos (receiver shows Atmos), TrueHD (converted-audio
-    remux, still DV), AC-3.
+  - Audio: E-AC-3 Atmos (receiver shows Atmos), AC-3; DV7 + TrueHD-only
+    starts locally on Dusk's build (PCM bed, SDR), while stock VLCKit uses
+    the converted-audio fallback.
   - DV display mode switch on the TV (Match Content on).
   - Seeking: scrub forward/back, skip ±10 s, resume from a saved position.
   - WebVTT subtitles on and switching tracks (rebuilds the remux, conversion
@@ -991,9 +1012,12 @@ so the whole live HUD is derived from one instant.
     is still requested at startup when it buys what VLCKit cannot give — HDR
     picture (the HDR remux qualifies apart from the audio) or, on iPhone/iPad
     with the spatial-audio setting on, spatial audio for a 5.1+ track.
+    DV7 + TrueHD is the exception: direct play on the custom VLCKit build
+    avoids the failing converted-audio/DV7 startup path, with no decoder
+    attempt on AVPlayer. Non-DV7 TrueHD-only behavior is unchanged.
     Everything else (tvOS SDR above all) decodes locally to discrete PCM.
-    Before, these files direct played on VLCKit and only then hit the
-    fallback; now the remux is chosen up front.
+    For eligible non-DV7 files the remux is chosen up front, replacing the
+    old direct-play-then-undecodable-audio-fallback path.
   - In a remux session, picking a TrueHD track behaves like picking DTS:
     `leaveSpatialAudioRemux` moves to VLCKit direct play with that track
     (lossless audio, no HDR). That is the viewer's explicit choice.

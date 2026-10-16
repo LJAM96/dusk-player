@@ -417,7 +417,8 @@ extension PlaybackCoordinator {
                     // TrueHD-only file: VLCKit decodes it losslessly, but the
                     // converted-audio remux still wins where it buys what
                     // VLCKit cannot give (HDR picture; spatial audio on
-                    // iPhone/iPad). Everything else direct plays the TrueHD.
+                    // iPhone/iPad), except DV7 + TrueHD hybrid remuxes that
+                    // fail on Apple TV. Those direct play the TrueHD up front.
                     if remux == nil,
                        let remuxAudioStream,
                        VLCKitBuildInfo.decodesTrueHD,
@@ -1426,9 +1427,15 @@ extension PlaybackCoordinator {
     /// stream (direct-stream/remux). If this attempt itself fails, the normal
     /// error surface stays in place — there is no rung below this one.
     func performDirectPlayServerStreamFallback() async {
+        let failedPresentationID = playerPresentationID
         defer {
-            isAutomaticDirectPlayFallbackAvailable = false
-            isAutomaticDirectPlayFallbackActive = false
+            // A replacement remux/direct-play attempt arms its own watch.
+            // The outgoing attempt must not clear its successor's flags and
+            // expose an intermediate decoder error during the next recovery.
+            if playerPresentationID == failedPresentationID {
+                isAutomaticDirectPlayFallbackAvailable = false
+                isAutomaticDirectPlayFallbackActive = false
+            }
         }
 
         // A failed Dolby Vision 7 → 8.1 conversion first retries the same
