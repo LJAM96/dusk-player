@@ -1,3 +1,4 @@
+import AVFoundation
 import Foundation
 import OSLog
 
@@ -324,7 +325,7 @@ extension PlaybackCoordinator {
                     // the server-stream rung. On any failure or ambiguity fall
                     // back to direct play so playback still starts.
                     let mediaIndex = details.media.firstIndex { $0.id == media.id } ?? 0
-                    let audioStreamID = PlayerViewModel.preferredLocalAudioStream(
+                    let audioStreamID = PlayerViewModel.preferredRemuxAudioStream(
                         inPart: part,
                         preferredLanguage: preferences.defaultAudioLanguage
                     )?.id
@@ -392,25 +393,66 @@ extension PlaybackCoordinator {
                     // HDR10+, HLG, Dolby Vision 7/8), goes to AVPlayer through
                     // a lossless Plex remux. Anything short of a confirmed
                     // copy-remux keeps plain direct play.
-                    let audioStreamID = PlayerViewModel.preferredLocalAudioStream(
+                    let remuxAudioStream = PlayerViewModel.preferredRemuxAudioStream(
                         inPart: part,
                         preferredLanguage: preferences.defaultAudioLanguage
-                    )?.id
+                    )
+                    let audioStreamID = remuxAudioStream?.id
                     let subtitleStreamID = PlayerViewModel.preferredSubtitleStreamID(
                         inPart: part,
                         preferredLanguage: preferences.defaultSubtitleLanguage,
                         forcedOnly: preferences.subtitleForcedOnly
                     )
-                    if let remux = await requestSpatialAudioRemux(
+                    let mediaIndex = details.media.firstIndex { $0.id == media.id } ?? 0
+                    var remux = await requestSpatialAudioRemux(
                         ratingKey: ratingKey,
-                        mediaIndex: details.media.firstIndex { $0.id == media.id } ?? 0,
+                        mediaIndex: mediaIndex,
                         media: media,
                         part: part,
                         audioStreamID: audioStreamID,
                         subtitleStreamID: subtitleStreamID,
                         sessionIdentifier: sessionIdentifier,
                         serverID: itemServerID
-                    ) {
+                    )
+                    // TrueHD-only file: VLCKit decodes it losslessly, but the
+                    // converted-audio remux still wins where it buys what
+                    // VLCKit cannot give (HDR picture; spatial audio on
+                    // iPhone/iPad). Everything else direct plays the TrueHD.
+                    if remux == nil,
+                       let remuxAudioStream,
+                       VLCKitBuildInfo.decodesTrueHD,
+                       PlayerViewModel.isTrueHDAudioCodec(remuxAudioStream.codec) {
+                        let subtitleStream = subtitleStreamID.flatMap { id in
+                            part.streams.first { $0.streamType == .subtitle && $0.id == id }
+                        }
+                        let blocker = StreamResolver.convertedTrueHDRemuxBlocker(
+                            media: media,
+                            decision: resolverDecision,
+                            audioStream: remuxAudioStream,
+                            subtitleStream: subtitleStream,
+                            displaySupportsHDR: AVPlayer.eligibleForHDRPlayback,
+                            hdrVideoRemuxEnabled: preferences.hdrVideoRemuxEnabled,
+                            spatialAudioRemuxEnabled: preferences.spatialAudioRemuxEnabled
+                        )
+                        if let blocker {
+                            playbackSessionLogger.notice(
+                                "TrueHD decodes locally for ratingKey \(ratingKey, privacy: .public): \(blocker, privacy: .public)"
+                            )
+                        } else {
+                            remux = await requestSpatialAudioRemux(
+                                ratingKey: ratingKey,
+                                mediaIndex: mediaIndex,
+                                media: media,
+                                part: part,
+                                audioStreamID: remuxAudioStream.id,
+                                subtitleStreamID: subtitleStreamID,
+                                convertsAudio: true,
+                                sessionIdentifier: sessionIdentifier,
+                                serverID: itemServerID
+                            )
+                        }
+                    }
+                    if let remux {
                         playbackURL = remux.url
                         sanitizedURL = plexService.sanitizedPlaybackURLString(for: remux.url)
                         playbackDecision = .spatialAudio
@@ -842,9 +884,10 @@ extension PlaybackCoordinator {
 
     /// Restarts the current session as a server transcode pinned to the given
     /// audio stream (nil = the part's default audio stream). Used when the
-    /// local engine cannot decode a track (e.g. TrueHD on the bundled VLCKit
-    /// build): the server decodes it to an AVPlayer-friendly stream, so the
-    /// user's choice produces sound instead of a dead local decoder.
+    /// local engine cannot decode a track (TrueHD on a stock VLCKit build, or
+    /// Dusk's TrueHD decoder producing no audio): the server decodes it to an
+    /// AVPlayer-friendly stream, so the user's choice produces sound instead
+    /// of a dead local decoder.
     func transcodeForUndecodableAudio(_ track: AudioTrack?) async {
         guard let debugInfo else {
             presentQualitySwitchError("Audio transcoding is unavailable for this playback.")

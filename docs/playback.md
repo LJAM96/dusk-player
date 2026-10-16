@@ -250,8 +250,8 @@ so the whole live HUD is derived from one instant.
   audio codecs with a 6-channel limitation. With only the Generic profile's
   lone AAC target, Plex downmixed every 5.1/7.1 source to 2-channel AAC on the
   server-side rungs — which is what the direct-stream fallback and every
-  TrueHD title (undecodable in the vendored VLCKit, so always routed through
-  the server) received. AVPlayer decodes AC-3/E-AC-3 in HLS/mpegts natively on
+  TrueHD title (undecodable in stock VLCKit, so routed through the server
+  before Dusk's own build) received. AVPlayer decodes AC-3/E-AC-3 in HLS/mpegts natively on
   both platforms. `.airPlay` is deliberately excluded: that rung targets
   whatever receiver the user picked, which is not necessarily AC-3 capable.
   There is deliberately no `aac` channel limitation — capping it would fight
@@ -266,8 +266,8 @@ so the whole live HUD is derived from one instant.
 - Eligibility (`StreamResolver.spatialAudioRemuxBlocker`): the resolver would
   pick VLCKit for direct play (not DV5, not forced engines, setting
   `spatialAudioRemuxEnabled` on), single part, 8-bit H.264 or HEVC video, and
-  the audio stream playback would open on (`preferredLocalAudioStream`, which
-  already skips TrueHD) is E-AC-3 Atmos — or, on iPhone/iPad only, any 5.1+
+  the audio stream the remux decision is made for
+  (`preferredRemuxAudioStream`, which skips TrueHD) is E-AC-3 Atmos — or, on iPhone/iPad only, any 5.1+
   AC-3/E-AC-3 (spatial audio; on tvOS VLCKit already outputs discrete PCM).
   The auto-selected subtitle, if any, must be text (SRT/WebVTT/mov_text):
   bitmap subtitles would be burned in (a video re-encode) and ASS would lose
@@ -310,7 +310,7 @@ so the whole live HUD is derived from one instant.
   applied once by `PlayerViewModel`). The subtitle rendition in the HLS item is
   switched on by `PlayerViewModel` (`pendingServerSubtitleRenditionSelection`).
 - The same session type carries the undecodable-audio fallback (video copied,
-  audio converted by Plex); see "Undecodable audio tracks" below. The setting
+  audio converted by Plex); see "Dolby TrueHD decoding" below. The setting
   gates only the Dolby remux, not that fallback.
 - Failure: the direct-play failure watch is armed for remux sessions too; an
   engine error moves the session to plain direct play (VLCKit) at the same
@@ -369,8 +369,10 @@ so the whole live HUD is derived from one instant.
   subtitle if any, and audio Plex can **copy** (E-AC-3/AC-3/AAC). DTS,
   FLAC, PCM & co. keep VLCKit: converting a lossless track to keep the
   picture would lower audio quality, and the remux never lowers quality.
-  TrueHD (undecodable on VLCKit) reaches the same video-copy remux through
-  the undecodable-audio fallback.
+  A TrueHD-only file still takes the video-copy remux with converted audio
+  (`convertedTrueHDRemuxBlocker`), as it did through the undecodable-audio
+  fallback before VLCKit decoded TrueHD; TrueHD with a copyable sibling
+  remuxes the sibling (see "Dolby TrueHD decoding").
 - Delivery and acceptance are the Atmos remux's
   (`requestSpatialAudioRemux`, session type `.spatialAudio`, lossless only,
   any failure → plain direct play). A file can qualify for Atmos, HDR or
@@ -767,8 +769,9 @@ so the whole live HUD is derived from one instant.
   `externalURL` set; AVPlayer cannot attach one to a live item and keeps the
   protocol-extension defaults (`false` / no-op). See "External (sidecar)
   subtitles".
-- Engine tracks carry `isDecodable`. The bundled VLCKit build cannot decode
-  every codec a container may hold (see "Undecodable audio tracks" below).
+- Engine tracks carry `isDecodable`. A stock VLCKit build cannot decode
+  TrueHD/MLP, and Dusk's TrueHD decoder can fail on a stream (see "Dolby
+  TrueHD decoding" below).
   Automatic selection only considers decodable tracks; the pickers list all of
   them, and picking an undecodable one reroutes through
   `PlaybackCoordinator.transcodeForUndecodableAudio` (server transcode pinned
@@ -799,7 +802,8 @@ so the whole live HUD is derived from one instant.
 ## AVPlayer and VLCKit Split
 - `AVPlayerEngine` is for MP4/MOV/M4V-style direct play with AV-compatible
   video, audio, and text subtitles. `VLCKitEngine` is the fallback for MKV,
-  DTS/TrueHD audio, bitmap/complex subtitles, and other VLC-only combinations.
+  DTS/TrueHD audio (TrueHD with Dusk's own VLCKit build only), bitmap/complex
+  subtitles, and other VLC-only combinations.
 - Current AV-compatible sets live in `StreamResolver`: containers
   `mp4`, `mov`, `m4v`; video `h264` (8-bit only), `hevc`, `av1` (hardware
   decoders only); audio `aac`, `ac3`, `eac3`, `alac`, `mp3`, `flac`;
@@ -852,8 +856,8 @@ so the whole live HUD is derived from one instant.
   streaming bandwidth. Ranking is relative, so a lossless-only file still
   plays natively, and the pickers can always select any track manually.
 - Selection only considers `selectableAudioTracks` (decodable tracks): ranking
-  by desirability used to steer playback onto a TrueHD track the bundled
-  VLCKit cannot decode, which is what actually broke Bluray-remux audio.
+  by desirability used to steer playback onto a TrueHD track a stock VLCKit
+  cannot decode, which is what actually broke Bluray-remux audio.
 - The automatically preferred audio track is normally PRESELECTED before
   playback starts: `PlaybackCoordinator` computes it from Plex part metadata
   (`PlayerViewModel.preferredAudioStreamPosition`, the pre-start twin of the
@@ -937,60 +941,95 @@ so the whole live HUD is derived from one instant.
   already listed by `syncTrackLists`'s server branch and selecting one just
   passes `subtitleStreamID` to the transcode decision, which burns it.
 
-### Undecodable audio tracks (TrueHD/MLP)
-- The vendored frameworks are VideoLAN's STOCK stable 3.x prebuilts, which
-  disable ffmpeg's mlp decoder/demuxer/parser on iOS/tvOS ("to be in
-  compliance with the App Store ToS" — Dolby licensing; AC-3/E-AC-3 decode
-  through Apple's licensed AudioToolbox instead), and ffmpeg's truehd decoder
-  depends on the mlp parser. libvlc cannot play such tracks, so
-  `VLCKitEngine.undecodableAudioFourCCs` contains the TrueHD/MLP fourccs.
-  libvlc 3.x tags TrueHD `trhd` (verified in the 3.7.3 binary, which has no
-  `ff_truehd_decoder`); `mlpa` was the 4.x alpha's fourcc. The set holds both —
-  it held only `mlpa` after the 3.x migration, so TrueHD passed as decodable.
-  (The retired 4.x-alpha setup carried a local patch series that re-enabled
-  TrueHD; it lives in git history under `ci_scripts/vlc-patches/` if ever
-  needed again — a deliberate licensing/App Store decision.)
-- Failure chain this produced on Bluray remuxes (default track TrueHD, with a
-  companion AC-3 track): libvlc auto-falls back to AC-3 at start; the app's
-  auto-selection then re-selected the "better" TrueHD track; libvlc unselects
-  the working AC-3 ES, the TrueHD decoder fails to open, and there is NO
-  second fallback — audio goes silent until a pause/resume/seek/track event
-  revives it, then dies again. That is the cyclic "audio cuts in and out,
-  sometimes catches itself" symptom: route-independent, streamed or local,
-  only on files whose preferred track is undecodable.
-- Fix layers: `VLCKitEngine.undecodableAudioFourCCs` marks such tracks
-  (`AudioTrack.isDecodable == false`); auto-selection skips them. The pickers
-  still offer them: `PlayerViewModel.selectAudio` reroutes an undecodable pick
-  through `transcodeAudioFallbackHandler` → `PlaybackCoordinator.
-  transcodeForUndecodableAudio(_:)`, which restarts the session as a Plex HLS
-  transcode pinned to that stream (`switchQuality(to:audioStreamID:)`), so the
-  choice produces sound. A file with zero locally decodable audio tracks (a
-  TrueHD-only remux) triggers the same fallback automatically instead of
-  direct-playing as a silent video.
-- The server fallback first tries `playConvertedAudioRemux`: the same fMP4
-  remux as the Dolby Atmos path but with `directStreamAudio=0`, so the video
-  (4K/HDR) is copied and Plex converts only the chosen stream (TrueHD → E-AC-3,
-  played on AVPlayer as a `.spatialAudio` session). `directStreamAudio=1`
-  makes Plex silently substitute a copyable sibling (the AC-3 5.1 track)
-  instead of converting the requested one. Plex caps converted audio at 6
-  channels whatever the codec or limitation (verified against PMS 1.43.4), so
-  TrueHD 7.1 arrives as 5.1. A bitmap subtitle cannot ride the remux and is
-  dropped for this fallback. Only when the remux is refused (e.g. HDR on an
-  SDR display) does it fall back to the quality-preset transcode — which
-  re-encodes the video and, on servers without HDR tone mapping, fails for HDR
-  sources: Plex emits 8-bit H.264 still tagged PQ and AVPlayer rejects it
-  (CoreMedia -12927). That last point applies to manual Quality picks on HDR
-  titles too.
-- In a remux session, picking a locally undecodable stream rebuilds the remux
-  with audio conversion (`rebuildSpatialAudioSessionForTrackChange`). Leaving
-  a remux for direct play never preselects an undecodable track position.
-- The pre-start preselection (`preferredAudioStreamPosition`) must apply the
-  same rule from Plex metadata alone (`isLocallyUndecodableAudioCodec`): the
-  tvOS ladder ranks TrueHD Atmos highest, and passing its position as
-  `:audio-track` opened libvlc straight onto a dead decoder — a silent start
-  on TrueHD 7.1 Atmos + AC-3 remuxes. The merge also ANDs Plex's codec into
-  `isDecodable`, so a missed engine fourcc cannot re-admit TrueHD. AirPlay's
-  `preferredAudioStreamID` opts out of the filter because the server decodes.
+### Dolby TrueHD decoding (TrueHD/MLP)
+- Dusk ships its OWN MobileVLCKit/TVVLCKit 3.7.3 build
+  (`ci_scripts/build_vlckit.sh`, see `development-workflow.md` → "VLCKit
+  build"). VideoLAN's stock prebuilts disable ffmpeg's mlp
+  decoder/demuxer/parser on iOS/tvOS (VLCKit patch 0003, "App Store ToS" —
+  Dolby licensing), and ffmpeg's truehd decoder selects the mlp parser.
+  `ci_scripts/vlc-patches/0100` drops that block, so libvlc decodes TrueHD and
+  MLP losslessly to PCM, up to 8 discrete channels. For TrueHD Atmos that is
+  the 7.1 bed: ffmpeg ignores the object substream, and no App Store player
+  can bitstream TrueHD on Apple TV (tvOS has no MLP/MAT passthrough; Infuse
+  does the same 7.1 decode).
+- **Licensing — a deliberate decision by Marvin (2026-10-16):** Dolby TrueHD
+  is patent-encumbered and Dusk holds no Dolby license. VideoLAN removed the
+  decoder from its App Store builds for exactly this reason
+  (videolan/vlc#25040); Infuse ships it under a license. Shipping the decoder
+  is a known legal/App Review risk that rests with the maintainer, not a
+  technical default. Reverting is one step: drop patch 0100, bump
+  `DUSK_VLCKIT_BUILD`, rebuild and republish — the app then falls back to the
+  Plex route below on its own (`VLCKitBuildInfo.decodesTrueHD` is false).
+  Never add Atmos object rendering (TrueHD/DTS:X → APAC): it is lossy, needs a
+  new audio path, and carries the object-audio patent risk Firecore declined.
+- Capability gate: the build script stamps every framework slice's Info.plist
+  (`DuskVLCKitBuild`, `DuskVLCKitTrueHD`). `VLCKitBuildInfo.decodesTrueHD`
+  reads it from the loaded binary, so a stale stock framework in a local
+  `Frameworks/` keeps the old routing instead of playing TrueHD silent.
+  Playback Info's "VLCKit Build" row shows `Dusk VLCKit 3.7.3-dusk1 (…,
+  TrueHD)`; "Stock VLCKit 3.x" means the frameworks are stale.
+- libvlc 3.x tags TrueHD `trhd`, MLP `mlp `; `mlpa` was the 4.x alpha's
+  TrueHD fourcc. `VLCKitEngine.trueHDAudioFourCCs` holds all three and only
+  marks tracks undecodable on a stock build.
+- Routing with the Dusk build:
+  - Direct play: TrueHD is an ordinary decodable track. On tvOS it ranks top
+    (lossless) and VLCKit opens straight on it via `:audio-track`; iPhone/iPad
+    still prefer a lossy surround sibling (`platformAudioCodecAdjustment`).
+  - Startup remux decisions (DV5, HDR video, Dolby Atmos / spatial audio) are
+    made for `PlayerViewModel.preferredRemuxAudioStream`: the local pick with
+    TrueHD treated as undecodable, i.e. the pre-Dusk-build policy. TrueHD
+    cannot ride the lossless fMP4 remux, so letting it win there would turn a
+    UHD remux with TrueHD Atmos + E-AC-3/AC-3 from HDR/Atmos on AVPlayer into
+    VLCKit without HDR. These files keep exactly their old remux; only when
+    no remux qualifies does direct play open on the TrueHD track.
+  - TrueHD-only files (`StreamResolver.convertedTrueHDRemuxBlocker`): the
+    converted-audio remux (video copied, Plex converts TrueHD to E-AC-3 5.1)
+    is still requested at startup when it buys what VLCKit cannot give — HDR
+    picture (the HDR remux qualifies apart from the audio) or, on iPhone/iPad
+    with the spatial-audio setting on, spatial audio for a 5.1+ track.
+    Everything else (tvOS SDR above all) decodes locally to discrete PCM.
+    Before, these files direct played on VLCKit and only then hit the
+    fallback; now the remux is chosen up front.
+  - In a remux session, picking a TrueHD track behaves like picking DTS:
+    `leaveSpatialAudioRemux` moves to VLCKit direct play with that track
+    (lossless audio, no HDR). That is the viewer's explicit choice.
+- Failure case (`VLCKitEngine.watchTrueHDDecoding`): the decoder is Dusk's
+  addition, and a decoder that fails to open leaves the ES selected and
+  silent with no error. Once playback is steady on a TrueHD/MLP track, libvlc's
+  decoded-audio counter must move within 5 s of playback while video blocks
+  decode; otherwise the engine reports `failedAudioDecoderTrackID`, marks the
+  track undecodable, and `PlayerViewModel` hands it to the Plex fallback below
+  once per item. No video progress (audio-only, statistics off) gives no
+  verdict. Offline downloads have no fallback.
+- Plex fallback (stock build, a failed decoder, or a viewer pick of a track
+  marked undecodable): `PlayerViewModel.selectAudio` reroutes through
+  `transcodeAudioFallbackHandler` → `PlaybackCoordinator.
+  transcodeForUndecodableAudio(_:)`. A file with zero locally decodable audio
+  tracks triggers it automatically instead of direct-playing silent. It first
+  tries `playConvertedAudioRemux`: the Atmos-path fMP4 remux with
+  `directStreamAudio=0`, so the video (4K/HDR) is copied and Plex converts only
+  the chosen stream (`directStreamAudio=1` makes Plex silently substitute a
+  copyable sibling instead). Plex caps converted audio at 6 channels whatever
+  the codec or limitation (verified against PMS 1.43.4), so TrueHD 7.1 arrives
+  as 5.1. A bitmap subtitle cannot ride the remux and is dropped. Only when the
+  remux is refused (e.g. HDR on an SDR display) does it fall back to the
+  quality-preset transcode — which re-encodes the video and, on servers
+  without HDR tone mapping, fails for HDR sources (Plex emits 8-bit H.264
+  still tagged PQ, AVPlayer rejects it with CoreMedia -12927).
+- Why the stock-build rules still matter (history): on a build without the
+  decoder, Bluray remuxes (default TrueHD + companion AC-3) went silent in a
+  cycle — libvlc fell back to AC-3, the app's auto-selection re-selected the
+  "better" TrueHD, libvlc dropped the working ES, the TrueHD decoder failed to
+  open and there was no second fallback. Hence: automatic selection only
+  considers decodable tracks, the pre-start preselection applies the same rule
+  from Plex metadata (`isLocallyUndecodableAudioCodec`), the metadata merge
+  ANDs Plex's codec into `isDecodable`, and leaving a remux never preselects
+  an undecodable position. AirPlay's `preferredAudioStreamID` opts out of the
+  filter because the server decodes.
+- Not yet verified on hardware: TrueHD 7.1 → 8-channel LPCM on an Apple TV +
+  AVR ("Output Channels" should read `current=8`), 7.1 into a 5.1 receiver
+  (patch 0101 mixes down to 5.1), TrueHD Atmos bed levels, the decode
+  watchdog never firing on healthy files, and CPU on Apple TV HD.
 
 ### VLCKit audio output module
 - `VLCKitEngine` runs its players on a single shared `VLCLibrary` with no
@@ -1189,18 +1228,25 @@ so the whole live HUD is derived from one instant.
   - the route ceiling is re-read *after* the opt-in. tvOS reports a
     stereo-only maximum while the session is declared stereo-only, so
     measuring first permanently justifies never asking for surround.
-  - libvlc overwrites `supportsMultichannelContent` on every audio-output
-    start (`avas_SetActive` passes its own spatial-audio flag, still false on
-    first bring-up), so `AVPlayerEngine.load` re-asserts it on tvOS. Without
-    that, one VLCKit title leaves every later AVPlayer title in stereo for the
-    rest of the app's lifetime.
+  - stock libvlc overwrote `supportsMultichannelContent` on every
+    audio-output start (`avas_SetActive` passed its own spatial-audio flag,
+    still false on first bring-up). Dusk's build (`vlc-patches/0101`) always
+    opts in on tvOS, accepts any multichannel route instead of requiring the
+    exact requested count, and when the route carries fewer channels than the
+    source (7.1 TrueHD/DTS-HD into a 5.1 receiver) mixes down to 5.1 in
+    libvlc instead of letting the AudioUnit drop the unlabelled channels.
+    `AVPlayerEngine.load` still re-asserts the flag on tvOS (harmless, and it
+    keeps a stock framework working). Without it, one VLCKit title on a stock
+    build left every later AVPlayer title in stereo.
   - passthrough/bitstreaming is impossible on this stack regardless: libvlc 3
     returns `VLC_EGENERIC` for SPDIF/HDMI formats on Apple platforms. Dusk
     always software-decodes to PCM; the goal is only that the PCM is discrete
     multichannel rather than a fold-down.
   - Playback Info's "Output Channels" row reads
     `expected=… current=… preferred=… max=…`. `expected>2` with `current=2` is
-    the signature of libvlc folding down in software.
+    the signature of libvlc folding down in software. A TrueHD/DTS-HD 7.1
+    title on a 7.1 receiver should read `expected=8 current=8` (unverified
+    on hardware).
 - iOS/iPadOS does NOT drive surround at all. The output route is effectively
   stereo (built-in speaker, wired, or Bluetooth/AirPods), so the policy lets
   VLCKit downmix to the route on its own; it sets no preferred output channel
@@ -1210,7 +1256,7 @@ so the whole live HUD is derived from one instant.
   equalizer) restarts VLCKit's audio output, which is an audible gap. Historical note: the recurring "audio cuts in and out on this
   remux" bug was chased through several audio-session/mix-mode theories before
   the actual cause was found — the app steering playback onto an undecodable
-  TrueHD track (see "Undecodable audio tracks" above). The idempotency and
+  TrueHD track (see "Dolby TrueHD decoding" above). The idempotency and
   no-surround-on-iOS changes remain as valid hardening, but they were not the
   root cause. Playback Info still exposes the selected VLC audio track, mix
   mode, passthrough state, route, and channel counts.
@@ -1265,7 +1311,7 @@ so the whole live HUD is derived from one instant.
   captures the playing audio ES position first (`currentAudioTrackPosition`,
   only when the media actually has more than one audio ES) and preselects it on
   the reopened media. Preselect, never a post-start ES switch — see
-  "Undecodable audio tracks" and the audio-output warnings above.
+  "Dolby TrueHD decoding" and the audio-output warnings above.
 
 ## Picture in Picture
 - iOS only, native. AVPlayer uses an `AVPictureInPictureController` built from

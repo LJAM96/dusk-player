@@ -344,8 +344,8 @@ enum StreamResolver {
     ///
     /// Audio must be copyable (E-AC-3/AC-3/AAC): converting DTS & co. to
     /// keep the picture would trade a lossless track for a lossy one, so
-    /// those files keep VLCKit. (TrueHD, which VLCKit cannot decode at all,
-    /// reaches the same remux through the undecodable-audio fallback.)
+    /// those files keep VLCKit. A TrueHD-only file is the exception, see
+    /// `convertedTrueHDRemuxBlocker`.
     /// The display gate is the one the Atmos remux uses: Plex declares the
     /// variant HDR, which AVFoundation refuses on an SDR display.
     static func hdrVideoRemuxBlocker(
@@ -372,6 +372,54 @@ enum StreamResolver {
             return "subtitle \(subtitleStream.codec?.uppercased() ?? "?") cannot ride the remux"
         }
         return nil
+    }
+
+    /// Whether a file whose only in-scope audio is TrueHD/MLP should still
+    /// start on the converted-audio remux (Plex: video copied, TrueHD →
+    /// E-AC-3 5.1) although Dusk's VLCKit decodes TrueHD losslessly. Only
+    /// where the remux buys what VLCKit cannot give:
+    /// - HDR picture: the HDR remux qualifies apart from the audio. TrueHD
+    ///   reached that remux through the undecodable-audio fallback before
+    ///   VLCKit decoded it, and HDR10/DV on an HDR display outweighs the
+    ///   lossless 7.1 bed.
+    /// - iPhone/iPad: spatial audio for a 5.1+ track with the spatial-audio
+    ///   setting on. The phone downmixes the lossless track to stereo anyway
+    ///   (the same reason `platformAudioCodecAdjustment` demotes lossless).
+    /// Everything else (tvOS SDR above all) direct plays the TrueHD as
+    /// discrete PCM. Returns why not, or nil when the remux should be tried.
+    static func convertedTrueHDRemuxBlocker(
+        media: PlexMedia,
+        decision: Decision,
+        audioStream: PlexStream,
+        subtitleStream: PlexStream?,
+        displaySupportsHDR: Bool,
+        hdrVideoRemuxEnabled: Bool,
+        spatialAudioRemuxEnabled: Bool
+    ) -> String? {
+        let hdrBlocker = hdrVideoRemuxEnabled
+            ? hdrVideoRemuxBlocker(
+                media: media,
+                decision: decision,
+                audioStream: nil,
+                subtitleStream: subtitleStream,
+                displaySupportsHDR: displaySupportsHDR
+            )
+            : "HDR remux is off"
+        guard hdrBlocker != nil else { return nil }
+        #if os(tvOS)
+        return hdrBlocker
+        #else
+        guard spatialAudioRemuxEnabled else { return hdrBlocker }
+        guard (audioStream.channels ?? 0) >= 6 else { return "TrueHD track is not multichannel" }
+        return spatialAudioRemuxBlocker(
+            media: media,
+            decision: decision,
+            audioStream: audioStream,
+            subtitleStream: subtitleStream,
+            displaySupportsHDR: displaySupportsHDR,
+            convertsAudio: true
+        )
+        #endif
     }
 
     /// HDR video AVPlayer can show from an HEVC remux: a PQ or HLG transfer,

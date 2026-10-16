@@ -192,6 +192,7 @@ final class VLCKitEngine: NSObject, PlaybackEngine {
         return index >= 0 ? modelIDsByTrackID["spu/\(index)"] : nil
     }
     private(set) var selectedAudioTrackID: Int?
+    private(set) var failedAudioDecoderTrackID: Int?
     private(set) var playbackDiagnostics: [PlaybackEngineDiagnostic] = []
     var videoEnhancementStatus: VideoEnhancementStatus {
         if let videoEnhancementRenderer {
@@ -337,6 +338,9 @@ final class VLCKitEngine: NSObject, PlaybackEngine {
     /// audio-output policy and diagnostics (VLCKit 3 exposes codec/channel data
     /// only through `VLCMedia.tracksInformation`, not on the player).
     private var latestAudioTrackInfosByIndex: [Int: VLCTrackInfo] = [:]
+    /// TrueHD decode watchdog (see `watchTrueHDDecoding(at:)`).
+    private var trueHDDecodeWatch: TrueHDDecodeWatch?
+    private var verifiedTrueHDTrackID: Int?
     /// Last seen (audio, text) track counts; see `refreshTracksIfCountsChanged`.
     private var lastObservedTrackCounts: (audio: Int32, text: Int32) = (-1, -1)
     @ObservationIgnored nonisolated(unsafe) private var audioSessionObservers: [NSObjectProtocol] = []
@@ -385,10 +389,14 @@ final class VLCKitEngine: NSObject, PlaybackEngine {
     /// running.
     static let vendoredVLCKitAudit: (isExpectedBuild: Bool, detail: String) = {
         let version = sharedLibrary.version
-        if version.hasPrefix("3.0.") {
-            return (true, "Stable VLCKit 3.x (libvlc \(version))")
+        guard version.hasPrefix("3.0.") else {
+            return (false, "UNEXPECTED build (libvlc \(version)) — expected the stable 3.x line; clean build / reinstall")
         }
-        return (false, "UNEXPECTED build (libvlc \(version)) — expected the stable 3.x line; clean build / reinstall")
+        guard let duskBuild = VLCKitBuildInfo.duskBuild else {
+            return (false, "Stock VLCKit 3.x (libvlc \(version)) — expected Dusk's build; TrueHD goes through Plex. Run ci_scripts/install_vlckit.sh")
+        }
+        let trueHD = VLCKitBuildInfo.decodesTrueHD ? "TrueHD" : "no TrueHD"
+        return (true, "Dusk VLCKit \(duskBuild) (libvlc \(version), \(trueHD))")
     }()
 
     override init() {
@@ -470,6 +478,9 @@ final class VLCKitEngine: NSObject, PlaybackEngine {
         resetExternalSubtitleAttachments()
         reopenAudioTrackPosition = nil
         latestAudioTrackInfosByIndex = [:]
+        trueHDDecodeWatch = nil
+        verifiedTrueHDTrackID = nil
+        failedAudioDecoderTrackID = nil
         lastObservedTrackCounts = (-1, -1)
         syncRendererPlaybackState()
 
@@ -1453,6 +1464,7 @@ final class VLCKitEngine: NSObject, PlaybackEngine {
                 }
             }
             currentTime = updatedTime
+            watchTrueHDDecoding(at: updatedTime)
         }
         refreshTracksIfCountsChanged()
         reconcileSubtitleSelection()
@@ -1805,6 +1817,7 @@ final class VLCKitEngine: NSObject, PlaybackEngine {
                 channels: info.channels.nonZeroValue,
                 channelLayout: nil,
                 isDecodable: Self.canDecodeAudioCodec(info.codecFourCC ?? 0)
+                    && modelID(forTrackID: "audio/\(info.index)") != failedAudioDecoderTrackID
             )
         }
         let currentAudioIndex = Int(mediaPlayer.currentAudioTrackIndex)
@@ -1912,27 +1925,87 @@ final class VLCKitEngine: NSObject, PlaybackEngine {
         return characters.joined().trimmingCharacters(in: .whitespaces)
     }
 
-    /// Audio codecs present in containers that the vendored VLCKit build cannot
-    /// decode. Stock VideoLAN builds disable ffmpeg's TrueHD/MLP decoders on
-    /// iOS/tvOS for App Store licensing compliance ("Codec `mlpa' is not
-    /// supported"), and the vendored stable 3.x binaries are stock — the
-    /// patched source builds that re-enabled TrueHD were retired with the 4.x
-    /// alpha. Tracks matching these are skipped by automatic selection, and
-    /// picking one in the picker reroutes playback through a server transcode
-    /// (see `PlayerViewModel.selectAudio`). A file with no locally decodable
-    /// audio at all triggers the same fallback automatically.
+    /// Dolby TrueHD/MLP fourccs. Stock VideoLAN builds disable ffmpeg's
+    /// TrueHD/MLP decoders on iOS/tvOS (Dolby licensing; "Codec `trhd' is not
+    /// supported"). Dusk's own build re-enables them
+    /// (`VLCKitBuildInfo.decodesTrueHD`); only a stock framework still marks
+    /// these tracks undecodable, so automatic selection skips them and a pick
+    /// reroutes through a server transcode (see `PlayerViewModel.selectAudio`).
     ///
-    /// libvlc 3.x (the vendored 3.7.3) tags TrueHD as `trhd`; `mlpa` is the
-    /// retired 4.x alpha's fourcc. Missing `trhd` after the 3.x migration let
-    /// TrueHD pass as decodable, so TrueHD Atmos remuxes played silent.
-    private static let undecodableAudioFourCCs: Set<UInt32> = [
+    /// libvlc 3.x tags TrueHD as `trhd`; `mlpa` is the retired 4.x alpha's
+    /// fourcc. Missing `trhd` after the 3.x migration let TrueHD pass as
+    /// decodable on the stock build, so TrueHD Atmos remuxes played silent.
+    private static let trueHDAudioFourCCs: Set<UInt32> = [
         fourCC("t", "r", "h", "d"), // TrueHD (libvlc 3.x)
         fourCC("m", "l", "p", "a"), // TrueHD (libvlc 4.x)
         fourCC("m", "l", "p", " "), // MLP
     ]
 
     private static func canDecodeAudioCodec(_ codec: UInt32) -> Bool {
-        !undecodableAudioFourCCs.contains(codec)
+        VLCKitBuildInfo.decodesTrueHD || !trueHDAudioFourCCs.contains(codec)
+    }
+
+    private struct TrueHDDecodeWatch {
+        let trackID: Int
+        let startTime: TimeInterval
+        let decodedAudio: Int32
+        let decodedVideo: Int32
+    }
+
+    /// The TrueHD/MLP decoder is Dusk's addition, not part of VideoLAN's
+    /// tested builds. Should it fail to open on some stream, libvlc keeps the
+    /// ES selected without a decoder and plays silent, with no error at all.
+    /// So once playback is steady on a TrueHD/MLP track, libvlc's decoded-audio
+    /// counter must move within 5 s of playback. If video blocks decode while
+    /// audio blocks do not, the track is reported in
+    /// `failedAudioDecoderTrackID` and marked undecodable; the view model then
+    /// reroutes it through the Plex audio-conversion fallback. No video
+    /// progress either (audio-only file, statistics off) gives no verdict.
+    /// Each track is verified once per load.
+    private func watchTrueHDDecoding(at time: TimeInterval) {
+        guard VLCKitBuildInfo.decodesTrueHD,
+              failedAudioDecoderTrackID == nil,
+              state == .playing,
+              pendingSeekTarget == nil,
+              steadyPlaybackTicks >= 4,
+              let trackID = selectedAudioTrackID,
+              trackID != verifiedTrueHDTrackID,
+              let index = vlcTrackIndex(forModelID: trackID),
+              let fourCC = latestAudioTrackInfosByIndex[index]?.codecFourCC,
+              Self.trueHDAudioFourCCs.contains(fourCC),
+              let media = mediaPlayer.media else {
+            trueHDDecodeWatch = nil
+            return
+        }
+
+        let stats = media.statistics
+        guard let watch = trueHDDecodeWatch, watch.trackID == trackID, time >= watch.startTime else {
+            trueHDDecodeWatch = TrueHDDecodeWatch(
+                trackID: trackID,
+                startTime: time,
+                decodedAudio: stats.decodedAudio,
+                decodedVideo: stats.decodedVideo
+            )
+            return
+        }
+        guard time - watch.startTime >= 5 else { return }
+
+        trueHDDecodeWatch = nil
+        if stats.decodedAudio > watch.decodedAudio || stats.decodedVideo <= watch.decodedVideo {
+            verifiedTrueHDTrackID = trackID
+            return
+        }
+        failedAudioDecoderTrackID = trackID
+        availableAudioTracks = availableAudioTracks.map { track in
+            var track = track
+            if track.id == trackID {
+                track.isDecodable = false
+            }
+            return track
+        }
+        vlcKitEngineLogger.error(
+            "TrueHD decoder produced no audio for track \(trackID, privacy: .public) (decoded video \(watch.decodedVideo, privacy: .public)→\(stats.decodedVideo, privacy: .public), audio \(stats.decodedAudio, privacy: .public)); handing it to the Plex fallback"
+        )
     }
 
     /// Packs characters the way libvlc's VLC_FOURCC macro does (little endian),
@@ -1987,6 +2060,9 @@ final class VLCKitEngine: NSObject, PlaybackEngine {
         // track again — that is exactly how the VLCKit 4 -> 3.7.3 migration
         // regressed 5.1/7.1, because `selectedAudioTrackInfo()` is nil until
         // `tracks-refreshed`, long after libvlc committed to stereo.
+        // Dusk's VLCKit build (vlc-patches/0101) also opts in inside libvlc
+        // and mixes 7.1 down to a 5.1 route; this app-side opt-in keeps a
+        // stock framework working too.
         let wantsMultichannelOutput = true
         let signatureChannels = expectedChannels ?? 0
         #else

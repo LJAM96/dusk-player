@@ -652,8 +652,9 @@ private extension PlexService {
         // Surround survival on the server-side rungs. With only the Generic
         // profile's lone AAC target declared, Plex downmixes every 5.1/7.1
         // source to 2-channel AAC — which is what the direct-stream fallback
-        // and every TrueHD title (undecodable in the vendored VLCKit, so always
-        // routed through the server) has been getting. AC-3/E-AC-3 in
+        // and every TrueHD title (undecodable in stock VLCKit, so routed
+        // through the server before Dusk's own build decoded it) had been
+        // getting. AC-3/E-AC-3 in
         // HLS/mpegts is decoded natively by AVPlayer on tvOS and iOS, so
         // offering them keeps discrete channels intact instead of handing the
         // player a pre-folded stereo mix.

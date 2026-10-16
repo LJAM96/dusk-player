@@ -48,7 +48,7 @@ xcodegen generate
 open Dusk.xcodeproj
 ```
 
-VLCKit is vendored but **not committed** to git: the `Frameworks/MobileVLCKit.xcframework` (iOS/iPadOS) and `Frameworks/TVVLCKit.xcframework` (tvOS) binaries are downloaded on demand. After cloning, fetch them (this also refreshes the pinned version):
+VLCKit is vendored but **not committed** to git: the `Frameworks/MobileVLCKit.xcframework` (iOS/iPadOS) and `Frameworks/TVVLCKit.xcframework` (tvOS) binaries — Dusk's own VLCKit 3.x build with Dolby TrueHD decoding, see `ci_scripts/build_vlckit.sh` — are downloaded on demand. After cloning, fetch them (this also refreshes the pinned version):
 
 ```bash
 ./ci_scripts/install_vlckit.sh

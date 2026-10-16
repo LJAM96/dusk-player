@@ -14,7 +14,8 @@ Dusk/Sources
     MultiServer/       Cross-server merging (continue watching, hubs, search),
                        the alternates index, and library server labelling
   SeerrService/        Optional Seerr auth sessions, API calls, and request state
-  Playback/            PlaybackEngine protocol, AVPlayer/VLCKit engines, resolver
+  Playback/            PlaybackEngine protocol, AVPlayer/VLCKit engines, resolver,
+                       VLCKit build capabilities (TrueHD)
     DolbyVision7/      Dolby Vision 7 → 8.1: loopback HLS proxy, fMP4 init/fragment
                        and playlist rewriting, DoviBridge over Native/DuskDovi
   Downloads/           Queue, file store, metadata cache, offline sync

@@ -103,6 +103,42 @@ Prefer existing files and same-type extension patterns for small additions. Add 
 - The archives are checksum-verified. Network, TLS, and CDN transfer failures
   are retried, with partial downloads resumed; do not weaken the checksum or
   replace this with an unverified framework fallback.
+- The archives are Dusk's own build, published as assets of the GitHub release
+  `vlckit-<version>` (currently `vlckit-3.7.3-dusk1`). A stale stock VideoLAN
+  framework still builds and runs, but Playback Info's "VLCKit Build" row
+  says "Stock VLCKit 3.x" and TrueHD goes through Plex.
+- "Already installed" is decided from each slice's `DuskVLCKitBuild` stamp,
+  not from the tracked `Frameworks/VLCKit-VERSION.txt`: that file names the
+  new version as soon as you pull, while the git-ignored frameworks (and the
+  copies `scripts/testflight.sh` takes from the checkout) are still old.
+
+## VLCKit Build
+
+- `ci_scripts/build_vlckit.sh [ios|tvos|all]` builds MobileVLCKit/TVVLCKit
+  from source: VLCKit tag 3.7.3 (pinned commit, libvlc 3.0.x at VLCKit's
+  tested hash), arm64 device + arm64 simulator slices. Manual only; nothing
+  in CI runs it. iOS and tvOS use separate trees under `.build/vlckit/`, so
+  `build_vlckit.sh ios & build_vlckit.sh tvos` runs both in parallel. A cold
+  build compiles VLC's own toolchain and every contrib; trees are reused, and
+  `DUSK_VLCKIT_CLEAN=1` starts over. Logs: `.build/vlckit/<platform>.log`.
+- Patches: `ci_scripts/vlckit-patches/` apply to the VLCKit checkout (build
+  script: arm64-only packaging, iOS/tvOS 15 minimum, current Xcode);
+  `ci_scripts/vlc-patches/` (0100+) are appended to VLCKit's own libvlc
+  series, which `buildMobileVLCKit.sh` git-am's onto vlc. 0100 re-enables
+  TrueHD/MLP (read "Dolby TrueHD decoding" in `playback.md` for the licensing
+  decision), 0101 fixes tvOS multichannel output.
+- The script fails unless `libavcodec.a` defines `ff_truehd_decoder` and
+  `ff_mlp_decoder`, stamps each framework's Info.plist (`DuskVLCKitBuild`,
+  `DuskVLCKitTrueHD`, read by `VLCKitBuildInfo`), and writes
+  `<Name>-<version>.tar.xz` + `.sha256` to `.build/vlckit/out/`.
+- Releasing a new build: bump `DUSK_VLCKIT_BUILD` in `build_vlckit.sh`, build
+  both platforms, then
+  `gh release create vlckit-<version> .build/vlckit/out/*.tar.xz`, and pin
+  `VLCKIT_VERSION` plus both SHA-256 values in `install_vlckit.sh` in the same
+  commit. Test locally before publishing with
+  `DUSK_VLCKIT_CACHE_DIR=.build/vlckit/out ci_scripts/install_vlckit.sh`.
+- The libvlc version string stays `3.0.x`; the stamp is what distinguishes
+  Dusk's build from VideoLAN's.
 
 ## DuskDovi Bootstrap
 

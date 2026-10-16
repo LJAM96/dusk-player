@@ -177,6 +177,11 @@ protocol PlaybackEngine: AnyObject {
     /// manual pause/resume. Steady-state switches are safe.
     var isReadyForAutomaticAudioSelection: Bool { get }
 
+    /// An audio track whose decoder turned out not to work during this load
+    /// (VLCKit: TrueHD selected but no audio decoded while video plays). The
+    /// view model hands it to the server audio-conversion fallback once.
+    var failedAudioDecoderTrackID: Int? { get }
+
     // MARK: - Audio session
 
     /// Whether this engine wants the rich `.moviePlayback` audio session, which
@@ -248,6 +253,10 @@ extension PlaybackEngine {
 
     // Default: no startup fragility — only VLCKit defers automatic selection.
     var isReadyForAutomaticAudioSelection: Bool { true }
+
+    // Default: decoders are the platform's own. Only VLCKit watches its
+    // TrueHD decoder.
+    var failedAudioDecoderTrackID: Int? { nil }
 
     // Default: sidecar subtitles cannot be mounted. Only VLCKit opts in.
     var supportsExternalSubtitles: Bool { false }
