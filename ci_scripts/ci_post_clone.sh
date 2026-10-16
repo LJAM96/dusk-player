@@ -26,6 +26,18 @@ done
 
 echo "VLCKit frameworks staged; the build can now link MobileVLCKit and TVVLCKit."
 
+# DuskDovi (Dolby Vision 7 -> 8.1 conversion) is built from Native/DuskDovi
+# with a pinned Rust toolchain; installs rustup on CI when missing. A no-op
+# when the stamped source hash still matches.
+"${ROOT_DIR}/ci_scripts/install_dusk_dovi.sh"
+
+if [ ! -d "${ROOT_DIR}/Frameworks/DuskDovi.xcframework" ]; then
+    echo "error: DuskDovi.xcframework is missing after install_dusk_dovi.sh." >&2
+    exit 1
+fi
+
+echo "DuskDovi.xcframework staged."
+
 # Xcode 26 and later ship the Metal compiler as a separate component that is not
 # installed in the Xcode Cloud images. Without it, compiling
 # VideoEnhancementShaders.metal fails with "cannot execute tool 'metal' due to
