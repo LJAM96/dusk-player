@@ -266,6 +266,7 @@ final class PlayerViewModel {
         rebuildExternalSubtitleStreamIndex()
         syncTrackLists()
         applyAutomaticTrackSelectionIfNeeded()
+        updateAutoSkipState()
     }
 
     func startPlaybackIfNeeded(source: PlaybackSource) {
