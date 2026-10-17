@@ -277,8 +277,12 @@ struct VideoEnhancementSubtitleTests {
                 #expect(playback.consumePendingExplicitTrackSelection() == ExplicitTrackSelection(audioStreamID: 11, subtitleStreamID: 3))
                 #expect(playback.consumePendingExplicitTrackSelection() == nil)
                 let vlcPresentationID = playback.playerPresentationID
-                playback.selectPlexStreamsForPlayback(audioStreamID: 11, subtitleStreamID: nil)
-                #expect(playback.playerPresentationID == vlcPresentationID)
+                for subtitleID: Int? in [nil, 3, nil, 3, nil] {
+                    playback.selectPlexStreamsForPlayback(audioStreamID: 11, subtitleStreamID: subtitleID)
+                    #expect(playback.playerPresentationID == vlcPresentationID)
+                    #expect(playback.debugInfo?.engine == .vlcKit)
+                    #expect(playback.playbackSource?.url == url)
+                }
             }
         }
     }

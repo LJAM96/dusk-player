@@ -287,9 +287,12 @@ so the whole live HUD is derived from one instant.
   target. Plex takes the session subtitle from the part's server-side
   selection, so `requestSpatialAudioRemux` first mirrors the audio/subtitle
   choice with `PUT /library/parts/{id}` (what Plex clients do on a track
-  change; skipped when it already matches) and requests `subtitles=auto`.
+  change; always written because the part metadata is a startup snapshot) and
+  requests `subtitles=auto` (`subtitles=none` plus an explicit selection of `0`
+  for Off). Never compare the requested selection with that stale snapshot.
   The session is accepted only when the decision's streams say video `copy`,
-  audio `copy`, and any subtitle `segments-subs`
+  audio `copy`, and any active subtitle `segments-subs`. A subtitle explicitly
+  marked `ignore` is also safe, even with `location=embedded`
   (`TranscodeStreamDecisions.isLosslessRemux`); anything else stops the Plex
   session and keeps plain direct play. It never lowers quality.
 - Atmos signaling (`Playback/RemuxHLSLoader.swift`): Plex's fMP4 muxer writes a
@@ -313,6 +316,10 @@ so the whole live HUD is derived from one instant.
   `ExplicitTrackSelection` (audio via `:audio-track` preselection, subtitle
   applied once by `PlayerViewModel`). The subtitle rendition in the HLS item is
   switched on by `PlayerViewModel` (`pendingServerSubtitleRenditionSelection`).
+  HDR/DV track changes that cannot rebuild the remux retain the loaded AVPlayer
+  session and restore its confirmed stream choices, with an error message.
+  They never fall back to VLC. `remuxTrackSelection` records the loaded choices
+  separately from an in-flight request, including across repeated On/Off picks.
 - The same session type carries the undecodable-audio fallback (video copied,
   audio converted by Plex); see "Dolby TrueHD decoding" below. The setting
   gates only the Dolby remux, not that fallback.
@@ -350,8 +357,11 @@ so the whole live HUD is derived from one instant.
   fails after starting goes to the server stream, not VLCKit.
 - Not yet verified against a real PMS: whether Plex already writes `dvcC` or
   `dvh1` itself (the patch then changes nothing) and whether it keeps the RPU
-  NAL units on copy. Picking a bitmap subtitle mid-session still leaves the
-  remux for VLCKit direct play.
+  NAL units on copy. Picking an unsupported subtitle mid-session keeps the
+  working remux and reports that the track change could not preserve HDR.
+  PMS logs (2026-10) confirmed an Off rebuild returning
+  copied video/audio plus `ignore/embedded` for the previous SRT. Rejecting that
+  harmless subtitle decision used to drop DV5 into VLC and produce pink video.
 - Verified (2026-09) against PMS 1.43.4 on tvOS/iPadOS simulators and a macOS
   AVPlayer harness: H.264 and HEVC/DV8 MKV remuxes copy both tracks, the
   patched init exposes the `ec+3` layers (7.1.4/9.1.6), WebVTT subtitles
@@ -381,8 +391,8 @@ so the whole live HUD is derived from one instant.
   (`requestSpatialAudioRemux`, session type `.spatialAudio`, lossless only,
   any failure → plain direct play). A file can qualify for Atmos, HDR or
   both; the session reason names what qualified, e.g. `Dolby Atmos + Dolby
-  Vision 8.1 via lossless Plex remux`. Picking a DTS track mid-session
-  leaves the remux for VLCKit direct play, like any non-copyable track.
+  Vision 8.1 via lossless Plex remux`. A declined track change (e.g. DTS audio)
+  keeps the working HDR remux and its previous tracks instead of moving to VLC.
 - Formats:
   - **HDR10 / HLG**: no signaling needed; the copied HEVC carries its VUI.
   - **HDR10+**: the ST 2094-40 SEI rides the copied bitstream and AVPlayer

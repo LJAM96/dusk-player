@@ -145,23 +145,21 @@ extension PlaybackCoordinator {
 
         // Plex builds a session's subtitle from the part's server-side
         // selection, so mirror the choice there first (as Plex's own clients
-        // do on a track change). Only touched when it actually differs.
-        let selectedAudioID = part.streams.first { $0.streamType == .audio && ($0.isSelected ?? false) }?.id
-        let selectedSubtitleID = part.streams.first { $0.streamType == .subtitle && ($0.isSelected ?? false) }?.id
-        if selectedAudioID != audioStreamID || selectedSubtitleID != subtitleStreamID {
-            do {
-                try await plexService.selectStreams(
-                    partID: part.id,
-                    audioStreamID: audioStreamID,
-                    subtitleStreamID: subtitleStreamID ?? 0,
-                    serverID: serverID
-                )
-            } catch {
-                spatialAudioLogger.error(
-                    "Could not record stream selection for ratingKey \(ratingKey, privacy: .public): \(error.localizedDescription, privacy: .public); keeping direct play"
-                )
-                return nil
-            }
+        // do on a track change). Always write it: `part` is the startup
+        // snapshot, so comparing its selection after On → Off → On skips
+        // necessary updates. Zero explicitly clears Plex's subtitle choice.
+        do {
+            try await plexService.selectStreams(
+                partID: part.id,
+                audioStreamID: audioStreamID,
+                subtitleStreamID: subtitleStreamID ?? 0,
+                serverID: serverID
+            )
+        } catch {
+            spatialAudioLogger.error(
+                "Could not record stream selection for ratingKey \(ratingKey, privacy: .public): \(error.localizedDescription, privacy: .public); declining remux"
+            )
+            return nil
         }
 
         let transcodeSessionID = UUID().uuidString
@@ -455,12 +453,29 @@ extension PlaybackCoordinator {
               let ratingKey,
               let debugInfo,
               let mediaIndex = details.media.firstIndex(where: { $0.id == debugInfo.media.id }),
-              let part = details.media[mediaIndex].parts.first,
-              let directPlayURL = plexService.directPlayURL(for: part, serverID: activePlaybackServerID) else {
+              let part = details.media[mediaIndex].parts.first else {
             return
         }
 
         let media = details.media[mediaIndex]
+        // An unsupported track or a failed Plex request must not turn a
+        // working HDR/DV remux into VLC direct play. In particular DV5 has
+        // no compatible base layer and produces pink/green video in VLC.
+        if keepsExplicitTracks, part.streams.contains(where: {
+            $0.streamType == .video && ($0.isHDRVideo || StreamResolver.hdrTransfer(of: $0) != nil ||
+                $0.doviPresent == true || $0.doviProfile != nil ||
+                $0.doviBLCompatID != nil || $0.doviLevel != nil)
+        }) {
+            if let remuxTrackSelection {
+                activeAudioStreamID = remuxTrackSelection.audioStreamID
+                activeSubtitleStreamID = remuxTrackSelection.subtitleStreamID
+            }
+            presentQualitySwitchError("Couldn’t change tracks while preserving HDR video. Playback continues with the previous tracks.")
+            return
+        }
+        guard let directPlayURL = plexService.directPlayURL(for: part, serverID: activePlaybackServerID) else {
+            return
+        }
         let resolverDecision = StreamResolver.evaluateForDirectPlayback(
             media: media,
             part: part,

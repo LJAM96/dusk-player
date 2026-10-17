@@ -72,11 +72,12 @@ extension PlexService {
         }
 
         /// The video is copied bit-for-bit and any subtitle is delivered as
-        /// text segments; the audio may be converted.
+        /// text segments or explicitly ignored; the audio may be converted.
+        /// Plex can retain an ignored embedded subtitle in an Off decision.
         var isVideoCopyRemux: Bool {
             videoDecision == "copy"
                 && (audioDecision == "copy" || audioDecision == "transcode")
-                && (subtitleDecision == nil || subtitleLocation == "segments-subs")
+                && (subtitleDecision == nil || subtitleDecision == "ignore" || subtitleLocation == "segments-subs")
         }
 
         /// Refuse incompatible audio/container decisions before AVPlayer is

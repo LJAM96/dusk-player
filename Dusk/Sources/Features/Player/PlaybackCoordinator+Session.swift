@@ -567,6 +567,9 @@ extension PlaybackCoordinator {
                 )
             }
             activePlaybackServerID = serverID
+            remuxTrackSelection = playbackDecision.isSpatialAudio
+                ? ExplicitTrackSelection(audioStreamID: activeAudioStreamID, subtitleStreamID: activeSubtitleStreamID)
+                : nil
             activePlaybackUsesLocalDownload = usesLocalDownload
             activePlaybackSessionIdentifier = sessionIdentifier
             activeTranscodeSessionID = transcodeSessionID
@@ -1173,6 +1176,9 @@ extension PlaybackCoordinator {
             dolbyVision: dolbyVision7Conversion ?? dolbyVisionRemux
         )
         engine = newEngine
+        remuxTrackSelection = playbackDecision.isSpatialAudio
+            ? ExplicitTrackSelection(audioStreamID: activeAudioStreamID, subtitleStreamID: activeSubtitleStreamID)
+            : nil
         let preferredAudioTrackPosition: Int? = switch playbackDecision {
         case .directPlay, .localDownload:
             audioTrackPositionOverride ?? PlayerViewModel.preferredAudioStreamPosition(
@@ -1800,6 +1806,7 @@ extension PlaybackCoordinator {
         activePlaybackUsesLocalDownload = false
         activeAudioStreamID = nil
         activeSubtitleStreamID = nil
+        remuxTrackSelection = nil
         pendingExternalSubtitleStreamID = nil
         pendingExplicitTrackSelection = nil
         debugInfo = nil
@@ -1820,7 +1827,7 @@ extension PlaybackCoordinator {
         noteActivePlaybackState(.idle)
     }
 
-    private func presentQualitySwitchError(_ message: String) {
+    func presentQualitySwitchError(_ message: String) {
         qualitySwitchError = message
         let expectedMessage = message
         Task { @MainActor [weak self] in

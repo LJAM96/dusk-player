@@ -77,6 +77,9 @@ final class PlaybackCoordinator {
     /// audio stream must keep converting: the stream itself may be locally
     /// decodable (TrueHD on Dusk's VLCKit), so decodability cannot re-derive it.
     var remuxAudioConversion: RemuxAudioConversion?
+    /// Confirmed tracks in the loaded remux, retained while a new selection
+    /// is being prepared so a declined HDR track change can keep playing.
+    var remuxTrackSelection: ExplicitTrackSelection?
     /// Plex subtitle stream id to select as soon as the player can mount it.
     /// Set by the sidecar-download flow and by the AVPlayer → VLCKit switch,
     /// consumed by `PlayerViewModel.configureAutomaticTrackSelection`.

@@ -216,6 +216,26 @@ struct TrueHDAudioRoutingTests {
         #expect(!decision.isConvertedAudioRemux(sourceChannels: 8))
     }
 
+    @Test func ignoredSubtitleDoesNotInvalidateVideoCopyRemux() {
+        // PMS can retain the previously selected embedded SRT in its Off
+        // decision as ignore/embedded. It is not being burned into the video.
+        var decision = PlexService.TranscodeStreamDecisions(
+            container: "mp4", videoDecision: "copy", videoCodec: "hevc",
+            audioDecision: "copy", audioCodec: "eac3",
+            subtitleDecision: "ignore", subtitleLocation: "embedded"
+        )
+        #expect(decision.isLosslessRemux)
+        decision.audioDecision = "transcode"
+        decision.audioChannels = 6
+        #expect(decision.isConvertedAudioRemux(sourceChannels: 6))
+        decision.subtitleDecision = "burn"
+        #expect(!decision.isVideoCopyRemux)
+        decision.subtitleDecision = "transcode"
+        #expect(!decision.isVideoCopyRemux)
+        decision.subtitleLocation = "segments-subs"
+        #expect(decision.isVideoCopyRemux)
+    }
+
     @Test func convertedAudioRestoresOnlyConfirmedJOC() throws {
         var decision = PlexService.TranscodeStreamDecisions(
             container: "mp4", videoDecision: "copy", videoCodec: "hevc",
