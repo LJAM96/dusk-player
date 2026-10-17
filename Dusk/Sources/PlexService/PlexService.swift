@@ -85,6 +85,8 @@ final class PlexService {
     @ObservationIgnored var serverRecoveryTasks: [String: Task<PlexServerConnection, Error>] = [:]
     @ObservationIgnored var serverRecoveryCooldowns: [String: Date] = [:]
 
+    @ObservationIgnored var streamSelectionWriteTask: Task<Void, Error>?
+
     let clientIdentifier: String
     let session: URLSession
     let decoder: JSONDecoder

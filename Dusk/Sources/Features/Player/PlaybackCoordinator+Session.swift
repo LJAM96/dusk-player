@@ -152,6 +152,7 @@ extension PlaybackCoordinator {
     ) async -> PlaybackSessionOutcome {
         let ratingKey = id.ratingKey
         let itemServerID = id.serverID
+        let profileSession = plexService.serverSessionToken
         loadError = nil
         qualitySwitchError = nil
         cancelUpNextCountdown()
@@ -192,7 +193,7 @@ extension PlaybackCoordinator {
 
             // A newer attempt or a dismissal can supersede this one during the
             // metadata fetch; bail before building any playback state.
-            guard !Task.isCancelled, currentPlaybackAttemptID == attemptID else { return .superseded }
+            guard !Task.isCancelled, currentPlaybackAttemptID == attemptID, profileSession == plexService.serverSessionToken else { return .superseded }
 
             airPlayController.refreshRoute(notify: false)
             let wantsAirPlay = airPlayController.isAirPlayRouteSelected
@@ -244,6 +245,38 @@ extension PlaybackCoordinator {
                 return .hardFailure("No playable media found.")
             }
 
+            // The session's server, in this order: the one the candidate names,
+            // the one the downloaded record belongs to, then the primary for an
+            // unstamped item. Everything the session reports goes here only.
+            let serverID = itemServerID
+                ?? downloadManager?.serverID(for: id)
+                ?? plexService.pool.primary?.serverID
+            let showScope = ShowTrackPreferenceStore.Scope(
+                profileID: profileSession.profileID, serverID: serverID, details: details
+            )
+            let rememberedTracks = showScope.flatMap { showTrackPreferenceStore.preferences(for: $0) }
+            let rememberedAudio = rememberedTracks?.audioStream(in: part)
+            let hasRememberedMatch = rememberedTracks?.hasMatch(in: part) == true
+            let defaultSubtitleID = PlayerViewModel.preferredSubtitleStreamID(
+                inPart: part,
+                preferredLanguage: preferences.defaultSubtitleLanguage,
+                forcedOnly: preferences.subtitleForcedOnly
+            )
+            let startupSubtitleID = rememberedTracks.map {
+                $0.subtitleStreamID(in: part, fallback: defaultSubtitleID)
+            } ?? defaultSubtitleID
+            let hasHDRVideo = ShowTrackPreferences.hasHDRVideo(in: part)
+            // A remembered PGS/ASS choice must not veto the HDR/DV remux and
+            // send the video into VLC. Retain the preference for compatible
+            // episodes, but start this remux without an unsupported subtitle.
+            let remuxSubtitleID = hasRememberedMatch
+                ? ShowTrackPreferences.remuxSubtitleStreamID(startupSubtitleID, in: part)
+                : startupSubtitleID
+            let convertsRememberedAudio = rememberedAudio.map {
+                !StreamResolver.canCopyIntoRemux(audio: $0) &&
+                    (hasHDRVideo || PlayerViewModel.isLocallyUndecodableAudioCodec($0.codec))
+            } == true
+
             let resolverDecision = StreamResolver.evaluate(
                 media: media,
                 forceAVPlayer: preferences.forceAVPlayer,
@@ -287,15 +320,11 @@ extension PlaybackCoordinator {
                 if wantsAirPlay {
                     let mediaIndex = details.media.firstIndex { $0.id == media.id } ?? 0
                     let airPlaySessionID = UUID().uuidString
-                    let audioStreamID = PlayerViewModel.preferredAudioStreamID(
+                    let audioStreamID = rememberedAudio?.id ?? PlayerViewModel.preferredAudioStreamID(
                         inPart: part,
                         preferredLanguage: preferences.defaultAudioLanguage
                     )
-                    let subtitleStreamID = PlayerViewModel.preferredSubtitleStreamID(
-                        inPart: part,
-                        preferredLanguage: preferences.defaultSubtitleLanguage,
-                        forcedOnly: preferences.subtitleForcedOnly
-                    )
+                    let subtitleStreamID = startupSubtitleID
                     let result = try await plexService.airPlayStreamURL(
                         ratingKey: ratingKey,
                         mediaIndex: mediaIndex,
@@ -325,17 +354,13 @@ extension PlaybackCoordinator {
                     // the server-stream rung. On any failure or ambiguity fall
                     // back to direct play so playback still starts.
                     let mediaIndex = details.media.firstIndex { $0.id == media.id } ?? 0
-                    let audioStreamID = PlayerViewModel.preferredRemuxAudioStream(
+                    let audioStreamID = rememberedAudio?.id ?? PlayerViewModel.preferredRemuxAudioStream(
                         inPart: part,
                         preferredLanguage: preferences.defaultAudioLanguage
                     )?.id
                     // A bitmap subtitle would force a video re-encode; start
                     // without it rather than lose Dolby Vision.
-                    let subtitleStreamID = PlayerViewModel.preferredSubtitleStreamID(
-                        inPart: part,
-                        preferredLanguage: preferences.defaultSubtitleLanguage,
-                        forcedOnly: preferences.subtitleForcedOnly
-                    ).flatMap { id -> Int? in
+                    let subtitleStreamID = remuxSubtitleID.flatMap { id -> Int? in
                         guard let stream = part.streams.first(where: { $0.streamType == .subtitle && $0.id == id }) else {
                             return nil
                         }
@@ -348,6 +373,7 @@ extension PlaybackCoordinator {
                         part: part,
                         audioStreamID: audioStreamID,
                         subtitleStreamID: subtitleStreamID,
+                        convertsAudio: convertsRememberedAudio,
                         sessionIdentifier: sessionIdentifier,
                         serverID: itemServerID
                     )
@@ -370,6 +396,8 @@ extension PlaybackCoordinator {
                                 mediaIndex: mediaIndex,
                                 sessionIdentifier: sessionIdentifier,
                                 transcodeSessionID: serverStreamSessionID,
+                                audioStreamID: hasRememberedMatch ? audioStreamID : nil,
+                                subtitleStreamID: hasRememberedMatch ? (subtitleStreamID ?? 0) : nil,
                                 serverID: itemServerID
                             )
                             if case .transcodeAvailable = result.outcome {
@@ -396,16 +424,12 @@ extension PlaybackCoordinator {
                     // HDR10+, HLG, Dolby Vision 7/8), goes to AVPlayer through
                     // a lossless Plex remux. Anything short of a confirmed
                     // copy-remux keeps plain direct play.
-                    let remuxAudioStream = PlayerViewModel.preferredRemuxAudioStream(
+                    let remuxAudioStream = rememberedAudio ?? PlayerViewModel.preferredRemuxAudioStream(
                         inPart: part,
                         preferredLanguage: preferences.defaultAudioLanguage
                     )
                     let audioStreamID = remuxAudioStream?.id
-                    let subtitleStreamID = PlayerViewModel.preferredSubtitleStreamID(
-                        inPart: part,
-                        preferredLanguage: preferences.defaultSubtitleLanguage,
-                        forcedOnly: preferences.subtitleForcedOnly
-                    )
+                    let subtitleStreamID = remuxSubtitleID
                     let mediaIndex = details.media.firstIndex { $0.id == media.id } ?? 0
                     // The request decides conversion before contacting Plex:
                     // DV7 + TrueHD starts on AVPlayer with E-AC-3 audio.
@@ -416,6 +440,7 @@ extension PlaybackCoordinator {
                         part: part,
                         audioStreamID: audioStreamID,
                         subtitleStreamID: subtitleStreamID,
+                        convertsAudio: convertsRememberedAudio,
                         sessionIdentifier: sessionIdentifier,
                         serverID: itemServerID
                     )
@@ -434,35 +459,33 @@ extension PlaybackCoordinator {
             // The attempt may have been superseded while resolving the stream
             // (metadata fetch or server-stream decision). Abort and release any
             // transcode session we started so it doesn't linger on the server.
-            guard !Task.isCancelled, currentPlaybackAttemptID == attemptID else {
+            guard !Task.isCancelled, currentPlaybackAttemptID == attemptID, profileSession == plexService.serverSessionToken else {
                 if let transcodeSessionID {
                     stopTranscodeSessionInBackground(transcodeSessionID, serverID: itemServerID)
                 }
                 return .superseded
             }
 
-            // The session's server, in this order: the one the candidate names,
-            // the one the downloaded record belongs to, then the primary for an
-            // unstamped item. Everything the session reports goes here only.
-            let serverID = itemServerID
-                ?? downloadManager?.serverID(for: id)
-                ?? plexService.pool.primary?.serverID
             switch playbackDecision {
             case .directPlay, .localDownload:
                 let directDecision = StreamResolver.evaluateForDirectPlayback(
                     media: media,
                     part: part,
                     enhancementMode: preferences.videoEnhancementMode,
-                    selectedSubtitleStreamID: PlayerViewModel.preferredSubtitleStreamID(
-                        inPart: part,
-                        preferredLanguage: preferences.defaultSubtitleLanguage,
-                        forcedOnly: preferences.subtitleForcedOnly
-                    ),
+                    selectedSubtitleStreamID: startupSubtitleID,
                     forceAVPlayer: preferences.forceAVPlayer,
                     forceVLCKit: preferences.forceVLCKit
                 )
                 engineType = directDecision.engine
                 resolverReason = directDecision.reason
+                if hasRememberedMatch,
+                   !hasHDRVideo, !preferences.forceAVPlayer,
+                   let subtitleID = startupSubtitleID,
+                   part.streams.contains(where: { $0.id == subtitleID && $0.key != nil }),
+                   !usesLocalDownload {
+                    engineType = .vlcKit
+                    resolverReason = "Remembered show subtitle; VLCKit mounts Plex sidecar files"
+                }
             default:
                 break
             }
@@ -556,17 +579,25 @@ extension PlaybackCoordinator {
                     : nil
             } else if !wantsAirPlay {
                 remuxAudioConversion = nil
-                activeAudioStreamID = PlayerViewModel.preferredAudioStreamID(
-                    inPart: part,
-                    preferredLanguage: preferences.defaultAudioLanguage
+                activeAudioStreamID = rememberedAudio?.id ?? PlayerViewModel.preferredAudioStreamID(
+                    inPart: part, preferredLanguage: preferences.defaultAudioLanguage
                 )
-                activeSubtitleStreamID = PlayerViewModel.preferredSubtitleStreamID(
-                    inPart: part,
-                    preferredLanguage: preferences.defaultSubtitleLanguage,
-                    forcedOnly: preferences.subtitleForcedOnly
-                )
+                activeSubtitleStreamID = startupSubtitleID
             }
             activePlaybackServerID = serverID
+            activeShowTrackScope = showScope
+            pendingExplicitTrackSelection = hasRememberedMatch
+                ? ExplicitTrackSelection(audioStreamID: activeAudioStreamID, subtitleStreamID: activeSubtitleStreamID)
+                : nil
+            if let showScope, hasRememberedMatch,
+               !usesLocalDownload, !playbackDecision.isSpatialAudio {
+                syncShowStreamsToPlex(
+                    partID: part.id,
+                    audioStreamID: activeAudioStreamID,
+                    subtitleStreamID: activeSubtitleStreamID ?? 0,
+                    serverID: showScope.serverID
+                )
+            }
             remuxTrackSelection = playbackDecision.isSpatialAudio
                 ? ExplicitTrackSelection(audioStreamID: activeAudioStreamID, subtitleStreamID: activeSubtitleStreamID)
                 : nil
@@ -590,7 +621,10 @@ extension PlaybackCoordinator {
             case .directPlay, .localDownload:
                 // Chosen pre-start so VLCKit opens on the winning track and
                 // never has to switch (and restart the audio output) mid-start.
-                PlayerViewModel.preferredAudioStreamPosition(
+                rememberedAudio.flatMap { stream -> Int? in
+                    guard !PlayerViewModel.isLocallyUndecodableAudioCodec(stream.codec) else { return nil }
+                    return part.streams.filter { $0.streamType == .audio }.firstIndex { $0.id == stream.id }
+                } ?? PlayerViewModel.preferredAudioStreamPosition(
                     inPart: part,
                     preferredLanguage: preferences.defaultAudioLanguage
                 )
@@ -613,7 +647,7 @@ extension PlaybackCoordinator {
                 startPosition: startPosition,
                 context: attemptContext,
                 preferredAudioTrackPosition: preferredAudioTrackPosition,
-                preferredAudioChannelCount: PlayerViewModel.preferredAudioStreamChannelCount(
+                preferredAudioChannelCount: rememberedAudio?.channels ?? PlayerViewModel.preferredAudioStreamChannelCount(
                     inPart: part,
                     preferredLanguage: preferences.defaultAudioLanguage
                 ),
@@ -656,7 +690,7 @@ extension PlaybackCoordinator {
             return .started
         } catch {
             // Don't surface an error for a superseded/dismissed attempt.
-            guard !Task.isCancelled, currentPlaybackAttemptID == attemptID else { return .superseded }
+            guard !Task.isCancelled, currentPlaybackAttemptID == attemptID, profileSession == plexService.serverSessionToken else { return .superseded }
             playbackSessionLogger.error(
                 "Playback attempt failed for ratingKey \(ratingKey, privacy: .public): \(error.localizedDescription, privacy: .public)"
             )
@@ -1377,6 +1411,7 @@ extension PlaybackCoordinator {
             "Subtitle refresh for ratingKey \(ratingKey, privacy: .public) picked up stream \(addedStreamID, privacy: .public)"
         )
 
+        rememberShowTrackChoice(type: .subtitle, streamID: addedStreamID)
         if usesServerTrackSelection {
             // Server-rendered sessions (AirPlay burns subtitles in, the Atmos
             // remux carries them as WebVTT), so the id goes to Plex and the
@@ -1389,6 +1424,7 @@ extension PlaybackCoordinator {
             return addedStreamID
         }
 
+        activeSubtitleStreamID = addedStreamID
         pendingExternalSubtitleStreamID = addedStreamID
         if engine?.supportsExternalSubtitles == true {
             externalSubtitleRefreshToken = UUID()
@@ -1808,6 +1844,7 @@ extension PlaybackCoordinator {
         activeSubtitleStreamID = nil
         remuxTrackSelection = nil
         pendingExternalSubtitleStreamID = nil
+        activeShowTrackScope = nil
         pendingExplicitTrackSelection = nil
         debugInfo = nil
         playbackSource = nil

@@ -150,6 +150,7 @@ final class PlayerViewModel {
     @ObservationIgnored var explicitTrackSelection: ExplicitTrackSelection?
     var serverSelectedAudioStreamID: Int?
     var serverSelectedSubtitleStreamID: Int?
+    var userTrackSelectionHandler: (@MainActor (PlexStreamType, Int?) -> Void)?
     var plexTrackSelectionHandler: (@MainActor (Int?, Int?) -> Void)?
     var pendingPlaybackState: PlaybackState?
     var pendingPlaybackStateExpiration: Date?

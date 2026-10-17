@@ -261,6 +261,51 @@ so the whole live HUD is derived from one instant.
   There is deliberately no `aac` channel limitation — capping it would fight
   Plex's decision engine rather than widening what Dusk accepts.
 
+## Per-show Track Choices
+
+- Explicit audio/subtitle picker actions and downloaded-subtitle selection save
+  `ShowTrackPreferences` in UserDefaults, keyed by active Plex profile ID,
+  server machine ID, and the episode's **grandparent** rating key. Seasons share
+  the same record. Movies and Live TV never read or write it; no settings UI.
+- `ShowTrackDescriptor` matches language (canonical ISO codes/tags) and purpose
+  (forced, SDH, commentary, descriptive audio). Codec and channel count break
+  ties, then source order. Stream IDs are used only within the active part,
+  never persisted. Unknown language or a missing language/purpose match uses
+  existing automatic selection. A miss does not erase the saved choice.
+- Subtitles have three states: unspecified, explicitly Off, or a descriptor.
+  Off overrides forced/default/global subtitles too. Changing audio only keeps
+  the independently saved subtitle preference, and vice versa. Automatic picks,
+  decoder recovery and rejected-remux fallback never rewrite either preference.
+- Startup resolves the preference **before** AirPlay/remux/direct-play decisions
+  and VLCKit audio preselection. Local engines receive `ExplicitTrackSelection`;
+  remux/AirPlay use the resolved Plex IDs. Up Next and autoplay use the same
+  startup path; UserDefaults survives relaunch. PiP re-presentation retains the
+  effective selection. Profile changes invalidate in-flight startup and queued
+  Plex selection writes.
+- Plex's [stream-selection API](https://developer.plex.tv/pms/)
+  remembers selections per user/part (`subtitleStreamID=0` means Off), not a rich
+  rule for future episodes. Plex's account/show language auto-selection cannot
+  express this complete descriptor, so Dusk keeps the per-show rule locally and
+  best-effort syncs direct-play choices and resolved episodes through the existing
+  `selectStreams` PUT. The existing remux PUT remains mandatory before HLS
+  creation (including On → Off → On). All PUTs share a serialized queue in
+  `PlexService`; local downloads skip server writes. Per-show preferences are
+  device-local; another client can observe the per-part Plex selection, but
+  there is no Dusk per-show sync across devices.
+- tvOS's existing enhanced-SDR/embedded-subtitle routing receives the resolved
+  subtitle ID. Remembered SDR sidecars can start on VLCKit. HDR/DV never gains a
+  subtitle-induced VLC route: an unsupported remembered bitmap/ASS subtitle is
+  omitted from the HDR remux for that episode, without erasing the preference.
+  Remembered audio that cannot be copied is converted by Plex when needed to
+  preserve HDR. The existing remux conversion retention and declined-HDR-change
+  guard remain in charge of later track changes (the `a310f05` behavior).
+- `ShowTrackPreferenceTests` covers semantic matches across IDs/seasons,
+  forced/SDH distinctions, codec/channel ties, commentary/description, missing
+  matches, Off/relaunch, profile/server/show isolation, movie exclusion and
+  SDR versus HDR/DV routing. `PlaybackFallbackTests` also checks that explicit
+  Off waits until engine loading has finished before marking it applied.
+  Compile with `build-for-testing` to check test sources without executing tests or launching the app.
+
 ## Dolby Atmos and Spatial Audio
 
 - Why it exists: VLCKit decodes Dolby audio to plain PCM. That drops Atmos
@@ -1487,7 +1532,8 @@ so the whole live HUD is derived from one instant.
   direct play or downloads. The actual engine selection determines rendering:
   - On tvOS, `StreamResolver.evaluateForDirectPlayback` prefers VLCKit for
     eligible SDR video when Auto/On and an embedded subtitle is selected.
-    Startup uses the same forced/language subtitle rule as the player; returning
+    Startup uses the resolved per-show choice or the same forced/language
+    subtitle rule as the player; returning
     to Original and leaving a remux use the current explicit choice when present.
     The view model also reports its actual automatic embedded-track choice,
     covering engine-discovered lists that differ from Plex's startup metadata.

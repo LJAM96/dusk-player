@@ -183,6 +183,9 @@ Player:
   stay in the coordinator and use Plex HLS plus AVPlayer, so receivers do not
   need Dusk installed.
 - `PlayerView` and `PlayerViewModel` own on-screen player interaction.
+- `ShowTrackPreferences` owns semantic per-show track matching and profile/server/
+  show-scoped persistence; `PlaybackCoordinator+ShowTracks` records explicit
+  choices and syncs per-part selections to Plex. See `docs/playback.md`.
 - tvOS's HUD is its own small stack, all of it file-scope `#if os(tvOS)`:
   `PlayerTVHUDController` (the `hidden`/`transport`/`scrubbing`/`panel` state
   machine), `PlayerTVRemoteInputBridge` (the player's single remote-input

@@ -7,6 +7,30 @@ import Testing
 @Suite("Automatic playback recovery presentation")
 @MainActor
 struct PlaybackFallbackTests {
+    @Test func explicitSubtitleOffWaitsForTheLoadedEngine() {
+        let engine = FailedPlaybackEngine(state: .idle)
+        let model = PlayerViewModel(engine: engine, markers: [])
+        defer { model.cleanup() }
+        var rememberedChoices = 0
+        model.userTrackSelectionHandler = { _, _ in rememberedChoices += 1 }
+        model.hasConfiguredAutomaticTrackSelection = true
+        model.explicitTrackSelection = ExplicitTrackSelection(audioStreamID: nil, subtitleStreamID: nil)
+        model.applyAutomaticTrackSelectionIfNeeded()
+        #expect(!model.hasAppliedAutomaticSubtitleSelection)
+        #expect(engine.subtitleSelectionCount == 0)
+
+        engine.state = .playing
+        model.applyAutomaticTrackSelectionIfNeeded()
+        #expect(model.hasAppliedAutomaticSubtitleSelection)
+        #expect(engine.subtitleSelectionCount == 1)
+        model.applyAutomaticTrackSelectionIfNeeded()
+        #expect(engine.subtitleSelectionCount == 1)
+        #expect(rememberedChoices == 0) // Automatic application never saves a preference.
+
+        model.selectSubtitle(nil) // Off is already selected; the gesture still saves it.
+        #expect(rememberedChoices == 1)
+    }
+
     @Test(arguments: [
         #""DOVIPresent":true,"DOVIProfile":5,"DOVIBLCompatID":0,"bitDepth":10"#,
         #""DOVIPresent":true,"DOVIProfile":8,"DOVIBLCompatID":1"#,
@@ -139,7 +163,8 @@ struct PlaybackFallbackTests {
 
 @MainActor
 private final class FailedPlaybackEngine: PlaybackEngine {
-    let state: PlaybackState
+    var state: PlaybackState
+    var subtitleSelectionCount = 0
     var error: PlaybackError? { state == .error ? .unknown("The decoder failed.") : nil }
     init(state: PlaybackState = .error) { self.state = state }
     let currentTime: TimeInterval = 0
@@ -164,7 +189,7 @@ private final class FailedPlaybackEngine: PlaybackEngine {
     func configureCoordinatedPlayback(itemIdentifier: String?) {}
     func recoverFromStall() {}
     func handleReturnToForeground() {}
-    func selectSubtitleTrack(_ track: SubtitleTrack?) {}
+    func selectSubtitleTrack(_ track: SubtitleTrack?) { subtitleSelectionCount += 1 }
     func selectAudioTrack(_ track: AudioTrack) {}
     func makePlayerView() -> AnyView { AnyView(EmptyView()) }
 }

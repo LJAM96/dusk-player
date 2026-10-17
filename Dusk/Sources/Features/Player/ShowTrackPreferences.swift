@@ -1,0 +1,137 @@
+import Foundation
+
+/// A semantic choice, never a Plex stream ID (IDs change between episodes).
+struct ShowTrackDescriptor: Codable, Equatable, Sendable {
+    let language: String
+    let forced: Bool
+    let hearingImpaired: Bool
+    let commentary: Bool
+    let descriptive: Bool
+    let codec: String?
+    let channels: Int?
+
+    @MainActor
+    init?(stream: PlexStream) {
+        guard let language = PlayerViewModel.normalizedLanguageCode(stream.languageCode ?? stream.languageTag),
+              language != "und", language != "unk" else { return nil }
+        self.language = language
+        let title = stream.extendedDisplayTitle ?? stream.displayTitle ?? ""
+        forced = stream.isForced == true || PlayerViewModel.containsForcedMarker(title)
+        hearingImpaired = stream.isHearingImpaired == true || PlayerViewModel.containsHearingImpairedMarker(title)
+        commentary = PlayerViewModel.containsCommentaryMarker(title)
+        descriptive = PlayerViewModel.containsDescriptiveAudioMarker(title)
+        codec = stream.codec?.lowercased()
+        channels = stream.channels
+    }
+
+    @MainActor
+    func match(in streams: [PlexStream], type: PlexStreamType) -> PlexStream? {
+        // Language and purpose are requirements. Codec/channels only break ties;
+        // never substitute forced subtitles or commentary for a normal track.
+        let candidates = streams.filter { stream in
+            guard stream.streamType == type, let candidate = Self(stream: stream) else { return false }
+            return language == candidate.language && forced == candidate.forced
+                && hearingImpaired == candidate.hearingImpaired
+                && commentary == candidate.commentary && descriptive == candidate.descriptive
+        }
+        return candidates.enumerated().max { lhs, rhs in
+            let left = score(lhs.element)
+            let right = score(rhs.element)
+            return left == right ? lhs.offset > rhs.offset : left < right
+        }?.element
+    }
+
+    private func score(_ stream: PlexStream) -> Int {
+        (codec != nil && codec == stream.codec?.lowercased() ? 4 : 0)
+            + (channels != nil && channels == stream.channels ? 2 : 0)
+    }
+}
+
+struct ShowTrackPreferences: Codable, Equatable, Sendable {
+    enum Subtitles: Codable, Equatable, Sendable {
+        case off
+        case track(ShowTrackDescriptor)
+    }
+
+    var audio: ShowTrackDescriptor?
+    var subtitles: Subtitles?
+
+    @MainActor
+    static func hasHDRVideo(in part: PlexMediaPart) -> Bool {
+        part.streams.contains {
+            $0.streamType == .video && ($0.isHDRVideo || StreamResolver.hdrTransfer(of: $0) != nil ||
+                $0.doviPresent == true || $0.doviProfile != nil ||
+                $0.doviBLCompatID != nil || $0.doviLevel != nil)
+        }
+    }
+
+    @MainActor
+    static func remuxSubtitleStreamID(_ streamID: Int?, in part: PlexMediaPart) -> Int? {
+        guard hasHDRVideo(in: part), let streamID,
+              let stream = part.streams.first(where: { $0.streamType == .subtitle && $0.id == streamID }),
+              !StreamResolver.canRideRemux(subtitle: stream) else { return streamID }
+        return nil
+    }
+
+    @MainActor
+    func audioStream(in part: PlexMediaPart) -> PlexStream? {
+        audio?.match(in: part.streams, type: .audio)
+    }
+
+    @MainActor
+    func subtitleStreamID(in part: PlexMediaPart, fallback: Int?) -> Int? {
+        switch subtitles {
+        case .off: nil
+        case let .track(descriptor): descriptor.match(in: part.streams, type: .subtitle)?.id ?? fallback
+        case nil: fallback
+        }
+    }
+
+    @MainActor
+    func hasMatch(in part: PlexMediaPart) -> Bool {
+        if audioStream(in: part) != nil { return true }
+        switch subtitles {
+        case .off: return true
+        case let .track(descriptor): return descriptor.match(in: part.streams, type: .subtitle) != nil
+        case nil: return false
+        }
+    }
+}
+
+/// Device-local fallback for choices Plex's language-only show settings cannot
+/// express. No unscoped/anonymous bucket: a Home switch cannot inherit a choice.
+@MainActor
+struct ShowTrackPreferenceStore {
+    struct Scope: Codable, Equatable, Sendable {
+        let profileID: String
+        let serverID: String
+        let showRatingKey: String
+
+        init?(profileID: String?, serverID: String?, details: PlexMediaDetails) {
+            guard details.type == .episode,
+                  let profileID, !profileID.isEmpty,
+                  let serverID, !serverID.isEmpty,
+                  let showRatingKey = details.grandparentRatingKey, !showRatingKey.isEmpty else { return nil }
+            self.profileID = profileID
+            self.serverID = serverID
+            self.showRatingKey = showRatingKey
+        }
+
+        var storageKey: String {
+            let components = [profileID, serverID, showRatingKey]
+            return "ShowTrackPreferences.v1." + components.map { "\($0.utf8.count):\($0)" }.joined()
+        }
+    }
+
+    var defaults: UserDefaults = .standard
+
+    func preferences(for scope: Scope) -> ShowTrackPreferences? {
+        guard let data = defaults.data(forKey: scope.storageKey) else { return nil }
+        return try? JSONDecoder().decode(ShowTrackPreferences.self, from: data)
+    }
+
+    func save(_ preferences: ShowTrackPreferences, for scope: Scope) {
+        guard let data = try? JSONEncoder().encode(preferences) else { return }
+        defaults.set(data, forKey: scope.storageKey)
+    }
+}

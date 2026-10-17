@@ -8,6 +8,9 @@ private let trackSelectionLogger = Logger(
 
 extension PlayerViewModel {
     func selectSubtitle(_ track: SubtitleTrack?) {
+        if track == nil || track?.plexStreamID != nil {
+            userTrackSelectionHandler?(.subtitle, track?.plexStreamID)
+        }
         hasAppliedAutomaticSubtitleSelection = true
         hasUserSelectedSubtitleTrack = true
 
@@ -45,6 +48,9 @@ extension PlayerViewModel {
     }
 
     func selectAudio(_ track: AudioTrack) {
+        if let streamID = track.plexStreamID {
+            userTrackSelectionHandler?(.audio, streamID)
+        }
         hasAppliedAutomaticAudioSelection = true
         showAudioPicker = false
 
@@ -115,7 +121,12 @@ extension PlayerViewModel {
         // manual pause/resume. Steady-state switches are reliable.
         if !hasAppliedAutomaticAudioSelection, !audioTracks.isEmpty,
            engine.isReadyForAutomaticAudioSelection {
-            if let preferredAudioTrack = explicitAudioTrack() ?? preferredAudioTrack(),
+            if let streamID = explicitTrackSelection?.audioStreamID,
+               let track = audioTracks.first(where: { $0.plexStreamID == streamID }),
+               !track.isDecodable, !hasRequestedUndecodableAudioFallback {
+                hasRequestedUndecodableAudioFallback = true
+                transcodeAudioFallbackHandler?(track)
+            } else if let preferredAudioTrack = explicitAudioTrack() ?? preferredAudioTrack(),
                preferredAudioTrack.id != engine.selectedAudioTrackID {
                 engine.selectAudioTrack(preferredAudioTrack)
                 selectedAudioTrackID = preferredAudioTrack.id
@@ -246,6 +257,9 @@ extension PlayerViewModel {
     /// Applies a carried-over subtitle choice once: off, an embedded track the
     /// engine lists, or a Plex sidecar the mount path selects when attached.
     func applyExplicitSubtitleSelection(_ selection: ExplicitTrackSelection) {
+        // Configuration precedes engine.load(), which resets pending requests.
+        // Keep Off pending until the loaded engine can retain the selection.
+        guard engine.state == .playing || engine.state == .paused else { return }
         guard let streamID = selection.subtitleStreamID else {
             engine.selectSubtitleTrack(nil)
             selectedSubtitleTrackID = engine.selectedSubtitleTrackID

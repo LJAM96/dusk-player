@@ -68,6 +68,8 @@ final class PlaybackCoordinator {
     /// True while Plex prepares an AVPlayer HLS replacement after the user
     /// selects an AirPlay route during an active local session.
     var isPreparingAirPlay = false
+    @ObservationIgnored var showTrackPreferenceStore = ShowTrackPreferenceStore()
+    @ObservationIgnored var activeShowTrackScope: ShowTrackPreferenceStore.Scope?
     /// Plex stream selections that must survive local → AirPlay handoffs. Engine
     /// ids are implementation-local, so the player maps them back to these ids.
     var activeAudioStreamID: Int?
@@ -689,6 +691,7 @@ final class PlaybackCoordinator {
         playbackSource = nil
         debugInfo = nil
         activeItemDetails = nil
+        activeShowTrackScope = nil
         activeAudioStreamID = nil
         activeSubtitleStreamID = nil
         pendingExternalSubtitleStreamID = nil

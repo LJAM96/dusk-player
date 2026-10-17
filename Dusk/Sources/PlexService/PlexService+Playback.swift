@@ -366,19 +366,42 @@ extension PlexService {
         subtitleStreamID: Int?,
         serverID: String? = nil
     ) async throws {
-        var queryItems = [URLQueryItem(name: "allParts", value: "1")]
-        if let audioStreamID {
-            queryItems.append(URLQueryItem(name: "audioStreamID", value: String(audioStreamID)))
+        try await enqueueStreamSelection(
+            partID: partID, audioStreamID: audioStreamID,
+            subtitleStreamID: subtitleStreamID, serverID: serverID
+        ).value
+        try Task.checkCancellation()
+    }
+
+    /// Enqueue synchronously so quick picker changes and remux rebuilds share
+    /// one write order. A late PUT must never undo a newer subtitle On/Off.
+    func enqueueStreamSelection(
+        partID: Int,
+        audioStreamID: Int?,
+        subtitleStreamID: Int?,
+        serverID: String?
+    ) -> Task<Void, Error> {
+        let previous = streamSelectionWriteTask
+        let session = serverSessionToken
+        let task = Task { @MainActor [weak self] in
+            _ = try? await previous?.value
+            guard let self, session == self.serverSessionToken else { throw CancellationError() }
+            var queryItems = [URLQueryItem(name: "allParts", value: "1")]
+            if let audioStreamID {
+                queryItems.append(URLQueryItem(name: "audioStreamID", value: String(audioStreamID)))
+            }
+            if let subtitleStreamID {
+                queryItems.append(URLQueryItem(name: "subtitleStreamID", value: String(subtitleStreamID)))
+            }
+            _ = try await self.rawServerRequest(
+                method: "PUT",
+                path: "/library/parts/\(partID)",
+                queryItems: queryItems,
+                serverID: serverID
+            )
         }
-        if let subtitleStreamID {
-            queryItems.append(URLQueryItem(name: "subtitleStreamID", value: String(subtitleStreamID)))
-        }
-        _ = try await rawServerRequest(
-            method: "PUT",
-            path: "/library/parts/\(partID)",
-            queryItems: queryItems,
-            serverID: serverID
-        )
+        streamSelectionWriteTask = task
+        return task
     }
 
     /// Starts a Plex HLS consumer for an already-tuned Live TV session.
