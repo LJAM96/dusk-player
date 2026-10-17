@@ -391,7 +391,12 @@ extension PlayerViewModel {
 
     // MARK: - Auto-Skip
 
-    private func updateAutoSkipState() {
+    func updateAutoSkipState() {
+        guard hasConfiguredAutomaticTrackSelection else {
+            cancelAutoSkipCountdown()
+            return
+        }
+
         let marker = activeSkipMarker
 
         guard let marker, !isScrubbing else {
@@ -663,8 +668,22 @@ extension PlayerViewModel {
 
             if Task.isCancelled { return }
 
+            guard self.autoSkipCountdownMarkerID == marker.id else { return }
+
             guard let currentMarker = self.activeSkipMarker,
-                  currentMarker.id == self.autoSkipCountdownMarkerID else { return }
+                  currentMarker.id == marker.id else {
+                self.cancelAutoSkipCountdown()
+                return
+            }
+
+            guard self.hasConfiguredAutomaticTrackSelection,
+                  !self.isScrubbing,
+                  currentMarker.isIntro,
+                  self.shouldAutoSkipIntroMarkers,
+                  !self.spentAutoSkipMarkerIDs.contains(currentMarker.id) else {
+                self.cancelAutoSkipCountdown()
+                return
+            }
 
             self.autoSkipCountdownMarkerID = nil
             self.autoSkipCountdownProgress = nil

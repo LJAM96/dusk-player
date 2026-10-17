@@ -1606,7 +1606,8 @@ so the whole live HUD is derived from one instant.
 - Intro auto-skip honors `AutoSkipIntroMode`: off, always, or always except
   episode 1 of a season. The episode check comes from the active
   `PlexMediaDetails.index`, so missing episode numbers are treated as not the
-  first episode.
+  first episode. It waits for the player's saved settings to load before arming
+  a countdown and checks the current mode again before skipping.
 - **Auto-skip fires at most once per marker per playback session.** Skipping a
   marker — by countdown or by tapping Skip Intro — records its id in
   `PlaybackCoordinator.spentAutoSkipMarkerIDs`, and `updateAutoSkipState` never
