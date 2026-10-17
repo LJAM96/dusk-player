@@ -972,6 +972,48 @@ so the whole live HUD is derived from one instant.
   already listed by `syncTrackLists`'s server branch and selecting one just
   passes `subtitleStreamID` to the transcode decision, which burns it.
 
+### Subtitle character sets, fonts, and direction
+- Known text sidecars carry their Plex codec into `attachExternalSubtitle`.
+  `SubtitleFileStore` downloads the original bytes asynchronously, then
+  `SubtitleTextDecoder` recognizes Unicode BOMs/strict UTF-8 before using
+  Foundation's whole-file legacy encoding detector without lossy conversion.
+  A system Russian-language confidence check resolves the detector's observed
+  KOI8-R → ISO-8859-5 ambiguity. Automatic legacy detection remains heuristic;
+  short or ambiguous files can still require fixing the source encoding.
+- VLC mounts a temporary UTF-8 file with a BOM and the correct format suffix.
+  ASS/SSA headers, fonts, positioning, inline markup, logical RTL order, and cue
+  timing are preserved. The original Plex URL remains the attachment identity
+  used by track matching. Files survive media reopens and are removed when the
+  session's store is released. Fetch/decode failures retain original VLC
+  delivery; they never block video startup or log token-bearing errors.
+- Text formats currently normalized: SRT/SubRip, ASS/SSA, WebVTT, MicroDVD,
+  SubViewer, and SAMI. VobSub/PGS and unknown codecs bypass preparation entirely.
+  Never classify `.sub` by extension: it can contain text **or** bitmap data.
+- Do not force `subsdec-encoding=UTF-8` on the shared VLC library: that also
+  affects unnormalized inputs. libvlc 3.x only auto-detects UTF-8, with a
+  Windows-1252 fallback in this nonlocalized build. Container tracks declare
+  their own encoding (including UTF-8 Matroska text and UTF-8/UTF-16 tx3g).
+- Plex documents `/library/streams/{id}?encoding=utf-8`, but this is not a
+  reliable replacement for source detection. On the demo server (2026-10-17),
+  the generated Windows-1251, Windows-1256, and ISO-8859-2 samples returned
+  valid UTF-8 containing wrong characters. KOI8-R, GB18030, Big5, Shift-JIS,
+  Hebrew, Greek, Thai, and mixed UTF-8 converted correctly. Dusk deliberately
+  fetches original sidecars instead.
+- There is no Dusk text overlay. Both vendored VLC frameworks include FreeType's
+  CoreText family/fallback selectors, FriBidi and HarfBuzz; libass auto-selects
+  the Apple font provider and honors embedded fonts. Keep the existing
+  Helvetica Neue default and automatic paragraph direction. AVPlayer renders
+  tx3g/WebVTT and Plex remux captions natively; its text style rules set only
+  size, colors, and shadow, leaving font fallback and direction to Apple.
+  AirPlay/burned captions are rendered by Plex. No Latin typography changes or
+  bundled replacement font are needed for encoding correction.
+- `scripts/generate-subtitle-fixtures.py <directory>` creates mixed-script
+  SRT/ASS/WebVTT, legacy-encoded SRT/ASS/MicroDVD, and an expected-text manifest
+  without contacting Plex or launching a player. `SubtitleTextDecoderTests`
+  covers the legacy fixtures, Unicode BOMs, unchanged logical RTL/Latin text,
+  ASS markup, and bitmap/unknown-codec passthrough. Compile checks do not verify
+  actual glyph rasterization, shaping, or on-device playback.
+
 ### Dolby TrueHD decoding (TrueHD/MLP)
 - Dusk ships its OWN MobileVLCKit/TVVLCKit 3.7.3 build
   (`ci_scripts/build_vlckit.sh`, see `development-workflow.md` → "VLCKit

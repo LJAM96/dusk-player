@@ -999,17 +999,22 @@ final class VLCKitEngine: NSObject, PlaybackEngine {
     private struct ExternalSubtitleAttachment {
         enum Status {
             case pending
+            case preparing
             case applying
             case resolved
             case failed
         }
 
         let url: URL
+        let codec: String?
+        var playbackURL: URL?
         var status: Status = .pending
         /// The SPU elementary-stream index libvlc gave the slave, once its
         /// track has appeared in the player's track list.
         var esIndex: Int?
     }
+
+    @ObservationIgnored private var subtitleFileStore = SubtitleFileStore()
 
     var supportsExternalSubtitles: Bool { true }
 
@@ -1018,7 +1023,7 @@ final class VLCKitEngine: NSObject, PlaybackEngine {
     /// thread), which is why this returns acceptance rather than a track id:
     /// `availableSubtitleTracks` gains an entry carrying `externalURL == url`.
     @discardableResult
-    func attachExternalSubtitle(_ url: URL, select: Bool) -> Bool {
+    func attachExternalSubtitle(_ url: URL, codec: String?, select: Bool) -> Bool {
         guard currentSource != nil else { return false }
 
         if select {
@@ -1035,13 +1040,13 @@ final class VLCKitEngine: NSObject, PlaybackEngine {
             case .failed:
                 externalSubtitleAttachments[existing].status = .pending
                 pumpExternalSubtitleAttachments()
-            case .pending, .applying:
+            case .pending, .preparing, .applying:
                 break
             }
             return true
         }
 
-        externalSubtitleAttachments.append(ExternalSubtitleAttachment(url: url))
+        externalSubtitleAttachments.append(ExternalSubtitleAttachment(url: url, codec: codec))
         vlcKitEngineLogger.notice(
             "VLCKit queued external subtitle slave (select=\(select, privacy: .public), queued=\(self.externalSubtitleAttachments.count, privacy: .public))"
         )
@@ -1059,18 +1064,46 @@ final class VLCKitEngine: NSObject, PlaybackEngine {
         // slave list, and attributing elementary streams needs the container's
         // own tracks to be known first.
         guard currentSource != nil, state == .playing || state == .paused else { return }
-        guard !externalSubtitleAttachments.contains(where: { $0.status == .applying }) else { return }
+        guard !externalSubtitleAttachments.contains(where: { $0.status == .preparing || $0.status == .applying }) else { return }
         guard let next = externalSubtitleAttachments.firstIndex(where: { $0.status == .pending }) else {
             externalSubtitleAttachTask?.cancel()
             externalSubtitleAttachTask = nil
             return
         }
 
+        let attachment = externalSubtitleAttachments[next]
+        if let playbackURL = attachment.playbackURL {
+            mountExternalSubtitle(at: next, playbackURL: playbackURL)
+            return
+        }
+        externalSubtitleAttachments[next].status = .preparing
+        let store = subtitleFileStore
+        externalSubtitleAttachTask = Task { @MainActor [weak self] in
+            let playbackURL: URL
+            do {
+                playbackURL = try await store.prepare(attachment.url, codec: attachment.codec)
+            } catch {
+                guard !Task.isCancelled else { return }
+                // Preserve VLC's original delivery if fetching/detection fails.
+                // Never log the error: URLSession errors can include Plex tokens.
+                vlcKitEngineLogger.notice("Subtitle normalization unavailable; using original sidecar")
+                playbackURL = attachment.url
+            }
+            guard !Task.isCancelled, let self,
+                  self.externalSubtitleAttachments.indices.contains(next),
+                  self.externalSubtitleAttachments[next].url == attachment.url,
+                  self.externalSubtitleAttachments[next].status == .preparing else { return }
+            self.externalSubtitleAttachments[next].playbackURL = playbackURL
+            self.mountExternalSubtitle(at: next, playbackURL: playbackURL)
+        }
+    }
+
+    private func mountExternalSubtitle(at next: Int, playbackURL: URL) {
         captureEmbeddedSubtitleESIndexesIfNeeded()
         externalSubtitleAttachments[next].status = .applying
         let url = externalSubtitleAttachments[next].url
         let shouldSelect = pendingExternalSubtitleSelectionURL == url
-        let result = mediaPlayer.addPlaybackSlave(url, type: .subtitle, enforce: shouldSelect)
+        let result = mediaPlayer.addPlaybackSlave(playbackURL, type: .subtitle, enforce: shouldSelect)
         vlcKitEngineLogger.notice(
             "VLCKit adding subtitle slave (enforce=\(shouldSelect, privacy: .public), result=\(result, privacy: .public))"
         )
@@ -1189,6 +1222,7 @@ final class VLCKitEngine: NSObject, PlaybackEngine {
         externalSubtitleAttachTask?.cancel()
         externalSubtitleAttachTask = nil
         externalSubtitleAttachments = []
+        subtitleFileStore = SubtitleFileStore()
         embeddedSubtitleESIndexes = nil
         pendingExternalSubtitleSelectionURL = nil
     }

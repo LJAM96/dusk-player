@@ -160,6 +160,8 @@ protocol PlaybackEngine: AnyObject {
     /// Mounts a sidecar subtitle file (a Plex `/library/streams/{id}` URL) on
     /// the current media, optionally making it the active subtitle track.
     ///
+    /// `codec` identifies text sidecars for encoding normalization; bitmap and
+    /// unknown codecs retain their original delivery.
     /// The track appears in `availableSubtitleTracks` asynchronously, carrying
     /// `externalURL == url` so the caller can map it back to the Plex stream it
     /// came from. Returns whether the engine accepted the request, not whether
@@ -167,7 +169,7 @@ protocol PlaybackEngine: AnyObject {
     /// them whenever they reopen the media in place (slaves live on the input,
     /// not on the media).
     @discardableResult
-    func attachExternalSubtitle(_ url: URL, select: Bool) -> Bool
+    func attachExternalSubtitle(_ url: URL, codec: String?, select: Bool) -> Bool
 
     /// Whether automatic (app-driven) audio track selection may run right now.
     /// VLCKit defers it until playback is steadily rendering: switching the
@@ -261,7 +263,7 @@ extension PlaybackEngine {
     // Default: sidecar subtitles cannot be mounted. Only VLCKit opts in.
     var supportsExternalSubtitles: Bool { false }
     @discardableResult
-    func attachExternalSubtitle(_ url: URL, select: Bool) -> Bool { false }
+    func attachExternalSubtitle(_ url: URL, codec: String?, select: Bool) -> Bool { false }
 
     // Default: keep the rich movie-playback session. Only VLCKit opts out.
     var prefersSpatializedAudioSession: Bool { true }

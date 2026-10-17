@@ -206,7 +206,7 @@ extension PlayerViewModel {
                 hasAppliedAutomaticSubtitleSelection = true
                 hasUserSelectedSubtitleTrack = true
             }
-            engine.attachExternalSubtitle(url, select: shouldSelect)
+            engine.attachExternalSubtitle(url, codec: stream.codec, select: shouldSelect)
         }
     }
 
