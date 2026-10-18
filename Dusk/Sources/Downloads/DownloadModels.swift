@@ -201,6 +201,26 @@ struct DownloadedMediaRecord: Codable, Sendable, Identifiable, Hashable {
     var convertedMedia: PlexMedia? {
         convertedMediaData.flatMap { try? JSONDecoder().decode(PlexMedia.self, from: $0) }
     }
+
+    /// The converted file plus the source part's external subtitle sidecars.
+    /// Plex's audio/video and embedded subtitle metadata describe the original
+    /// file and would mislabel the MKV's own tracks; sidecars can still mount.
+    func convertedMediaVersion(sourcePart: PlexMediaPart?) -> (media: PlexMedia, part: PlexMediaPart)? {
+        guard let media = convertedMedia, let converted = media.parts.first else { return nil }
+        let sidecars = sourcePart?.streams.filter { $0.streamType == .subtitle && $0.key != nil } ?? []
+        let part = PlexMediaPart(
+            id: converted.id, key: converted.key, file: converted.file, size: converted.size,
+            container: converted.container, duration: converted.duration,
+            videoProfile: converted.videoProfile, audioProfile: converted.audioProfile,
+            accessible: converted.accessible, exists: converted.exists, streams: sidecars
+        )
+        return (PlexMedia(
+            id: media.id, container: media.container, videoCodec: media.videoCodec, audioCodec: media.audioCodec,
+            videoResolution: media.videoResolution, videoProfile: media.videoProfile, audioProfile: media.audioProfile,
+            audioChannels: media.audioChannels, width: media.width, height: media.height, bitrate: media.bitrate,
+            duration: media.duration, optimizedForStreaming: media.optimizedForStreaming, parts: [part]
+        ), part)
+    }
     var relativeVideoPath: String?
     var resumeDataPath: String?
     var downloadTaskIdentifier: Int?

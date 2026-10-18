@@ -34,7 +34,15 @@ extension PlexService {
     /// PMS assigns the numeric ID. Creation is idempotent for this context's
     /// persisted client identifier and user. Persist the result before add.
     func createDownloadQueue(context: PlexDownloadQueueContext) async throws -> String {
-        let data = try await downloadQueueRequest(context: context, method: "POST", path: "/downloadQueue")
+        let data: Data
+        do {
+            data = try await downloadQueueRequest(context: context, method: "POST", path: "/downloadQueue")
+        } catch PlexServiceError.httpError(let status) where status == 404 {
+            // Servers before PMS 1.41.9 have no download queue.
+            throw PlexDownloadQueueError.preparationFailed(
+                "This Plex server can't convert downloads. Update Plex Media Server or download in Original quality."
+            )
+        }
         let queues = try PlexDownloadQueueResponse.elements(data, named: "DownloadQueue")
         guard queues.count == 1 else { throw PlexDownloadQueueResponse.invalidResponse() }
         return try PlexDownloadQueueResponse.id(queues[0]["id"])

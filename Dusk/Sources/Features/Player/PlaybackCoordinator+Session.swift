@@ -1385,28 +1385,14 @@ extension PlaybackCoordinator {
         }
 
         if activePlaybackUsesLocalDownload,
-           let convertedMedia = downloadManager?.record(
+           let converted = downloadManager?.record(
                for: PlexItemID(serverID: activePlaybackServerID, ratingKey: ratingKey)
-           )?.convertedMedia,
-           let convertedPart = convertedMedia.parts.first(where: { $0.id == debugInfo.part.id }) {
-            // The server still describes the original file. Only its sidecars
-            // can be mounted on the local conversion; copying its audio/video
-            // or embedded subtitle metadata would mislabel VLC's new tracks.
-            let sidecars = part.streams.filter { $0.streamType == .subtitle && $0.key != nil }
-            media = convertedMedia
-            part = PlexMediaPart(
-                id: convertedPart.id,
-                key: convertedPart.key,
-                file: convertedPart.file,
-                size: convertedPart.size,
-                container: convertedPart.container,
-                duration: convertedPart.duration,
-                videoProfile: convertedPart.videoProfile,
-                audioProfile: convertedPart.audioProfile,
-                accessible: convertedPart.accessible,
-                exists: convertedPart.exists,
-                streams: sidecars
-            )
+           )?.convertedMediaVersion(sourcePart: part),
+           converted.part.id == debugInfo.part.id {
+            // The server still describes the original file; only its sidecars
+            // carry over to the local conversion (see convertedMediaVersion).
+            media = converted.media
+            part = converted.part
         }
 
         activeItemDetails = details

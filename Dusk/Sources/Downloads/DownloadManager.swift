@@ -759,8 +759,8 @@ final class DownloadManager {
             return nil
         }
         if record.downloadQuality != .original {
-            guard let media = record.convertedMedia, let part = media.parts.first else { return nil }
-            return (media, part)
+            let sourcePart = details.media.first { $0.id == record.mediaID }?.parts.first { $0.id == record.partID }
+            return record.convertedMediaVersion(sourcePart: sourcePart)
         }
         guard let mediaID = record.mediaID,
               let partID = record.partID,
@@ -1261,8 +1261,17 @@ final class DownloadManager {
             // URLSession reports cancellation as a generic network error.
             guard let latest = self.record(globalKey: record.globalKey), latest.status == .preparing,
                   !deletingDownloadIDs.contains(record.globalKey) else { return }
+            // Still preparing means nothing else claimed the record: requeue it
+            // (keeping any Plex queue IDs) so it continues once the session or
+            // its offline/switched-off server is back, instead of staying stuck.
             if error is CancellationError || Task.isCancelled || isProfileSwitching
-                || record.accountProfileID != plexService.activeProfileID {
+                || record.accountProfileID != plexService.activeProfileID
+                || !isServerConnected(record.serverID) {
+                update(globalKey: record.globalKey) {
+                    $0.status = .queued
+                    $0.downloadTaskIdentifier = nil
+                    $0.updatedAt = .now
+                }
                 return
             }
             update(globalKey: record.globalKey) {
@@ -1318,6 +1327,7 @@ final class DownloadManager {
                 }
                 try checkPreparation(record)
             }
+            var failedPolls = 0
             while true {
                 try checkPreparation(record)
                 // Conversion can outlive a LAN/remote endpoint change or token
@@ -1326,7 +1336,17 @@ final class DownloadManager {
                 let pollContext = try plexService.captureDownloadQueueContext(
                     serverID: record.serverID, profileID: profileID, clientIdentifier: latest.queueClientIdentifier!
                 )
-                let item = try await plexService.downloadQueueItem(context: pollContext, queueID: queueID, itemID: itemID)
+                let item: PlexDownloadQueueItem
+                do {
+                    item = try await plexService.downloadQueueItem(context: pollContext, queueID: queueID, itemID: itemID)
+                    failedPolls = 0
+                } catch PlexServiceError.networkError where failedPolls < 10 {
+                    // A poll dropped by a network blip or app suspension must not
+                    // fail the download; a retry would restart the conversion.
+                    failedPolls += 1
+                    try await Task.sleep(for: .seconds(2))
+                    continue
+                }
                 try checkPreparation(record)
                 guard item.key == "/library/metadata/\(record.ratingKey)" else {
                     throw PlexDownloadQueueError.invalidResponse("Plex returned a different item for this download.")

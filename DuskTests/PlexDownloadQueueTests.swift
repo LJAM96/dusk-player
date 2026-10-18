@@ -141,6 +141,23 @@ struct PlexDownloadQueueTests {
         #expect(restored.relativeVideoPath == "Movies/Example.mkv")
     }
 
+    @Test func convertedPlaybackKeepsOnlyExternalSubtitleSidecars() throws {
+        let decision = try PlexDownloadQueueResponse.decision(decisionData([decisionMedia()]))
+        let converted = decision.convertedMedia(sourceMedia: try sourceMedia(), mediaPath: "/downloadQueue/7/item/23/media", expectedBytes: 1234)
+        var record = try JSONDecoder().decode(DownloadedMediaRecord.self, from: Data(#"{"serverID":"server-a","ratingKey":"42","type":"movie","title":"Example","mediaID":41,"partID":17,"status":"completed","progress":1,"downloadedBytes":1234,"addedAt":0,"updatedAt":1}"#.utf8))
+        record.downloadQuality = .p720
+        record.convertedMediaData = try JSONEncoder().encode(converted)
+        let sourcePartJSON = #"{"id":17,"key":"/library/parts/17/file.mkv","Stream":[{"id":101,"streamType":1,"codec":"hevc"},{"id":102,"streamType":2,"codec":"truehd"},{"id":103,"streamType":3,"codec":"pgs"},{"id":104,"streamType":3,"codec":"srt","key":"/library/streams/104"}]}"#
+        let sourcePart = try JSONDecoder().decode(PlexMediaPart.self, from: Data(sourcePartJSON.utf8))
+
+        let version = try #require(record.convertedMediaVersion(sourcePart: sourcePart))
+        #expect(version.part.streams.map(\.id) == [104])
+        #expect(version.media.parts.first?.streams.map(\.id) == [104])
+        #expect(version.part.key == "/downloadQueue/7/item/23/media")
+        #expect(version.media.videoCodec == "h264")
+        #expect(record.convertedMediaVersion(sourcePart: nil)?.part.streams.isEmpty == true)
+    }
+
     private func rawQueueItem(status: String = "processing", queueID: String = "7", progress: String? = "37.5") throws -> [String: Any] {
         let session = progress.map { ",\"TranscodeSession\":{\"progress\":\($0)}" } ?? ""
         let data = Data("{\"id\":\"23\",\"queueId\":\"\(queueID)\",\"key\":\"/library/metadata/42\",\"status\":\"\(status)\"\(session)}".utf8)
