@@ -232,7 +232,7 @@ struct DownloadsRootContent: View {
             $0.downloadQuality != .original && ($0.status == .queued || $0.status == .preparing)
         }
         if hasPendingConversion {
-            return "Keep Dusk open while Plex prepares converted downloads. Transfers can continue in the background once ready. Your device stays awake while this queue is open."
+            return "Keep Dusk open while Plex prepares converted downloads. Your device stays awake while this queue is open."
         }
         return "Your device will stay awake while this queue is open and downloads are active."
     }
@@ -531,9 +531,11 @@ private struct DownloadQueueRow: View {
                         .font(.caption)
                         .foregroundStyle(statusColor)
 
-                    Text(record.downloadQuality.displayName)
-                        .font(DuskFont.caption(ios: .caption2))
-                        .foregroundStyle(Color.duskTextSecondary)
+                    if record.downloadQuality != .original {
+                        Text(record.downloadQuality.displayName)
+                            .font(.caption2)
+                            .foregroundStyle(Color.duskTextSecondary)
+                    }
 
                     if let error = record.errorMessage, record.status == .failed {
                         Text(error)
@@ -653,7 +655,7 @@ private struct DownloadQueueRow: View {
 
     private var downloadingStatusText: String {
         var parts = [
-            "Downloading · \(Int((record.progress * 100).rounded()))%",
+            "\(Int((record.progress * 100).rounded()))%",
             downloadedSizeText
         ]
         if let bytesPerSecond = downloadManager.downloadSpeedBytesPerSecond(for: record) {

@@ -63,7 +63,7 @@ DownloadActionButton
 
 Movies, episodes, seasons, and shows present a native quality picker. Original
 is the default and keeps the direct-file path; clips also keep Original. The
-Source Version Resolution preference still selects an existing source version.
+Preferred Version preference still selects an existing source version.
 An explicit 320p–1080p bitrate preset asks Plex to prepare a smaller offline
 copy. This does not change playback quality or start streaming transcodes.
 
@@ -101,8 +101,10 @@ Converted files are saved as `.mkv` and validated against the prepared file's
 size, never the original part's size. Persisted converted media supplies offline
 engine selection, while original media/part IDs retain version identity. Source
 stream IDs and codec/HDR fields must not label converted tracks; VLC discovers
-the downloaded file's tracks. Subtitle refresh preserves that separation, and
-AirPlay handoff returns to the original server media metadata.
+the downloaded file's tracks. Only the source part's external subtitle sidecars
+carry over (`DownloadedMediaRecord.convertedMediaVersion`, used by both the
+initial local playback lookup and subtitle refresh), and AirPlay handoff returns
+to the original server media metadata.
 
 Converted copies may omit embedded subtitles. Dusk does not currently cache
 external subtitle sidecars for either download mode; choose Original to retain

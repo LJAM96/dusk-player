@@ -279,14 +279,9 @@ struct DownloadQualitySelectionSheet: View {
                         }
                     }
                     .pickerStyle(.inline)
+                    .labelsHidden()
                 } footer: {
-                    Text("Original saves the source file without converting it. Other qualities ask your Plex server to prepare a converted copy. Converted copies may omit embedded subtitles; Original keeps the source file’s tracks.")
-                }
-
-                Section {
-                    Label("Keep Dusk open while Plex prepares the video. Once ready, the download can continue in the background.", systemImage: "info.circle")
-                        .font(DuskFont.caption(ios: .footnote))
-                        .foregroundStyle(Color.duskTextSecondary)
+                    Text("Original downloads the file as it is. Other qualities ask your Plex server to convert a smaller copy first, which may leave out embedded subtitles. Keep Dusk open while Plex prepares it; the download then continues in the background.")
                 }
             }
             .navigationTitle("Download Quality")
