@@ -87,10 +87,11 @@ private struct PlayerTVActionTooltip: View {
     }
 }
 
-/// The Skip Intro / Skip Credits chip, drawn like AVKit's contextual action
-/// button ("Skip Intro" in the TV app): a plain text capsule that is a white
-/// platter with a dark label while it owns Select — the HUD is hidden — and a
-/// dark translucent one while the play bar has the remote.
+/// The Skip Intro / Skip Credits chip, drawn like a native tvOS `.glass`
+/// button: light Liquid Glass with a dark label while it owns Select — the HUD
+/// is hidden — and dark glass with a white label while the play bar has the
+/// remote. The glass tints mirror the system button's focused and unfocused
+/// looks; the auto-skip countdown sweeps across inside it.
 ///
 /// Not focusable, for the same reason as the action row: Select reaches it
 /// through `PlayerTVHUDController`, never through the focus engine.
@@ -112,15 +113,14 @@ struct PlayerTVSkipChip: View {
                 minWidth: PlayerTVHUDLayout.skipChipMinWidth,
                 minHeight: PlayerTVHUDLayout.skipChipHeight
             )
-            .background { platter }
+            .background { countdownFill }
             .clipShape(Capsule())
+            .glassEffect(glass, in: Capsule())
             .scaleEffect(isSelected ? PlayerTVHUDLayout.bottomTrailingSelectedScale : 1)
-            // The lift shadow of a focused tvOS button: soft, dark and low,
-            // never a white glow over bright video.
             .shadow(
-                color: .black.opacity(isSelected ? 0.4 : 0),
-                radius: isSelected ? 20 : 0,
-                y: isSelected ? 12 : 0
+                color: .black.opacity(isSelected ? 0.3 : 0),
+                radius: isSelected ? 16 : 0,
+                y: isSelected ? 10 : 0
             )
             .animation(
                 PlayerTVHUDLayout.animation(PlayerTVHUDLayout.selectionAnimation, reduceMotion: reduceMotion),
@@ -128,24 +128,18 @@ struct PlayerTVSkipChip: View {
             )
     }
 
-    private var platter: some View {
-        ZStack(alignment: .leading) {
-            if isSelected {
-                Capsule()
-                    .fill(.white)
-            } else {
-                Capsule()
-                    .fill(.white.opacity(0.12))
-                    .background(.ultraThinMaterial, in: Capsule())
-            }
+    private var glass: Glass {
+        isSelected ? .regular.tint(.white.opacity(0.78)) : .regular.tint(.black.opacity(0.3))
+    }
 
-            if let countdownProgress {
-                GeometryReader { geometry in
-                    Rectangle()
-                        .fill(isSelected ? Color.black.opacity(0.12) : Color.white.opacity(0.2))
-                        .frame(width: geometry.size.width * min(max(countdownProgress, 0), 1))
-                        .animation(.linear(duration: 0.1), value: countdownProgress)
-                }
+    @ViewBuilder
+    private var countdownFill: some View {
+        if let countdownProgress {
+            GeometryReader { geometry in
+                Rectangle()
+                    .fill(isSelected ? Color.black.opacity(0.12) : Color.white.opacity(0.2))
+                    .frame(width: geometry.size.width * min(max(countdownProgress, 0), 1))
+                    .animation(.linear(duration: 0.1), value: countdownProgress)
             }
         }
     }
