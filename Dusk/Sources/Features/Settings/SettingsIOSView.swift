@@ -316,7 +316,7 @@ struct SettingsIOSView: View {
             .listRowBackground(Color.duskSurface)
 
             Section {
-                Picker("Download Quality", selection: $preferences.downloadMaxResolution) {
+                Picker("Preferred Version", selection: $preferences.downloadMaxResolution) {
                     ForEach(MaxResolution.allCases) { resolution in
                         Text(resolution.displayName).tag(resolution)
                     }

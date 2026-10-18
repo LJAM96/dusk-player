@@ -215,7 +215,7 @@ struct DownloadsRootContent: View {
             .buttonStyle(.plain)
             .foregroundStyle(Color.duskTextPrimary)
 
-            Label("Your device will stay awake while this queue is open and downloads are active.", systemImage: "info.circle")
+            Label(queueActivityHint, systemImage: "info.circle")
                 .font(.caption2)
                 .foregroundStyle(Color.duskTextSecondary)
                 .labelStyle(.titleAndIcon)
@@ -225,6 +225,16 @@ struct DownloadsRootContent: View {
         }
         .padding(.horizontal, 20)
         .padding(.top, 12)
+    }
+
+    private var queueActivityHint: String {
+        let hasPendingConversion = downloadManager.queuedRecords.contains {
+            $0.downloadQuality != .original && ($0.status == .queued || $0.status == .preparing)
+        }
+        if hasPendingConversion {
+            return "Keep Dusk open while Plex prepares converted downloads. Your device stays awake while this queue is open."
+        }
+        return "Your device will stay awake while this queue is open and downloads are active."
     }
 
     private var emptyQueueState: some View {
@@ -521,6 +531,12 @@ private struct DownloadQueueRow: View {
                         .font(.caption)
                         .foregroundStyle(statusColor)
 
+                    if record.downloadQuality != .original {
+                        Text(record.downloadQuality.displayName)
+                            .font(.caption2)
+                            .foregroundStyle(Color.duskTextSecondary)
+                    }
+
                     if let error = record.errorMessage, record.status == .failed {
                         Text(error)
                             .font(.caption2)
@@ -568,7 +584,7 @@ private struct DownloadQueueRow: View {
         case .queued:
             record.totalBytes.map { "Queued · \(formattedBytes($0))" } ?? "Queued"
         case .preparing:
-            "Preparing"
+            preparationStatusText
         case .downloading:
             downloadingStatusText
         case .paused:
@@ -580,6 +596,12 @@ private struct DownloadQueueRow: View {
         case .cancelled:
             "Cancelled"
         }
+    }
+
+    private var preparationStatusText: String {
+        guard record.downloadQuality != .original else { return "Preparing" }
+        guard let progress = record.preparationProgress else { return "Preparing on Plex" }
+        return "Preparing on Plex · \(Int((progress * 100).rounded()))%"
     }
 
     private var statusColor: Color {
@@ -595,6 +617,16 @@ private struct DownloadQueueRow: View {
         if state.isDeleting {
             ProgressView()
                 .controlSize(.small)
+        } else if record.status == .preparing {
+            if let progress = record.preparationProgress {
+                CircularProgressView(progress: progress)
+                    .frame(width: 24, height: 24)
+                    .accessibilityLabel("Preparing on Plex")
+                    .accessibilityValue("\(Int((progress * 100).rounded())) percent")
+            } else {
+                ProgressView()
+                    .controlSize(.small)
+            }
         } else if record.status == .downloading {
             CircularProgressView(progress: record.progress)
                 .frame(width: 24, height: 24)

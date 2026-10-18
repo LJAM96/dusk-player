@@ -1106,7 +1106,7 @@ extension PlaybackCoordinator {
                 attemptID: UUID(),
                 details: details,
                 ratingKey: ratingKey,
-                media: debugInfo.media,
+                media: details.media[mediaIndex],
                 part: part,
                 playbackURL: result.url,
                 sanitizedURL: plexService.sanitizedPlaybackURLString(for: result.url),
@@ -1379,9 +1379,20 @@ extension PlaybackCoordinator {
             return nil
         }
 
-        guard let media = details.media.first(where: { $0.id == debugInfo.media.id }) ?? details.media.first,
-              let part = media.parts.first(where: { $0.id == debugInfo.part.id }) ?? media.parts.first else {
+        guard var media = details.media.first(where: { $0.id == debugInfo.media.id }) ?? details.media.first,
+              var part = media.parts.first(where: { $0.id == debugInfo.part.id }) ?? media.parts.first else {
             return nil
+        }
+
+        if activePlaybackUsesLocalDownload,
+           let converted = downloadManager?.record(
+               for: PlexItemID(serverID: activePlaybackServerID, ratingKey: ratingKey)
+           )?.convertedMediaVersion(sourcePart: part),
+           converted.part.id == debugInfo.part.id {
+            // The server still describes the original file; only its sidecars
+            // carry over to the local conversion (see convertedMediaVersion).
+            media = converted.media
+            part = converted.part
         }
 
         activeItemDetails = details
