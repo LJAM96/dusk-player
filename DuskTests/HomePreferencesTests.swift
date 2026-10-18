@@ -22,4 +22,23 @@ struct HomePreferencesTests {
         preferences.personalizedShelvesEnabled = true
         #expect(UserPreferences().personalizedShelvesEnabled)
     }
+
+    @Test("Compact Continue Watching defaults off and persists both switch positions")
+    @MainActor func compactContinueWatchingPersistence() {
+        let defaults = UserDefaults.standard
+        let key = "compactHomeContinueWatching"
+        let previous = defaults.object(forKey: key)
+        defer {
+            if let previous { defaults.set(previous, forKey: key) }
+            else { defaults.removeObject(forKey: key) }
+        }
+
+        defaults.removeObject(forKey: key)
+        let preferences = UserPreferences()
+        #expect(!preferences.compactHomeContinueWatching)
+        preferences.compactHomeContinueWatching = true
+        #expect(UserPreferences().compactHomeContinueWatching)
+        preferences.compactHomeContinueWatching = false
+        #expect(!UserPreferences().compactHomeContinueWatching)
+    }
 }

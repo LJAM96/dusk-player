@@ -133,6 +133,13 @@ struct SettingsTVView: View {
                     TVSettingsToggleRow(title: "Show Live TV", isOn: $preferences.showsLiveTVOnHome)
                 }
 
+                TVSettingsSection(title: "Home Advanced", footer: SettingsSupport.homeAdvancedFooterText) {
+                    TVSettingsToggleRow(
+                        title: "Compact Continue Watching",
+                        isOn: $preferences.compactHomeContinueWatching
+                    )
+                }
+
                 TVSettingsSection(title: "Playback Defaults", footer: SettingsSupport.playbackDefaultsFooterText) {
                     TVSettingsMenuRow(
                         title: "Max Resolution",

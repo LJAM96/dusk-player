@@ -104,6 +104,7 @@ struct HomeView: View {
             heroSelectionResetRevision: heroSelectionResetRevision,
             liveTVViewModel: liveTVViewModel,
             showsLiveTV: preferences.showsLiveTVOnHome,
+            showsCompactContinueWatching: preferences.compactHomeContinueWatching,
             isScrolledOffTop: isScrolledOffTop,
             scrollToTopRevision: scrollToTopRevision,
             playLiveTV: playLiveTV,
@@ -118,6 +119,7 @@ struct HomeView: View {
             heroSelectionResetRevision: heroSelectionResetRevision,
             liveTVViewModel: liveTVViewModel,
             showsLiveTV: preferences.showsLiveTVOnHome,
+            showsCompactContinueWatching: preferences.compactHomeContinueWatching,
             playLiveTV: playLiveTV,
             play: play
         )

@@ -234,7 +234,12 @@ in Dusk. Read this with `docs/codebase-map.md`, `STYLE.md`, and `docs/data-and-p
   Recently Added hubs and loads personalized shelves through cancellable follow-up
   tasks. Keep this two-phase behavior so expensive recommendation work does not block
   the first visible home content.
-- Continue-watching items drive `HomeCinematicHero`.
+- Continue-watching items drive `HomeCinematicHero`. Settings › Home Advanced ›
+  Compact Continue Watching (`UserPreferences.compactHomeContinueWatching`, off by
+  default) swaps the hero for `HomeContinueWatchingShelf`, the library pages'
+  `PlexItemActionCarouselSection` row, as the first shelf. Both shells then take
+  their no-hero path (iOS large "Home" title; tvOS "Home" header, no fold snapping
+  or hero focus), so nothing is shown twice.
 - Home filters playlist/music/unknown content and hides Plex "continue watching/on deck"
   hubs so the custom continue-watching flow is not duplicated. That rule lives in
   `HomeHubFilter` (`HomeHubFilter.swift`).

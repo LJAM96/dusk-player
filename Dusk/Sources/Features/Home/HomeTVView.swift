@@ -24,6 +24,9 @@ struct HomeTVView: View {
     let heroSelectionResetRevision: Int
     let liveTVViewModel: LiveTVViewModel
     let showsLiveTV: Bool
+    /// Settings › Home Advanced: the small Continue Watching row replaces
+    /// the cinematic hero, and the page behaves as one without a hero.
+    let showsCompactContinueWatching: Bool
     /// Reports whether the page is scrolled away from its top. See
     /// `HomeView.isScrolledOffTop`.
     @Binding var isScrolledOffTop: Bool
@@ -138,7 +141,7 @@ struct HomeTVView: View {
 
     var body: some View {
         GeometryReader { geometry in
-            let heroItems = viewModel.heroItems()
+            let heroItems = showsCompactContinueWatching ? [] : viewModel.heroItems()
             let heroItemIDs = heroItems.map(\.id)
             let currentHeroKey = heroPrimaryKey(in: heroItems)
             let heroHasFocus = isHeroPrimaryFocused
@@ -430,6 +433,10 @@ struct HomeTVView: View {
             return .outageNote
         }
 
+        if showsCompactContinueWatching, !viewModel.continueWatching.isEmpty {
+            return .continueWatching
+        }
+
         if showsLiveTV,
            liveTVViewModel.nowPlayingLineup?.guides.contains(where: { $0.currentProgram() != nil }) == true {
             return .liveTV
@@ -460,6 +467,16 @@ struct HomeTVView: View {
         ServerOutageNote(offlineServerNames: offlineServerNames)
             .padding(.horizontal, DuskPosterMetrics.carouselHorizontalPadding)
             .homeTVShelfFocus(focus(.outageNote))
+
+        if showsCompactContinueWatching {
+            HomeContinueWatchingShelf(
+                viewModel: viewModel,
+                detailsLabel: heroDetailsLabel(for:),
+                onSelectRoute: { path.append($0) },
+                play: play
+            )
+            .homeTVShelfFocus(focus(.continueWatching))
+        }
 
         if showsLiveTV {
             LiveTVHomeShelf(viewModel: liveTVViewModel, play: playLiveTV)
@@ -863,6 +880,7 @@ private struct HomeTVFoldSnapping: ScrollTargetBehavior {
 /// hero's down-press can be limited to the first one.
 private enum HomeTVShelfID: Hashable {
     case outageNote
+    case continueWatching
     case liveTV
     case hub(AnyHashable)
     case personalized(AnyHashable)

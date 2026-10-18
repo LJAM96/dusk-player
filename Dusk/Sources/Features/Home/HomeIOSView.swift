@@ -15,6 +15,9 @@ struct HomeIOSView: View {
     let heroSelectionResetRevision: Int
     let liveTVViewModel: LiveTVViewModel
     let showsLiveTV: Bool
+    /// Settings › Home Advanced: the small Continue Watching row replaces
+    /// the cinematic hero.
+    let showsCompactContinueWatching: Bool
     let playLiveTV: (PlexLiveChannel, PlexLiveProgram, PlexLiveTVLineup) -> Void
     let play: (PlexItem) -> Void
 
@@ -29,7 +32,7 @@ struct HomeIOSView: View {
 
     private var content: some View {
         GeometryReader { geometry in
-            let heroItems = viewModel.heroItems()
+            let heroItems = cinematicHeroItems
 
             ScrollView {
                 VStack(alignment: .leading, spacing: 0) {
@@ -94,6 +97,15 @@ struct HomeIOSView: View {
                     LazyVStack(alignment: .leading, spacing: 18) {
                         ServerOutageNote(offlineServerNames: offlineServerNames)
                             .padding(.horizontal, 20)
+
+                        if showsCompactContinueWatching {
+                            HomeContinueWatchingShelf(
+                                viewModel: viewModel,
+                                detailsLabel: heroDetailsLabel(for:),
+                                onSelectRoute: { path.append($0) },
+                                play: play
+                            )
+                        }
 
                         if showsLiveTV {
                             LiveTVHomeShelf(viewModel: liveTVViewModel, play: playLiveTV)
@@ -213,8 +225,12 @@ struct HomeIOSView: View {
             : .ios
     }
 
+    private var cinematicHeroItems: [PlexItem] {
+        showsCompactContinueWatching ? [] : viewModel.heroItems()
+    }
+
     private var showsCinematicHero: Bool {
-        !viewModel.heroItems().isEmpty
+        !cinematicHeroItems.isEmpty
     }
 
     private func heroDetailsLabel(for item: PlexItem) -> String {

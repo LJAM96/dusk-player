@@ -205,6 +205,18 @@ struct SettingsIOSView: View {
             .listRowBackground(Color.duskSurface)
 
             Section {
+                Toggle("Compact Continue Watching", isOn: $preferences.compactHomeContinueWatching)
+                    .foregroundStyle(Color.duskTextPrimary)
+            } header: {
+                Text("Home Advanced")
+                    .foregroundStyle(Color.duskTextSecondary)
+            } footer: {
+                Text(SettingsSupport.homeAdvancedFooterText)
+                    .foregroundStyle(Color.duskTextSecondary)
+            }
+            .listRowBackground(Color.duskSurface)
+
+            Section {
                 Picker("Max Resolution", selection: $preferences.maxResolution) {
                     ForEach(MaxResolution.allCases) { resolution in
                         Text(resolution.displayName).tag(resolution)

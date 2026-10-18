@@ -40,6 +40,7 @@ final class UserPreferences {
         static let hiddenLibraryTabs = "hiddenLibraryTabs"
         static let showsLiveTVOnHome = "showsLiveTVOnHome"
         static let personalizedShelvesEnabled = "personalizedShelvesEnabled"
+        static let compactHomeContinueWatching = "compactHomeContinueWatching"
         static let downloadMaxResolution = "downloadMaxResolution"
         static let downloadsWifiOnly = "downloadsWifiOnly"
         static let maximumActiveDownloads = "maximumActiveDownloads"
@@ -276,6 +277,12 @@ final class UserPreferences {
         didSet { UserDefaults.standard.set(personalizedShelvesEnabled, forKey: Keys.personalizedShelvesEnabled) }
     }
 
+    /// Whether Home opens with the small Continue Watching row (the one the
+    /// library pages use) instead of the cinematic hero. Off by default.
+    var compactHomeContinueWatching: Bool {
+        didSet { UserDefaults.standard.set(compactHomeContinueWatching, forKey: Keys.compactHomeContinueWatching) }
+    }
+
     /// Maximum version quality selected for downloads.
     var downloadMaxResolution: MaxResolution {
         didSet { UserDefaults.standard.set(downloadMaxResolution.rawValue, forKey: Keys.downloadMaxResolution) }
@@ -492,6 +499,7 @@ final class UserPreferences {
         self.hiddenLibraryTabs = hiddenLibraryTabs
         self.showsLiveTVOnHome = defaults.bool(forKey: Keys.showsLiveTVOnHome)
         self.personalizedShelvesEnabled = defaults.object(forKey: Keys.personalizedShelvesEnabled) as? Bool ?? true
+        self.compactHomeContinueWatching = defaults.bool(forKey: Keys.compactHomeContinueWatching)
         self.downloadMaxResolution = downloadMaxResolution
         self.downloadsWifiOnly = downloadsWifiOnly
         self.maximumActiveDownloads = maximumActiveDownloads

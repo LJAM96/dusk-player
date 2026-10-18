@@ -242,3 +242,45 @@ extension View {
         #endif
     }
 }
+
+/// The small Continue Watching row Home opens with in place of the cinematic
+/// hero when Settings › Home Advanced › Compact Continue Watching is on. The
+/// same row the library pages use; the menu matches the hero's.
+struct HomeContinueWatchingShelf: View {
+    let viewModel: HomeViewModel
+    let detailsLabel: (PlexItem) -> String
+    let onSelectRoute: (AppNavigationRoute) -> Void
+    let play: (PlexItem) -> Void
+
+    var body: some View {
+        if !viewModel.continueWatching.isEmpty {
+            PlexItemActionCarouselSection(
+                title: "Continue Watching",
+                items: viewModel.continueWatching,
+                action: play,
+                posterWidth: DuskPosterMetrics.continueWatchingWidth,
+                imageAspectRatio: 16.0 / 9.0,
+                subtitle: { viewModel.displaySubtitle(for: $0) },
+                posterURL: { item, width, height in
+                    viewModel.landscapeImageURL(for: item, width: width, height: height)
+                },
+                progress: { viewModel.progress(for: $0) }
+            ) { item in
+                HomeItemContextMenu(
+                    item: item,
+                    detailsLabel: detailsLabel(item),
+                    onMarkWatched: {
+                        Task { await viewModel.setWatched(true, for: item) }
+                    },
+                    onMarkUnwatched: {
+                        Task { await viewModel.setWatched(false, for: item) }
+                    },
+                    onSelectRoute: onSelectRoute,
+                    onRemoveFromContinueWatching: {
+                        Task { await viewModel.removeFromContinueWatching(item) }
+                    }
+                )
+            }
+        }
+    }
+}
