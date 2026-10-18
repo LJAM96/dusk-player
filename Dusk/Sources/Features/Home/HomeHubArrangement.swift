@@ -30,7 +30,7 @@ enum HomeHubArrangement {
     /// Filter hubs (`HomeHubFilter`) before arranging. The result is a pure
     /// permutation: no hub is added, dropped, or modified, so an empty
     /// `libraryOrder` simply returns the input untouched.
-    static func arrange(hubs: [PlexHub], libraryOrder: [String]) -> [PlexHub] {
+    static func arrange(hubs: [PlexHub], libraryOrder: [String], libraries: [PlexLibrary] = []) -> [PlexHub] {
         guard !libraryOrder.isEmpty else { return hubs }
 
         var rank: [String: Int] = [:]
@@ -43,7 +43,7 @@ enum HomeHubArrangement {
         var unknown: [PlexHub] = []
 
         for hub in hubs {
-            guard let libraryID = hub.representativeLibraryID else {
+            guard let libraryID = libraryID(for: hub, libraries: libraries) else {
                 global.append(hub)
                 continue
             }
@@ -55,5 +55,45 @@ enum HomeHubArrangement {
         }
 
         return global + buckets.flatMap { $0 } + unknown
+    }
+
+    /// Prefer Plex's section metadata. For unscoped library rows, inspect only
+    /// the representative server's items: merged rows can contain other servers'
+    /// section keys. Never guess between several libraries of the same type.
+    private static func libraryID(for hub: PlexHub, libraries: [PlexLibrary]) -> String? {
+        if let libraryID = hub.representativeLibraryID { return libraryID }
+        let identifier = hub.hubIdentifier?.lowercased() ?? ""
+        guard !HomeHubFilter.shouldHide(hub: hub), hub.type != "mixed",
+              !identifier.hasPrefix("home.continue"),
+              !identifier.hasPrefix("home.ondeck") else { return nil }
+
+        let fields = [hub.hubIdentifier, hub.key].compactMap { $0?.lowercased() }
+        let isRecentlyAdded = fields.contains { $0.contains("recentlyadded") }
+        let isLibraryRow = isRecentlyAdded || hub.librarySectionTitle?.nilIfEmpty != nil ||
+            ["movie.", "tv.", "show.", "season.", "episode.", "library."].contains { identifier.hasPrefix($0) }
+        guard isLibraryRow else { return nil }
+
+        let items = hub.items.filter { $0.serverID == hub.representativeServerID }
+        let sectionIDs = Set(items.compactMap(\.librarySectionID))
+        if sectionIDs.count == 1, let sectionID = sectionIDs.first {
+            return hub.representativeServerID.map { "\($0)|\(sectionID)" } ?? sectionID
+        }
+        guard sectionIDs.isEmpty else { return nil }
+
+        // Older PMS also has type-wide Recently Added hubs without section
+        // metadata. A unique matching library on that server is unambiguous.
+        guard isRecentlyAdded else { return nil }
+        let type: PlexLibraryType?
+        switch hub.type {
+        case "movie": type = items.isAllClips ? .video : .movie
+        case "show", "season", "episode": type = .show
+        case "clip": type = .video
+        default: type = nil
+        }
+        guard let type else { return nil }
+        let candidates = libraries.filter {
+            $0.serverID == hub.representativeServerID && $0.libraryType == type
+        }
+        return candidates.count == 1 ? candidates.first?.id : nil
     }
 }

@@ -111,6 +111,8 @@ struct LibraryItemsView: View {
                     genreMenu
                 }
 
+                unwatchedToggle
+
                 sortMenu
 
                 if viewModel.isLoading && !viewModel.items.isEmpty {
@@ -172,6 +174,44 @@ struct LibraryItemsView: View {
             )
         }
         .duskSuppressTVOSButtonChrome()
+    }
+
+    /// A filter chip rather than a menu: one tap (one click on tvOS) flips it.
+    /// On, it inverts to a `TextPrimary` fill with a filled checkmark, the
+    /// STYLE.md selected treatment, so the active filter reads at a glance.
+    private var unwatchedToggle: some View {
+        let isOn = viewModel.showsUnwatchedOnly
+
+        return Button {
+            Task { await viewModel.setShowsUnwatchedOnly(!isOn) }
+        } label: {
+            HStack(spacing: 10) {
+                Image(systemName: isOn ? "checkmark.circle.fill" : "circle")
+                    .font(DuskFont.glyphMedium(ios: .headline))
+                    .foregroundStyle(isOn ? Color.duskBackground : Color.duskTextSecondary)
+
+                Text("Unwatched")
+                    .font(DuskFont.buttonLabel(ios: .subheadline.weight(.medium)))
+                    .foregroundStyle(isOn ? Color.duskBackground : Color.duskTextPrimary)
+                    .lineLimit(1)
+            }
+            .padding(.horizontal, 14)
+            .padding(.vertical, 10)
+            .background(
+                RoundedRectangle(cornerRadius: controlCornerRadius, style: .continuous)
+                    .fill(isOn ? Color.duskTextPrimary : Color.duskSurface)
+            )
+            .overlay {
+                RoundedRectangle(cornerRadius: controlCornerRadius, style: .continuous)
+                    .stroke(isOn ? Color.clear : Color.duskTextSecondary.opacity(0.18), lineWidth: 1)
+            }
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel("Unwatched only")
+            .accessibilityAddTraits(isOn ? .isSelected : [])
+            .duskTVOSFocusEffectShape(RoundedRectangle(cornerRadius: controlCornerRadius, style: .continuous))
+        }
+        .duskSuppressTVOSButtonChrome()
+        .animation(.snappy(duration: 0.2), value: isOn)
     }
 
     private func browseControlLabel(
@@ -241,7 +281,7 @@ struct LibraryItemsView: View {
 
     private var emptyView: some View {
         FeatureEmptyStateView(
-            systemImage: viewModel.isVideoLibrary ? "play.rectangle.fill" : "film",
+            systemImage: viewModel.emptyStateSystemImage,
             title: viewModel.emptyStateTitle,
             message: viewModel.emptyStateMessage
         )

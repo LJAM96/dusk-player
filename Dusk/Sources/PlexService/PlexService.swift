@@ -85,12 +85,19 @@ final class PlexService {
     @ObservationIgnored var serverRecoveryTasks: [String: Task<PlexServerConnection, Error>] = [:]
     @ObservationIgnored var serverRecoveryCooldowns: [String: Date] = [:]
 
+    @ObservationIgnored var streamSelectionWriteTask: Task<Void, Error>?
+
     let clientIdentifier: String
     let session: URLSession
     let decoder: JSONDecoder
     let encoder: JSONEncoder
 
-    static let plexTVBase = "https://plex.tv"
+    static var plexTVBase: String {
+        #if DEBUG
+        if let override = ScreenshotMode.plexTVBase { return override }
+        #endif
+        return "https://plex.tv"
+    }
     /// Kept at the legacy name so existing users' linked-account credential
     /// migrates without requiring another sign-in.
     static let keychainTokenKey = "PlexAuthToken"
@@ -142,6 +149,13 @@ final class PlexService {
            let token = String(data: data, encoding: .utf8) {
             primaryAccountToken = token.nilIfEmpty
         }
+        #if DEBUG
+        // Screenshot mode signs in to the mock server's demo account and never
+        // touches a real Plex sign-in stored in the Keychain.
+        if ScreenshotMode.isActive {
+            primaryAccountToken = ScreenshotMode.accountToken
+        }
+        #endif
 
         if let profileData = UserDefaults.standard.data(forKey: Self.defaultsActiveHomeUserDataKey),
            let profile = try? decoder.decode(PlexHomeUser.self, from: profileData) {

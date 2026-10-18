@@ -1,0 +1,68 @@
+From 0d9f7ae1e1713d3d63a41baf55ab356526164a46 Mon Sep 17 00:00:00 2001
+From: Dusk Player <dusk@localhost>
+Date: Fri, 16 Oct 2026 03:20:39 +0200
+Subject: [PATCH] buildMobileVLCKit: arm64-only builds with an arm64 simulator
+ slice
+
+Dusk ships arm64 device + arm64 simulator slices only. With -a aarch64 the
+script built both libvlc variants but packaged only the device framework,
+because the simulator branch keyed off is_simulator_arch. Package the
+simulator framework for aarch64 too.
+
+Raise the minimum OS to iOS/tvOS 15.0 (current Xcode no longer links the
+iOS 9 / tvOS 10.2 defaults) and pass TVOS_DEPLOYMENT_TARGET to xcodebuild.
+---
+ buildMobileVLCKit.sh | 9 +++++----
+ 1 file changed, 5 insertions(+), 4 deletions(-)
+
+diff --git a/buildMobileVLCKit.sh b/buildMobileVLCKit.sh
+index db20d0ca..f9724e3d 100755
+--- a/buildMobileVLCKit.sh
++++ b/buildMobileVLCKit.sh
+@@ -9,7 +9,7 @@ BUILD_SIMULATOR=yes
+ BUILD_DYNAMIC_FRAMEWORK=no
+ BUILD_ARCH=`uname -m | cut -d. -f1`
+ SDK_VERSION=`xcrun --sdk iphoneos --show-sdk-version`
+-SDK_MIN=9.0
++SDK_MIN=15.0
+ VERBOSE=no
+ DEBUG=no
+ CONFIGURATION="Release"
+@@ -102,7 +102,7 @@ do
+              TVOS=yes
+              IOS=no
+              SDK_VERSION=`xcrun --sdk appletvos --show-sdk-version`
+-             SDK_MIN=10.2
++             SDK_MIN=15.0
+              OSVERSIONMINCFLAG=mtvos
+              OSVERSIONMINLDFLAG=tvos
+              ;;
+@@ -284,6 +284,7 @@ buildxcodeproj()
+                -archivePath build/"$target"-$PLATFORM$SDK.xcarchive \
+                ARCHS="${architectures}" \
+                IPHONEOS_DEPLOYMENT_TARGET=${SDK_MIN} \
++               TVOS_DEPLOYMENT_TARGET=${SDK_MIN} \
+                ${bitcodeflag} \
+                SKIP_INSTALL=no \
+                > ${out}
+@@ -1182,7 +1183,7 @@ if [ "$TVOS" = "yes" ]; then
+             spopd
+         fi
+     fi
+-    if [ "$FARCH" = "all" ] || (is_simulator_arch $arch);then
++    if [ "$FARCH" = "all" -o "$FARCH" = "aarch64" ] || (is_simulator_arch $arch);then
+         platform="appletvsimulator"
+         buildxcodeproj MobileVLCKit "TVVLCKit" ${platform}
+         dsymfolder=$PROJECT_DIR/build/TVVLCKit-${platform}.xcarchive/dSYMs/TVVLCKit.framework.dSYM
+@@ -1218,7 +1219,7 @@ if [ "$IOS" = "yes" ]; then
+             spopd
+         fi
+     fi
+-    if [ "$FARCH" = "all" ] || (is_simulator_arch $arch);then
++    if [ "$FARCH" = "all" -o "$FARCH" = "aarch64" ] || (is_simulator_arch $arch);then
+         platform="iphonesimulator"
+         buildxcodeproj MobileVLCKit "MobileVLCKit" ${platform}
+         dsymfolder=$PROJECT_DIR/build/MobileVLCKit-${platform}.xcarchive/dSYMs/MobileVLCKit.framework.dSYM
+-- 
+2.54.0 (Apple Git-157)
+

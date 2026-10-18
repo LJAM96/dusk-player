@@ -126,6 +126,10 @@ struct SettingsTVView: View {
                 }
 
                 TVSettingsSection(title: "Home", footer: SettingsSupport.homeFooterText) {
+                    TVSettingsToggleRow(title: "Personalized shelves", isOn: $preferences.personalizedShelvesEnabled)
+
+                    tvRowDivider
+
                     TVSettingsToggleRow(title: "Show Live TV", isOn: $preferences.showsLiveTVOnHome)
                 }
 
@@ -230,6 +234,16 @@ struct SettingsTVView: View {
 
                 TVSettingsSection(title: "Playback Advanced", footer: SettingsSupport.playbackAdvancedFooterText) {
                     TVSettingsToggleRow(title: "Dolby Atmos", isOn: $preferences.spatialAudioRemuxEnabled)
+
+                    tvRowDivider
+
+                    TVSettingsToggleRow(title: "HDR & Dolby Vision", isOn: $preferences.hdrVideoRemuxEnabled)
+
+                    tvRowDivider
+
+                    TVSettingsToggleRow(title: "Dolby Vision 7 → 8.1", isOn: $preferences.dolbyVision7ConversionEnabled)
+                        .disabled(!preferences.hdrVideoRemuxEnabled)
+                        .opacity(preferences.hdrVideoRemuxEnabled ? 1 : 0.5)
 
                     tvRowDivider
 

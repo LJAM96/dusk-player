@@ -59,7 +59,16 @@ enum DisplayModeMatcher {
     /// screen for a moment, and Apple's guidance is to complete it ahead of
     /// handing the player its item so the blank overlaps buffering rather than
     /// playback.
-    static func apply(media: PlexMedia, part: PlexMediaPart, decision: PlaybackDecision) {
+    /// `dolbyVision` is the signaling a remux session restores for AVPlayer
+    /// (`PlaybackCoordinator.remuxDolbyVisionConfiguration`); only then is a
+    /// Dolby Vision mode requested — every other path shows a DV file's
+    /// HDR10/HLG base layer.
+    static func apply(
+        media: PlexMedia,
+        part: PlexMediaPart,
+        decision: PlaybackDecision,
+        dolbyVision: DolbyVisionConfiguration? = nil
+    ) {
         #if os(tvOS)
         // AirPlay hands the stream to a different renderer entirely, so the
         // local box's output mode is not what the viewer is watching.
@@ -88,15 +97,13 @@ enum DisplayModeMatcher {
             return
         }
 
-        // A Dolby Vision profile 5 remux is decoded as Dolby Vision by
-        // AVPlayer (see `DolbyVisionSignaling`); its stream carries no usable
-        // color tags, so describe it as DV rather than SDR.
-        let rendersDolbyVision = decision.isSpatialAudio && videoStream?.doviProfile == 5
-
+        // A Dolby Vision remux (profile 5, 8.1, 8.4) is decoded as Dolby
+        // Vision by AVPlayer (see `DolbyVisionSignaling`). Profile 5 carries
+        // no usable color tags, so it is described as DV rather than SDR.
         guard let formatDescription = makeFormatDescription(
             media: media,
             videoStream: videoStream,
-            rendersDolbyVision: rendersDolbyVision
+            dolbyVision: dolbyVision
         ) else {
             statusLabel = "Could not describe video format"
             return
@@ -108,13 +115,13 @@ enum DisplayModeMatcher {
         )
         displayManager.preferredDisplayCriteria = criteria
 
-        let rangeLabel = rendersDolbyVision ? "Dolby Vision" : dynamicRangeLabel(for: videoStream)
+        let rangeLabel = dolbyVision?.displayName ?? dynamicRangeLabel(for: videoStream)
         statusLabel = "\(formattedRate(refreshRate)) Hz \(rangeLabel)"
         displayModeLogger.notice(
             "Requested display mode \(formattedRate(refreshRate), privacy: .public) Hz \(rangeLabel, privacy: .public)"
         )
         #else
-        _ = (media, part, decision)
+        _ = (media, part, decision, dolbyVision)
         #endif
     }
 
@@ -197,15 +204,18 @@ enum DisplayModeMatcher {
     private static func makeFormatDescription(
         media: PlexMedia,
         videoStream: PlexStream?,
-        rendersDolbyVision: Bool
+        dolbyVision: DolbyVisionConfiguration?
     ) -> CMVideoFormatDescription? {
         let width = media.width ?? videoStream?.width ?? 1920
         let height = media.height ?? videoStream?.height ?? 1080
+        let rendersDolbyVision = dolbyVision != nil
 
         let extensions: [CFString: Any] = rendersDolbyVision
             ? [
                 kCMFormatDescriptionExtension_ColorPrimaries: kCMFormatDescriptionColorPrimaries_ITU_R_2020,
-                kCMFormatDescriptionExtension_TransferFunction: kCMFormatDescriptionTransferFunction_SMPTE_ST_2084_PQ,
+                kCMFormatDescriptionExtension_TransferFunction: dolbyVision?.hasHLGBaseLayer == true
+                    ? kCMFormatDescriptionTransferFunction_ITU_R_2100_HLG
+                    : kCMFormatDescriptionTransferFunction_SMPTE_ST_2084_PQ,
                 kCMFormatDescriptionExtension_YCbCrMatrix: kCMFormatDescriptionYCbCrMatrix_ITU_R_2020,
             ]
             : [
@@ -297,7 +307,8 @@ enum DisplayModeMatcher {
     private static func dynamicRangeLabel(for stream: PlexStream?) -> String {
         let transfer = transferFunction(for: stream)
         if CFEqual(transfer, kCMFormatDescriptionTransferFunction_SMPTE_ST_2084_PQ) {
-            return stream?.doviPresent == true ? "Dolby Vision" : "HDR10 (PQ)"
+            // A DV file outside a DV remux shows its HDR10 base layer.
+            return stream?.doviPresent == true ? "HDR10 (Dolby Vision base layer)" : "HDR10 (PQ)"
         }
         if CFEqual(transfer, kCMFormatDescriptionTransferFunction_ITU_R_2100_HLG) {
             return "HLG"

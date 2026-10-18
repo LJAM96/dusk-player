@@ -1,0 +1,21 @@
+[package]
+name = "dusk_dovi"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.88"
+license = "MIT"
+publish = false
+description = "Dusk's C ABI over the dolby_vision crate: Dolby Vision profile 7 to 8.1 sample conversion."
+
+[lib]
+crate-type = ["staticlib", "rlib"]
+
+[dependencies]
+dolby_vision = { version = "=3.4.0", default-features = false }
+
+# Panics stay `unwind` so every extern fn can catch them at the boundary.
+[profile.release]
+lto = "fat"
+codegen-units = 1
+opt-level = 3
+debug = false

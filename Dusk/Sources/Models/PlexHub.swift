@@ -87,13 +87,26 @@ struct PlexHub: Decodable, Sendable, Identifiable, Hashable {
 
     /// The `/library/sections` key this hub belongs to.
     ///
-    /// Falls back to the numeric suffix Plex appends to per-library hub
+    /// Falls back to a section in the paging URL or the numeric suffix Plex appends to per-library hub
     /// identifiers (`movie.recentlyadded.3` -> `"3"`), which older servers send
     /// even when `librarySectionID` is missing from the payload. Global rows
     /// (`home.continue`, `home.ondeck`) have neither and resolve to nil.
     var resolvedLibrarySectionID: String? {
         if let librarySectionID = librarySectionID?.nilIfEmpty {
             return librarySectionID
+        }
+        // Some PMS versions only identify the section in the paging URL.
+        if let key, let url = URLComponents(string: key) {
+            let path = url.path.split(separator: "/")
+            if let sections = path.firstIndex(of: "sections"),
+               path.indices.contains(sections + 1) {
+                return String(path[sections + 1])
+            }
+            if let sectionID = url.queryItems?.first(where: {
+                $0.name == "librarySectionID" || $0.name == "sectionID"
+            })?.value?.nilIfEmpty {
+                return sectionID
+            }
         }
         guard let hubIdentifier,
               let suffix = hubIdentifier.split(separator: ".").last,

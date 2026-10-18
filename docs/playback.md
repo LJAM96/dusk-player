@@ -229,6 +229,10 @@ so the whole live HUD is derived from one instant.
   presentation and player controls remain visible across the handoff.
   `PlaybackCoordinator.playerLoadingState` is the single presentation state for
   preparation, startup, delayed mid-play buffering, and automatic recovery.
+  Remux recovery uses the same loading/error suppression as direct play.
+  Cleanup is scoped to the failed presentation: a DV7 retry or return to
+  direct play re-arms its own watch, whose flags the outgoing attempt must
+  not clear.
   `PlayerView` owns its only spinner above the replaceable player-session
   identity, so loading phases cannot stack indicators and its native animation
   phase does not restart when the engine swaps. A failed fallback reveals the
@@ -250,12 +254,57 @@ so the whole live HUD is derived from one instant.
   audio codecs with a 6-channel limitation. With only the Generic profile's
   lone AAC target, Plex downmixed every 5.1/7.1 source to 2-channel AAC on the
   server-side rungs — which is what the direct-stream fallback and every
-  TrueHD title (undecodable in the vendored VLCKit, so always routed through
-  the server) received. AVPlayer decodes AC-3/E-AC-3 in HLS/mpegts natively on
+  TrueHD title (undecodable in stock VLCKit, so routed through the server
+  before Dusk's own build) received. AVPlayer decodes AC-3/E-AC-3 in HLS/mpegts natively on
   both platforms. `.airPlay` is deliberately excluded: that rung targets
   whatever receiver the user picked, which is not necessarily AC-3 capable.
   There is deliberately no `aac` channel limitation — capping it would fight
   Plex's decision engine rather than widening what Dusk accepts.
+
+## Per-show Track Choices
+
+- Explicit audio/subtitle picker actions and downloaded-subtitle selection save
+  `ShowTrackPreferences` in UserDefaults, keyed by active Plex profile ID,
+  server machine ID, and the episode's **grandparent** rating key. Seasons share
+  the same record. Movies and Live TV never read or write it; no settings UI.
+- `ShowTrackDescriptor` matches language (canonical ISO codes/tags) and purpose
+  (forced, SDH, commentary, descriptive audio). Codec and channel count break
+  ties, then source order. Stream IDs are used only within the active part,
+  never persisted. Unknown language or a missing language/purpose match uses
+  existing automatic selection. A miss does not erase the saved choice.
+- Subtitles have three states: unspecified, explicitly Off, or a descriptor.
+  Off overrides forced/default/global subtitles too. Changing audio only keeps
+  the independently saved subtitle preference, and vice versa. Automatic picks,
+  decoder recovery and rejected-remux fallback never rewrite either preference.
+- Startup resolves the preference **before** AirPlay/remux/direct-play decisions
+  and VLCKit audio preselection. Local engines receive `ExplicitTrackSelection`;
+  remux/AirPlay use the resolved Plex IDs. Up Next and autoplay use the same
+  startup path; UserDefaults survives relaunch. PiP re-presentation retains the
+  effective selection. Profile changes invalidate in-flight startup and queued
+  Plex selection writes.
+- Plex's [stream-selection API](https://developer.plex.tv/pms/)
+  remembers selections per user/part (`subtitleStreamID=0` means Off), not a rich
+  rule for future episodes. Plex's account/show language auto-selection cannot
+  express this complete descriptor, so Dusk keeps the per-show rule locally and
+  best-effort syncs direct-play choices and resolved episodes through the existing
+  `selectStreams` PUT. The existing remux PUT remains mandatory before HLS
+  creation (including On → Off → On). All PUTs share a serialized queue in
+  `PlexService`; local downloads skip server writes. Per-show preferences are
+  device-local; another client can observe the per-part Plex selection, but
+  there is no Dusk per-show sync across devices.
+- tvOS's existing enhanced-SDR/embedded-subtitle routing receives the resolved
+  subtitle ID. Remembered SDR sidecars can start on VLCKit. HDR/DV never gains a
+  subtitle-induced VLC route: an unsupported remembered bitmap/ASS subtitle is
+  omitted from the HDR remux for that episode, without erasing the preference.
+  Remembered audio that cannot be copied is converted by Plex when needed to
+  preserve HDR. The existing remux conversion retention and declined-HDR-change
+  guard remain in charge of later track changes (the `a310f05` behavior).
+- `ShowTrackPreferenceTests` covers semantic matches across IDs/seasons,
+  forced/SDH distinctions, codec/channel ties, commentary/description, missing
+  matches, Off/relaunch, profile/server/show isolation, movie exclusion and
+  SDR versus HDR/DV routing. `PlaybackFallbackTests` also checks that explicit
+  Off waits until engine loading has finished before marking it applied.
+  Compile with `build-for-testing` to check test sources without executing tests or launching the app.
 
 ## Dolby Atmos and Spatial Audio
 
@@ -266,8 +315,8 @@ so the whole live HUD is derived from one instant.
 - Eligibility (`StreamResolver.spatialAudioRemuxBlocker`): the resolver would
   pick VLCKit for direct play (not DV5, not forced engines, setting
   `spatialAudioRemuxEnabled` on), single part, 8-bit H.264 or HEVC video, and
-  the audio stream playback would open on (`preferredLocalAudioStream`, which
-  already skips TrueHD) is E-AC-3 Atmos — or, on iPhone/iPad only, any 5.1+
+  the audio stream the remux decision is made for
+  (`preferredRemuxAudioStream`, which skips TrueHD) is E-AC-3 Atmos — or, on iPhone/iPad only, any 5.1+
   AC-3/E-AC-3 (spatial audio; on tvOS VLCKit already outputs discrete PCM).
   The auto-selected subtitle, if any, must be text (SRT/WebVTT/mov_text):
   bitmap subtitles would be burned in (a video re-encode) and ASS would lose
@@ -277,14 +326,18 @@ so the whole live HUD is derived from one instant.
   e.g. every simulator) and rejects it with CoreMedia -12927 if the attribute
   is removed. VLCKit keeps those files.
 - Delivery (`PlexService.spatialAudioRemuxURL`, mode `.spatialAudioRemux`):
-  HLS with an fMP4 target first (`container=mp4&videoCodec=hevc,h264&audioCodec=eac3,ac3`)
+  HLS with an fMP4 target first (`container=mp4&videoCodec=hevc,h264&audioCodec=eac3,ac3,aac`;
+  AAC is last so audio Plex has to convert still lands on E-AC-3)
   — HEVC in MPEG-TS HLS plays audio-only on AVPlayer — plus a WebVTT subtitle
   target. Plex takes the session subtitle from the part's server-side
   selection, so `requestSpatialAudioRemux` first mirrors the audio/subtitle
   choice with `PUT /library/parts/{id}` (what Plex clients do on a track
-  change; skipped when it already matches) and requests `subtitles=auto`.
+  change; always written because the part metadata is a startup snapshot) and
+  requests `subtitles=auto` (`subtitles=none` plus an explicit selection of `0`
+  for Off). Never compare the requested selection with that stale snapshot.
   The session is accepted only when the decision's streams say video `copy`,
-  audio `copy`, and any subtitle `segments-subs`
+  audio `copy`, and any active subtitle `segments-subs`. A subtitle explicitly
+  marked `ignore` is also safe, even with `location=embedded`
   (`TranscodeStreamDecisions.isLosslessRemux`); anything else stops the Plex
   session and keeps plain direct play. It never lowers quality.
 - Atmos signaling (`Playback/RemuxHLSLoader.swift`): Plex's fMP4 muxer writes a
@@ -308,8 +361,12 @@ so the whole live HUD is derived from one instant.
   `ExplicitTrackSelection` (audio via `:audio-track` preselection, subtitle
   applied once by `PlayerViewModel`). The subtitle rendition in the HLS item is
   switched on by `PlayerViewModel` (`pendingServerSubtitleRenditionSelection`).
+  HDR/DV track changes that cannot rebuild the remux retain the loaded AVPlayer
+  session and restore its confirmed stream choices, with an error message.
+  They never fall back to VLC. `remuxTrackSelection` records the loaded choices
+  separately from an in-flight request, including across repeated On/Off picks.
 - The same session type carries the undecodable-audio fallback (video copied,
-  audio converted by Plex); see "Undecodable audio tracks" below. The setting
+  audio converted by Plex); see "Dolby TrueHD decoding" below. The setting
   gates only the Dolby remux, not that fallback.
 - Failure: the direct-play failure watch is armed for remux sessions too; an
   engine error moves the session to plain direct play (VLCKit) at the same
@@ -345,13 +402,241 @@ so the whole live HUD is derived from one instant.
   fails after starting goes to the server stream, not VLCKit.
 - Not yet verified against a real PMS: whether Plex already writes `dvcC` or
   `dvh1` itself (the patch then changes nothing) and whether it keeps the RPU
-  NAL units on copy. Picking a bitmap subtitle mid-session still leaves the
-  remux for VLCKit direct play.
+  NAL units on copy. Picking an unsupported subtitle mid-session keeps the
+  working remux and reports that the track change could not preserve HDR.
+  PMS logs (2026-10) confirmed an Off rebuild returning
+  copied video/audio plus `ignore/embedded` for the previous SRT. Rejecting that
+  harmless subtitle decision used to drop DV5 into VLC and produce pink video.
 - Verified (2026-09) against PMS 1.43.4 on tvOS/iPadOS simulators and a macOS
   AVPlayer harness: H.264 and HEVC/DV8 MKV remuxes copy both tracks, the
   patched init exposes the `ec+3` layers (7.1.4/9.1.6), WebVTT subtitles
   render, seeking works, and the fallback paths engage. Atmos output itself
   (HDMI receiver, AirPods) needs real hardware.
+
+## HDR Video and Dolby Vision 8 (HDR Remux)
+
+- Why: VLCKit 3 renders into an untagged 8-bit RGBA surface on iOS/tvOS (see
+  "Display Mode Matching"), so an HDR MKV never shows HDR there — not HDR10,
+  not the "HDR10 base" of Dolby Vision 7/8, no HDR10+ dynamic metadata, no
+  HLG. Only AVPlayer/VideoToolbox output real HDR on Apple devices.
+- Eligibility (`StreamResolver.hdrVideoRemuxBlocker`, setting
+  `hdrVideoRemuxEnabled`, default on): the resolver would pick VLCKit for
+  direct play (not DV5, not forced engines), single part, all video HEVC,
+  HDR video (`isRemuxableHDRVideo`: PQ or HLG `colorTrc`, or DV 7 / 8.1 /
+  8.4 / 8.6 by base-layer compatibility ID when the TRC is missing; 8.2 has
+  an SDR base and is not HDR), `AVPlayer.eligibleForHDRPlayback`, a text
+  subtitle if any, and audio Plex can **copy** (E-AC-3/AC-3/AAC). DTS,
+  FLAC, PCM & co. keep VLCKit: converting a lossless track to keep the
+  picture would lower audio quality, and the remux never lowers quality.
+  DV7 + TrueHD is the picture-priority exception: request converted E-AC-3
+  audio up front and keep DV7 → 8.1 on AVPlayer. Other TrueHD-only files
+  use local lossless decoding on Dusk's VLCKit build. TrueHD with a copyable
+  sibling remuxes the sibling (see "Dolby TrueHD decoding").
+- Delivery and acceptance are the Atmos remux's
+  (`requestSpatialAudioRemux`, session type `.spatialAudio`, lossless only,
+  any failure → plain direct play). A file can qualify for Atmos, HDR or
+  both; the session reason names what qualified, e.g. `Dolby Atmos + Dolby
+  Vision 8.1 via lossless Plex remux`. A declined track change (e.g. DTS audio)
+  keeps the working HDR remux and its previous tracks instead of moving to VLC.
+- Formats:
+  - **HDR10 / HLG**: no signaling needed; the copied HEVC carries its VUI.
+  - **HDR10+**: the ST 2094-40 SEI rides the copied bitstream and AVPlayer
+    forwards it (Apple TV 4K 3rd gen and later, HDR10+ TV). Plex metadata
+    does not distinguish HDR10+, so these read as HDR10 everywhere in Dusk.
+  - **Dolby Vision 8.1 / 8.4** (`DolbyVisionSignaling`, profile 8 path): the
+    track stays `hvc1` (the base layer remains decodable everywhere) and
+    gains a `dvvC` box built from Plex's `DOVIProfile`/`DOVILevel`/
+    `DOVIBLCompatID`. The variant keeps its HEVC `CODECS` entry and gains
+    `dvh1.08.LL/db1p` (`/db4h` for 8.4) in `SUPPLEMENTAL-CODECS` (merged:
+    other supplemental codecs are kept, an existing DV entry is replaced),
+    with `VIDEO-RANGE` set explicitly to `PQ` (8.1) or `HLG` (8.4) because
+    Apple requires it to match the brand. Attributes are parsed by full
+    name (`HLSAttributeList`), so `CODECS` never matches inside
+    `SUPPLEMENTAL-CODECS`. This is Apple's backward-compatible packaging: a
+    DV display gets real Dolby Vision, anything else the base layer. It
+    applies to every remux session of an 8.1/8.4 file (HDR, Atmos,
+    converted audio) while the HDR setting is on. Only `hvc1` is signalled:
+    Apple requires it for 8.4, and a `hev1` entry (in-band parameter sets)
+    cannot honestly be renamed, so a `hev1` variant and its init segment are
+    left as plain HEVC. (DV5 renames `hev1` to `dvhe` and declares `dvhe.05.LL`
+    to match.)
+  - Level cap: tvOS 27 refuses a DV master declaring level 5.2 (`L156`)
+    with -11848 although the same 4K24 stream declared 5.1 plays with DV
+    engaged (AetherEngine #674; encoders often over-declare). The declared
+    level is lowered to `L153` only when Plex's metadata proves the content
+    fits 5.1 for the declared tier (picture size, luma sample rate, average
+    bitrate ≤ 40/160 Mbit/s Main/High); otherwise, or with metadata missing,
+    the source's level stays. It is not OS-gated, because a declaration the
+    content satisfies is truthful everywhere. A wrong guess (peaks above the
+    average) costs one decoder error, which the failure watch turns into
+    VLCKit direct play — the same outcome as an uncapped refusal.
+  - **Dolby Vision 7** (FEL/MEL, dual layer): converted to 8.1 on device
+    while `dolbyVision7ConversionEnabled` is on — see "Dolby Vision 7
+    (on-device 8.1 conversion)" below. With the setting off, or after a
+    failed conversion, it rides the remux unsignalled and plays its HDR10
+    base layer on AVPlayer (EL/RPU NALs are ignored).
+- Turning `hdrVideoRemuxEnabled` off restores the previous behavior exactly:
+  no HDR-only remux, and no profile 8 signaling on Atmos/converted-audio
+  remuxes.
+- Unverified without real hardware/PMS: whether Plex already writes
+  `dvvC`/`SUPPLEMENTAL-CODECS` itself (the patch then leaves them alone),
+  whether Plex declares `VIDEO-RANGE=HLG` for plain HLG sources, that the
+  RPU is actually applied (an L2-trim test clip pulses visibly), HDR10+ on
+  an HDR10+ TV, and the level cap on 4K60 and high-bitrate sources.
+
+## Dolby Vision 7 (on-device 8.1 conversion)
+
+- Why: profile 7 (UHD Blu-ray, base layer + MEL/FEL enhancement layer) has
+  no Apple decoder, and its RPU is not valid as 8.1 without per-frame
+  rewriting. Converting it the way dovi_tool mode 2 does (drop the EL, rewrite
+  every RPU as 8.1) gives a single-layer stream Apple plays as real Dolby
+  Vision. FEL detail is lost, as with every player that does this.
+- Gate (one place: `PlaybackCoordinator.remuxDolbyVision7Conversion`): any
+  `.spatialAudio` remux (HDR, Atmos or converted audio) of a file whose HEVC
+  video is profile 7 (`StreamResolver.dolbyVision7ConversionStream` /
+  `dolbyVision7ConversionTarget`), while `hdrVideoRemuxEnabled` and
+  `dolbyVision7ConversionEnabled` are on and the conversion has not failed for
+  this item (`isDolbyVision7ConversionSuppressed`, reset at the top of
+  `startPlaybackSession`, never by replacement attempts). The result is
+  `PlaybackSource.dolbyVision7Conversion` (8.1, compat ID 1, source level,
+  `convertedFromProfile = 7`); `DisplayModeMatcher` gets it in place of
+  `dolbyVisionRemux`. VLCKit taking over a remux URL never converts.
+  `StreamResolver.dolbyVisionSignalingStream` still excludes profile 7.
+- Picture-priority startup: when the remux audio pick is TrueHD/MLP,
+  `convertedTrueHDRemuxBlocker` qualifies DV7 for AVPlayer, regardless of
+  whether VLCKit can decode TrueHD. The demo clips `DV P7 MEL - Hybrid
+  HDR10 TrueHD Atmos (2020)` (7.1/48 kHz) and `DV P7 MEL - Hybrid HDR10+
+  TrueHD 5.1 (2020)` (5.1/96 kHz, forced SRT) have this combination. The
+  request chooses audio conversion before contacting Plex: video copied,
+  E-AC-3 surround, then DV7 → 8.1 on device. It never first loads TrueHD
+  into AVPlayer or waits for a local decoder failure. Before loading the
+  engine, acceptance requires MP4, copied H.264/HEVC, converted E-AC-3,
+  and 6 or 8 output channels for a surround source. The profile allows 7.1;
+  current PMS commonly encodes 5.1. Only output E-AC-3 Atmos metadata
+  authorizes restoring JOC; a TrueHD Atmos input must not turn ordinary
+  DD+ into falsely signalled Atmos. Existing JOC signaling is preserved.
+  The HDR/display/subtitle gates still apply; turning conversion off keeps
+  the HDR10 base-layer remux. DV7 with copyable AC-3/E-AC-3 stays lossless,
+  and non-DV7 TrueHD-only files stay on local decoding.
+- Proxy architecture: after Plex confirms the remux, `AVPlayerEngine`
+  starts a `DolbyVision7HLSProxy` for the source instead of
+  `RemuxHLSLoader` (`usesRemuxHLSLoader` is false with a conversion) and
+  hands AVPlayer `http://127.0.0.1:<port>/<token>/master.m3u8`:
+  - Proxy (`Playback/DolbyVision7/DolbyVision7HLSProxy.swift`,
+    `HLSProxyHTTP.swift`): Network.framework listener bound to the loopback
+    interface, local-only, random 128-bit path token (wrong token → 403),
+    every relayed URL must share the master playlist's scheme/host/port
+    (→ 403, never an open relay). GET/HEAD, single byte ranges (206/416),
+    `Connection: close`, `Cache-Control: no-store`. Routes: `master.m3u8`
+    (cached from preflight), `v/<b64url>.m3u8` video playlists,
+    `p/<b64url>.m3u8` rendition (subtitle/audio) playlists, `i/<b64url>.mp4`
+    init segments (converted once, cached with their `FMP4InitInfo`;
+    concurrent first requests share one fetch), `s/<init id>/<b64url>.m4s`
+    media segments (fetched, converted, never cached; at most two at once).
+    Upstream non-2xx is forwarded, network errors are 502, and a player
+    hanging up (seen as end of stream on a read kept pending after the
+    request head) cancels the fetch and conversion behind it: the detached
+    conversion task is cancelled with the request, `FMP4FragmentRewriter`
+    stops between samples, and an abandoned request never runs the RPU
+    check or reports a fatal error (a seek must not drop playback to
+    HDR10). Logs never carry the token or upstream query strings.
+  - Upstream (`URLSessionHLSUpstreamFetcher`, one shared delegate-based
+    session): bodies are received incrementally against a per-kind limit —
+    playlists 16 MiB, init segments 4 MiB, media segments 256 MiB (≥ 16 s
+    at UHD Blu-ray's 128 Mbps ceiling; Plex cuts copied video at keyframes,
+    so a segment is at least a GOP) — and a declared `Content-Length` over
+    it fails before any byte. Redirects are followed only on the master
+    playlist's origin; any other is refused (`HLSUpstreamFetchError`). For
+    video (master/variant playlists, init, segments) either is fatal → the
+    unconverted remux, which AVPlayer streams from the server itself; a
+    rendition playlist only fails its own request (502).
+  - Connections: a request head must arrive within 10 s of accept (no
+    deadline after that, so a request waiting on a fetch or a segment slot
+    is never cut), and at most 16 connections may wait for their head; a
+    new one over the cap evicts the oldest waiting one, so a local client
+    without the token cannot pile them up or lock AVPlayer out (its heads
+    arrive immediately).
+  - Playlists (`DolbyVision7PlaylistRewriter`): `SUPPLEMENTAL-CODECS=
+    "dvh1.08.LL/db1p"`, `VIDEO-RANGE=PQ`, level cap as for DV8; I-frame
+    playlists dropped; WebVTT renditions (no `EXT-X-MAP`) keep their segment
+    URLs on the server. Video is strict: a variant playlist without
+    `EXT-X-MAP`, a segment ahead of the first `EXT-X-MAP` of any fMP4
+    playlist, or a variant/init/segment URI off the server's origin throws
+    `.unsupportedPlaylist` (fatal → ladder) instead of passing through, so an
+    unconverted profile 7 sample never plays behind 8.1 signaling.
+  - Init (`DolbyVision7InitRewriter`): one `hvc1`/`dvh1` video track becomes
+    `hvc1` + an 8.1 `dvvC`; the Atmos `dec3` patch (`EAC3JOCSignaling`) runs
+    here too when `restoresDolbyAtmos`.
+  - Segments (`FMP4FragmentRewriter` + `DoviBridgeSampleRewriter`): every
+    video sample goes through the Rust bridge (`Native/DuskDovi`, libdovi
+    `ConversionMode::To81`): NAL 63 (EL) dropped, NAL 62 (RPU) rewritten;
+    `trun` sizes and data offsets are rebuilt, `sidx` dropped, audio bytes
+    copied. Before anything is allocated, a fragment's runs share one
+    budget: at most one sample per mdat byte and 2^20 samples in all, and
+    sample bytes summing to no more than the mdat payload (runs never
+    overlap), so a crafted `moof` cannot multiply memory or output.
+    Zero-size samples stay legal (ISO BMFF allows them) and count against
+    the sample budget.
+- Preflight (`DolbyVision7HLSProxy.start()`): listener ready, master has a
+  variant that takes 8.1 signaling, its media playlist passes the same strict
+  video rewrite AVPlayer will get (fMP4 throughout, no byte ranges or
+  encryption, everything on the server), and the init segment converts.
+  Segment 0 is not prefetched.
+- Fallback ladder:
+  1. Preflight failure fails the load; a segment that cannot be converted, a
+     video segment with samples but no RPU, or a listener that dies twice
+     calls `onFatalError` (once), which sets the engine to `.error` for the
+     same attempt; AVPlayer item failures (e.g. -11848) do the same.
+  2. The failure watch (armed for `.spatialAudio`) runs
+     `performDirectPlayServerStreamFallback`, whose first branch sets
+     `isDolbyVision7ConversionSuppressed` and calls
+     `retryRemuxWithoutDolbyVision7Conversion`, which queues
+     `rebuildSpatialAudioSession(transitionLabel:declineReason:)` on
+     `spatialAudioTransitionTask` (behind any track-change rebuild in flight;
+     one that already replaced the failed engine counts as the retry): a
+     fresh Plex remux (old transcode session stopped) at the live position,
+     now without conversion — the HDR10 base layer through `RemuxHLSLoader`.
+     When the rebuild cannot start at all (its guard fails), the branch falls
+     through to the normal remux-failure rung below instead of leaving the
+     error overlay up.
+  3. Plex declining that, or the unconverted remux failing as well, leaves
+     the remux for direct play (VLCKit) like any failed remux. The flag stops
+     a loop.
+- Setting: `dolbyVision7ConversionEnabled` ("Dolby Vision 7 → 8.1", default
+  on, disabled while "HDR & Dolby Vision" is off). Off restores the HDR10
+  base-layer remux exactly.
+- AirPlay: a receiver cannot reach 127.0.0.1. Remux sessions already become
+  Plex AirPlay HLS on a route change (see "AirPlay"), so the proxy is never
+  handed to a receiver on purpose. tvOS has no background playback; on iOS
+  the listener is re-created once (same port) if the system tears it down
+  while backgrounded, then the ladder takes over.
+- Unverified (no real PMS/hardware yet): that Plex copies NAL 62/63 into the
+  fMP4 for single-track BL+EL MKVs (dual-track MKVs carry no EL at all —
+  harmless), that Plex never writes its own `dvcC`/`dvvC`/`dvh1` for profile
+  7, AVPlayer behaviour with a loopback HLS source on device, sustained CPU
+  and memory on 4K FEL, and listener survival across iOS backgrounding.
+- Manual hardware checklist (Apple TV 4K + a Dolby Vision TV; iPhone/iPad
+  for the iOS parts). Log categories: `DolbyVision7` (proxy, init, first
+  segment stats, fatal errors), `SpatialAudio` (remux request/acceptance),
+  `PlaybackSession` (attempts, retry label), `AVPlayerEngine` (preflight,
+  item failures), `DisplayMode`.
+  - DV7 **FEL** MKV and DV7 **MEL** MKV: the TV shows its Dolby Vision badge;
+    the session reason (Playback Info) names "Dolby Vision 7 → 8.1" and
+    Display Mode reads "Dolby Vision 8.1 (from profile 7)"; the first-segment log shows RPUs ≈ samples
+    and EL NALs dropped (FEL and MEL).
+  - Audio: E-AC-3 Atmos (receiver shows Atmos), AC-3; DV7 + TrueHD-only
+    starts on the converted-audio remux with real DV, on custom and stock
+    VLCKit builds. Plain converted DD+ must not be labelled Atmos.
+  - DV display mode switch on the TV (Match Content on).
+  - Seeking: scrub forward/back, skip ±10 s, resume from a saved position.
+  - WebVTT subtitles on and switching tracks (rebuilds the remux, conversion
+    stays).
+  - Setting off → the same file plays as HDR10 (no DV badge); "HDR & Dolby
+    Vision" off disables the toggle.
+  - Fallback: a file Plex delivers without RPUs (or a forced fatal error) →
+    one retry log line "retrying the remux without Dolby Vision 7 conversion",
+    playback continues as HDR10 at the same position.
+  - iOS: AirPlay mid-session, background/foreground, Picture in Picture.
 
 ## AirPlay (iOS/iPadOS)
 
@@ -374,9 +659,9 @@ so the whole live HUD is derived from one instant.
   cannot grow the bar it sits in or take a touch target wider than the circle.
 - `PlayerAirPlayRemoteBackground` is the phone's screen while video is on the
   receiver: a clamped, clipped, blurred wash of the item's backdrop, the poster
-  in the half above the HUD's centered play/pause button, and a "Playing on
-  <route>" pill in the half below it. Both halves are equally flexible, so the
-  split stays on the transport button in any orientation; short layouts
+  in the upper half, and a "Playing on <route>" pill in the lower half. Both
+  halves are equally flexible; the compact transport stays above the scrubber
+  at the bottom. Short layouts
   (iPhone landscape) drop the poster and title and keep the pill. **Any
   full-bleed artwork added here must keep the
   `.frame(maxWidth:.infinity, maxHeight:.infinity).clipped()` clamp**: a
@@ -522,7 +807,8 @@ so the whole live HUD is derived from one instant.
   software otherwise), and Dolby Vision profile 5 sets
   `requiresServerTranscode` regardless of container — libvlc cannot reshape
   IPTPQc2, and AVPlayer only renders it from a relabelled remux. DV profiles
-  7/8 play through their HDR10 base layer normally.
+  7/8 follow normal engine selection; when that lands on VLCKit, the HDR
+  remux (above) moves them to AVPlayer.
 - Force preferences override all codec/container checks. `forceAVPlayer` can
   intentionally choose an engine that later fails on unsupported media.
 
@@ -559,8 +845,9 @@ so the whole live HUD is derived from one instant.
   `externalURL` set; AVPlayer cannot attach one to a live item and keeps the
   protocol-extension defaults (`false` / no-op). See "External (sidecar)
   subtitles".
-- Engine tracks carry `isDecodable`. The bundled VLCKit build cannot decode
-  every codec a container may hold (see "Undecodable audio tracks" below).
+- Engine tracks carry `isDecodable`. A stock VLCKit build cannot decode
+  TrueHD/MLP, and Dusk's TrueHD decoder can fail on a stream (see "Dolby
+  TrueHD decoding" below).
   Automatic selection only considers decodable tracks; the pickers list all of
   them, and picking an undecodable one reroutes through
   `PlaybackCoordinator.transcodeForUndecodableAudio` (server transcode pinned
@@ -591,7 +878,8 @@ so the whole live HUD is derived from one instant.
 ## AVPlayer and VLCKit Split
 - `AVPlayerEngine` is for MP4/MOV/M4V-style direct play with AV-compatible
   video, audio, and text subtitles. `VLCKitEngine` is the fallback for MKV,
-  DTS/TrueHD audio, bitmap/complex subtitles, and other VLC-only combinations.
+  DTS/TrueHD audio (TrueHD with Dusk's own VLCKit build only), bitmap/complex
+  subtitles, and other VLC-only combinations.
 - Current AV-compatible sets live in `StreamResolver`: containers
   `mp4`, `mov`, `m4v`; video `h264` (8-bit only), `hevc`, `av1` (hardware
   decoders only); audio `aac`, `ac3`, `eac3`, `alac`, `mp3`, `flac`;
@@ -644,8 +932,8 @@ so the whole live HUD is derived from one instant.
   streaming bandwidth. Ranking is relative, so a lossless-only file still
   plays natively, and the pickers can always select any track manually.
 - Selection only considers `selectableAudioTracks` (decodable tracks): ranking
-  by desirability used to steer playback onto a TrueHD track the bundled
-  VLCKit cannot decode, which is what actually broke Bluray-remux audio.
+  by desirability used to steer playback onto a TrueHD track a stock VLCKit
+  cannot decode, which is what actually broke Bluray-remux audio.
 - The automatically preferred audio track is normally PRESELECTED before
   playback starts: `PlaybackCoordinator` computes it from Plex part metadata
   (`PlayerViewModel.preferredAudioStreamPosition`, the pre-start twin of the
@@ -729,60 +1017,154 @@ so the whole live HUD is derived from one instant.
   already listed by `syncTrackLists`'s server branch and selecting one just
   passes `subtitleStreamID` to the transcode decision, which burns it.
 
-### Undecodable audio tracks (TrueHD/MLP)
-- The vendored frameworks are VideoLAN's STOCK stable 3.x prebuilts, which
-  disable ffmpeg's mlp decoder/demuxer/parser on iOS/tvOS ("to be in
-  compliance with the App Store ToS" — Dolby licensing; AC-3/E-AC-3 decode
-  through Apple's licensed AudioToolbox instead), and ffmpeg's truehd decoder
-  depends on the mlp parser. libvlc cannot play such tracks, so
-  `VLCKitEngine.undecodableAudioFourCCs` contains the TrueHD/MLP fourccs.
-  libvlc 3.x tags TrueHD `trhd` (verified in the 3.7.3 binary, which has no
-  `ff_truehd_decoder`); `mlpa` was the 4.x alpha's fourcc. The set holds both —
-  it held only `mlpa` after the 3.x migration, so TrueHD passed as decodable.
-  (The retired 4.x-alpha setup carried a local patch series that re-enabled
-  TrueHD; it lives in git history under `ci_scripts/vlc-patches/` if ever
-  needed again — a deliberate licensing/App Store decision.)
-- Failure chain this produced on Bluray remuxes (default track TrueHD, with a
-  companion AC-3 track): libvlc auto-falls back to AC-3 at start; the app's
-  auto-selection then re-selected the "better" TrueHD track; libvlc unselects
-  the working AC-3 ES, the TrueHD decoder fails to open, and there is NO
-  second fallback — audio goes silent until a pause/resume/seek/track event
-  revives it, then dies again. That is the cyclic "audio cuts in and out,
-  sometimes catches itself" symptom: route-independent, streamed or local,
-  only on files whose preferred track is undecodable.
-- Fix layers: `VLCKitEngine.undecodableAudioFourCCs` marks such tracks
-  (`AudioTrack.isDecodable == false`); auto-selection skips them. The pickers
-  still offer them: `PlayerViewModel.selectAudio` reroutes an undecodable pick
-  through `transcodeAudioFallbackHandler` → `PlaybackCoordinator.
-  transcodeForUndecodableAudio(_:)`, which restarts the session as a Plex HLS
-  transcode pinned to that stream (`switchQuality(to:audioStreamID:)`), so the
-  choice produces sound. A file with zero locally decodable audio tracks (a
-  TrueHD-only remux) triggers the same fallback automatically instead of
-  direct-playing as a silent video.
-- The server fallback first tries `playConvertedAudioRemux`: the same fMP4
-  remux as the Dolby Atmos path but with `directStreamAudio=0`, so the video
-  (4K/HDR) is copied and Plex converts only the chosen stream (TrueHD → E-AC-3,
-  played on AVPlayer as a `.spatialAudio` session). `directStreamAudio=1`
-  makes Plex silently substitute a copyable sibling (the AC-3 5.1 track)
-  instead of converting the requested one. Plex caps converted audio at 6
-  channels whatever the codec or limitation (verified against PMS 1.43.4), so
-  TrueHD 7.1 arrives as 5.1. A bitmap subtitle cannot ride the remux and is
-  dropped for this fallback. Only when the remux is refused (e.g. HDR on an
-  SDR display) does it fall back to the quality-preset transcode — which
-  re-encodes the video and, on servers without HDR tone mapping, fails for HDR
-  sources: Plex emits 8-bit H.264 still tagged PQ and AVPlayer rejects it
-  (CoreMedia -12927). That last point applies to manual Quality picks on HDR
-  titles too.
-- In a remux session, picking a locally undecodable stream rebuilds the remux
-  with audio conversion (`rebuildSpatialAudioSessionForTrackChange`). Leaving
-  a remux for direct play never preselects an undecodable track position.
-- The pre-start preselection (`preferredAudioStreamPosition`) must apply the
-  same rule from Plex metadata alone (`isLocallyUndecodableAudioCodec`): the
-  tvOS ladder ranks TrueHD Atmos highest, and passing its position as
-  `:audio-track` opened libvlc straight onto a dead decoder — a silent start
-  on TrueHD 7.1 Atmos + AC-3 remuxes. The merge also ANDs Plex's codec into
-  `isDecodable`, so a missed engine fourcc cannot re-admit TrueHD. AirPlay's
-  `preferredAudioStreamID` opts out of the filter because the server decodes.
+### Subtitle character sets, fonts, and direction
+- Known text sidecars carry their Plex codec into `attachExternalSubtitle`.
+  `SubtitleFileStore` downloads the original bytes asynchronously, then
+  `SubtitleTextDecoder` recognizes Unicode BOMs/strict UTF-8 before using
+  Foundation's whole-file legacy encoding detector without lossy conversion.
+  A system Russian-language confidence check resolves the detector's observed
+  KOI8-R → ISO-8859-5 ambiguity. Automatic legacy detection remains heuristic;
+  short or ambiguous files can still require fixing the source encoding.
+- VLC mounts a temporary UTF-8 file with a BOM and the correct format suffix.
+  ASS/SSA headers, fonts, positioning, inline markup, logical RTL order, and cue
+  timing are preserved. The original Plex URL remains the attachment identity
+  used by track matching. Files survive media reopens and are removed when the
+  session's store is released. Fetch/decode failures retain original VLC
+  delivery; they never block video startup or log token-bearing errors.
+- Text formats currently normalized: SRT/SubRip, ASS/SSA, WebVTT, MicroDVD,
+  SubViewer, and SAMI. VobSub/PGS and unknown codecs bypass preparation entirely.
+  Never classify `.sub` by extension: it can contain text **or** bitmap data.
+- Do not force `subsdec-encoding=UTF-8` on the shared VLC library: that also
+  affects unnormalized inputs. libvlc 3.x only auto-detects UTF-8, with a
+  Windows-1252 fallback in this nonlocalized build. Container tracks declare
+  their own encoding (including UTF-8 Matroska text and UTF-8/UTF-16 tx3g).
+- Plex documents `/library/streams/{id}?encoding=utf-8`, but this is not a
+  reliable replacement for source detection. On the demo server (2026-10-17),
+  the generated Windows-1251, Windows-1256, and ISO-8859-2 samples returned
+  valid UTF-8 containing wrong characters. KOI8-R, GB18030, Big5, Shift-JIS,
+  Hebrew, Greek, Thai, and mixed UTF-8 converted correctly. Dusk deliberately
+  fetches original sidecars instead.
+- There is no Dusk text overlay. Both vendored VLC frameworks include FreeType's
+  CoreText family/fallback selectors, FriBidi and HarfBuzz; libass auto-selects
+  the Apple font provider and honors embedded fonts. Keep the existing
+  Helvetica Neue default and automatic paragraph direction. AVPlayer renders
+  tx3g/WebVTT and Plex remux captions natively; its text style rules set only
+  size, colors, and shadow, leaving font fallback and direction to Apple.
+  AirPlay/burned captions are rendered by Plex. No Latin typography changes or
+  bundled replacement font are needed for encoding correction.
+- `scripts/generate-subtitle-fixtures.py <directory>` creates mixed-script
+  SRT/ASS/WebVTT, legacy-encoded SRT/ASS/MicroDVD, and an expected-text manifest
+  without contacting Plex or launching a player. `SubtitleTextDecoderTests`
+  covers the legacy fixtures, Unicode BOMs, unchanged logical RTL/Latin text,
+  ASS markup, and bitmap/unknown-codec passthrough. Compile checks do not verify
+  actual glyph rasterization, shaping, or on-device playback.
+
+### Dolby TrueHD decoding (TrueHD/MLP)
+- Dusk ships its OWN MobileVLCKit/TVVLCKit 3.7.3 build
+  (`ci_scripts/build_vlckit.sh`, see `development-workflow.md` → "VLCKit
+  build"). VideoLAN's stock prebuilts disable ffmpeg's mlp
+  decoder/demuxer/parser on iOS/tvOS (VLCKit patch 0003, "App Store ToS" —
+  Dolby licensing), and ffmpeg's truehd decoder selects the mlp parser.
+  `ci_scripts/vlc-patches/0100` drops that block, so libvlc decodes TrueHD and
+  MLP losslessly to PCM, up to 8 discrete channels. For TrueHD Atmos that is
+  the 7.1 bed: ffmpeg ignores the object substream, and no App Store player
+  can bitstream TrueHD on Apple TV (tvOS has no MLP/MAT passthrough; Infuse
+  does the same 7.1 decode).
+- **Licensing — a deliberate decision by Marvin (2026-10-16):** Dolby TrueHD
+  is patent-encumbered and Dusk holds no Dolby license. VideoLAN removed the
+  decoder from its App Store builds for exactly this reason
+  (videolan/vlc#25040); Infuse ships it under a license. Shipping the decoder
+  is a known legal/App Review risk that rests with the maintainer, not a
+  technical default. Reverting is one step: drop patch 0100, bump
+  `DUSK_VLCKIT_BUILD`, rebuild and republish — the app then falls back to the
+  Plex route below on its own (`VLCKitBuildInfo.decodesTrueHD` is false).
+  The binaries are hosted only in the private repo `marvinvr/dusk-vlckit`,
+  never as a public download; builds without access to it get VideoLAN's
+  stock VLCKit and the Plex route (`development-workflow.md` → "VLCKit
+  Bootstrap").
+  Never add Atmos object rendering (TrueHD/DTS:X → APAC): it is lossy, needs a
+  new audio path, and carries the object-audio patent risk Firecore declined.
+- Capability gate: the build script stamps every framework slice's Info.plist
+  (`DuskVLCKitBuild`, `DuskVLCKitTrueHD`). `VLCKitBuildInfo.decodesTrueHD`
+  reads it from the loaded binary, so a stale stock framework in a local
+  `Frameworks/` keeps the old routing instead of playing TrueHD silent.
+  Playback Info's "VLCKit Build" row shows `Dusk VLCKit 3.7.3-dusk1 (…,
+  TrueHD)`; "Stock VLCKit 3.x" means the frameworks are stale.
+- libvlc 3.x tags TrueHD `trhd`, MLP `mlp `; `mlpa` was the 4.x alpha's
+  TrueHD fourcc. `VLCKitEngine.trueHDAudioFourCCs` holds all three and only
+  marks tracks undecodable on a stock build.
+- Routing with the Dusk build:
+  - Direct play: TrueHD is an ordinary decodable track. On tvOS it ranks top
+    (lossless) and VLCKit opens straight on it via `:audio-track`; iPhone/iPad
+    still prefer a lossy surround sibling (`platformAudioCodecAdjustment`).
+  - Startup remux decisions (DV5, HDR video, Dolby Atmos / spatial audio) are
+    made for `PlayerViewModel.preferredRemuxAudioStream`: the local pick with
+    TrueHD treated as undecodable, i.e. the pre-Dusk-build policy. TrueHD
+    cannot ride the lossless fMP4 remux, so letting it win there would turn a
+    UHD remux with TrueHD Atmos + E-AC-3/AC-3 from HDR/Atmos on AVPlayer into
+    VLCKit without HDR. These files keep exactly their old remux; only when
+    no remux qualifies does direct play open on the TrueHD track.
+  - TrueHD-only files (`StreamResolver.convertedTrueHDRemuxBlocker`): DV7
+    takes the converted-audio remux up front to preserve Dolby Vision/HDR.
+    `requestSpatialAudioRemux` makes the choice before its first server
+    request, also on stock builds and track changes. Other TrueHD-only
+    files retain local lossless decoding; spatial audio alone does not
+    force an audio transcode.
+  - In a remux session, picking a TrueHD track retains DV7 picture by
+    converting audio. For non-DV7, picking TrueHD behaves like picking DTS:
+    `leaveSpatialAudioRemux` moves to VLCKit direct play with that track.
+  - A remux that converts its audio keeps converting when it is rebuilt
+    around the same audio stream (subtitle change, the Dolby Vision 7
+    retry): `PlaybackCoordinator.remuxAudioConversion` records the converted
+    stream, because the codec no longer says so — TrueHD is decodable, and
+    re-deriving it from decodability dropped the remux (and HDR) for VLCKit.
+- Failure case (`VLCKitEngine.watchTrueHDDecoding`): the decoder is Dusk's
+  addition. One that fails to open leaves the ES selected and silent; its
+  only trace is libvlc's error "Codec `trhd' (…) is not supported."
+  (`src/input/decoder.c`), which `VLCLibraryLogBridge` counts. A TrueHD/MLP
+  track selected after such an error during the current load is reported in
+  `failedAudioDecoderTrackID`, marked undecodable, and `PlayerViewModel`
+  hands it to the Plex fallback below once per item. Missing audio blocks
+  alone never trigger it: the decoded-audio counter cannot tell a broken
+  decoder from a track that starts late or pauses, and ffmpeg's runtime
+  decode errors never reach the libvlc log (VLC 3 installs no av_log
+  callback). A TrueHD track whose counter stays flat for 10 s while video
+  decodes is only logged as a warning — that is the device evidence to look
+  for if TrueHD ever plays silent. Offline downloads have no fallback.
+- Plex fallback (stock build, a failed decoder, or a viewer pick of a track
+  marked undecodable): `PlayerViewModel.selectAudio` reroutes through
+  `transcodeAudioFallbackHandler` → `PlaybackCoordinator.
+  transcodeForUndecodableAudio(_:)`. A file with zero locally decodable audio
+  tracks triggers it automatically instead of direct-playing silent. It first
+  tries `playConvertedAudioRemux`: the Atmos-path fMP4 remux with
+  `directStreamAudio=0`, so the video (4K/HDR) is copied and Plex converts only
+  the chosen stream (`directStreamAudio=1` makes Plex silently substitute a
+  copyable sibling instead). Converted-audio profiles request only fMP4/E-AC-3
+  with up to 8 channels, and reject incompatible or stereo-surround decisions
+  before an engine starts. PMS 1.43.4 caps conversion at 6 channels regardless
+  of the advertised limit, so TrueHD 7.1 normally arrives as DD+ 5.1. Output
+  JOC metadata is carried in `RemuxAudioConversion` across source rebuilds;
+  no Atmos signaling is inferred from a TrueHD input. A bitmap subtitle
+  cannot ride the remux and is dropped. Only when the
+  remux is refused (e.g. HDR on an SDR display) does it fall back to the
+  quality-preset transcode — which re-encodes the video and, on servers
+  without HDR tone mapping, fails for HDR sources (Plex emits 8-bit H.264
+  still tagged PQ, AVPlayer rejects it with CoreMedia -12927).
+- Why the stock-build rules still matter (history): on a build without the
+  decoder, Bluray remuxes (default TrueHD + companion AC-3) went silent in a
+  cycle — libvlc fell back to AC-3, the app's auto-selection re-selected the
+  "better" TrueHD, libvlc dropped the working ES, the TrueHD decoder failed to
+  open and there was no second fallback. Hence: automatic selection only
+  considers decodable tracks, the pre-start preselection applies the same rule
+  from Plex metadata (`isLocallyUndecodableAudioCodec`), the metadata merge
+  ANDs Plex's codec into `isDecodable`, and leaving a remux never preselects
+  an undecodable position. AirPlay's `preferredAudioStreamID` opts out of the
+  filter because the server decodes.
+- Not yet verified on hardware: TrueHD 7.1 → 8-channel LPCM on an Apple TV +
+  AVR ("Output Channels" should read `current=8`), 7.1 into a 5.1 receiver
+  (patch 0101 mixes down to 5.1), TrueHD Atmos bed levels, no "decoded no
+  audio for 10 s" warning on healthy files, a subtitle change in a
+  converted TrueHD remux staying on the remux, and CPU on Apple TV HD.
 
 ### VLCKit audio output module
 - `VLCKitEngine` runs its players on a single shared `VLCLibrary` with no
@@ -981,18 +1363,25 @@ so the whole live HUD is derived from one instant.
   - the route ceiling is re-read *after* the opt-in. tvOS reports a
     stereo-only maximum while the session is declared stereo-only, so
     measuring first permanently justifies never asking for surround.
-  - libvlc overwrites `supportsMultichannelContent` on every audio-output
-    start (`avas_SetActive` passes its own spatial-audio flag, still false on
-    first bring-up), so `AVPlayerEngine.load` re-asserts it on tvOS. Without
-    that, one VLCKit title leaves every later AVPlayer title in stereo for the
-    rest of the app's lifetime.
+  - stock libvlc overwrote `supportsMultichannelContent` on every
+    audio-output start (`avas_SetActive` passed its own spatial-audio flag,
+    still false on first bring-up). Dusk's build (`vlc-patches/0101`) always
+    opts in on tvOS, accepts any multichannel route instead of requiring the
+    exact requested count, and when the route carries fewer channels than the
+    source (7.1 TrueHD/DTS-HD into a 5.1 receiver) mixes down to 5.1 in
+    libvlc instead of letting the AudioUnit drop the unlabelled channels.
+    `AVPlayerEngine.load` still re-asserts the flag on tvOS (harmless, and it
+    keeps a stock framework working). Without it, one VLCKit title on a stock
+    build left every later AVPlayer title in stereo.
   - passthrough/bitstreaming is impossible on this stack regardless: libvlc 3
     returns `VLC_EGENERIC` for SPDIF/HDMI formats on Apple platforms. Dusk
     always software-decodes to PCM; the goal is only that the PCM is discrete
     multichannel rather than a fold-down.
   - Playback Info's "Output Channels" row reads
     `expected=… current=… preferred=… max=…`. `expected>2` with `current=2` is
-    the signature of libvlc folding down in software.
+    the signature of libvlc folding down in software. A TrueHD/DTS-HD 7.1
+    title on a 7.1 receiver should read `expected=8 current=8` (unverified
+    on hardware).
 - iOS/iPadOS does NOT drive surround at all. The output route is effectively
   stereo (built-in speaker, wired, or Bluetooth/AirPods), so the policy lets
   VLCKit downmix to the route on its own; it sets no preferred output channel
@@ -1002,7 +1391,7 @@ so the whole live HUD is derived from one instant.
   equalizer) restarts VLCKit's audio output, which is an audible gap. Historical note: the recurring "audio cuts in and out on this
   remux" bug was chased through several audio-session/mix-mode theories before
   the actual cause was found — the app steering playback onto an undecodable
-  TrueHD track (see "Undecodable audio tracks" above). The idempotency and
+  TrueHD track (see "Dolby TrueHD decoding" above). The idempotency and
   no-surround-on-iOS changes remain as valid hardening, but they were not the
   root cause. Playback Info still exposes the selected VLC audio track, mix
   mode, passthrough state, route, and channel counts.
@@ -1057,7 +1446,7 @@ so the whole live HUD is derived from one instant.
   captures the playing audio ES position first (`currentAudioTrackPosition`,
   only when the media actually has more than one audio ES) and preselects it on
   the reopened media. Preselect, never a post-start ES switch — see
-  "Undecodable audio tracks" and the audio-output warnings above.
+  "Dolby TrueHD decoding" and the audio-output warnings above.
 
 ## Picture in Picture
 - iOS only, native. AVPlayer uses an `AVPictureInPictureController` built from
@@ -1139,13 +1528,54 @@ so the whole live HUD is derived from one instant.
   closely. `enabled` still hard-disables streams above 70 fps so high-frame-rate
   playback does not overload the renderer. `disabled` leaves the native engine
   view path in place.
-- Direct-play and downloaded parts with embedded subtitle streams always keep
-  the native engine renderer, even when enhancement is Auto or On. AVPlayer and
-  VLCKit composite subtitles in their native presentation surfaces, while the
-  opaque Metal view receives only raw video frames and would cover every cue.
-  The decision is made before the engine loads because VLCKit 3's custom-memory
-  video callback cannot be detached from a live player. Playback Info reports
-  `Native renderer required for embedded subtitles` when this constraint wins.
+- Merely containing embedded subtitle tracks never disables enhancement, for
+  direct play or downloads. The actual engine selection determines rendering:
+  - On tvOS, `StreamResolver.evaluateForDirectPlayback` prefers VLCKit for
+    eligible SDR video when Auto/On and an embedded subtitle is selected.
+    Startup uses the resolved per-show choice or the same forced/language
+    subtitle rule as the player; returning
+    to Original and leaving a remux use the current explicit choice when present.
+    The view model also reports its actual automatic embedded-track choice,
+    covering engine-discovered lists that differ from Plex's startup metadata.
+    Explicit engine overrides and the frame-rate limits still win. Require
+    positive SDR evidence (8-bit video or a known SDR transfer), with no HDR,
+    PQ/ST2084, HLG, wide-color, or Dolby Vision flags. Missing range metadata
+    keeps the normal engine; never select VLC for enhancement at the cost of HDR.
+    The optional SDR Atmos copy-remux yields to this preference, at startup or
+    when rebuilding it after a track change: play the original on VLC instead.
+    The selected audio track is decoded to PCM (Atmos objects are not retained).
+    HDR/DV and audio-conversion recovery remuxes, server streams, and transcodes
+    keep their existing paths.
+  - A tvOS embedded-subtitle selection during AVPlayer direct/local playback
+    uses `switchToVLCKitForEnhancedSubtitlesIfNeeded` and the existing replacement
+    attempt flow. It retains the source URL, live clock (even after seeking back
+    before the original resume offset), playing/paused state, Plex session and
+    scrobble state, downloaded-file identity, and explicit audio/subtitle IDs.
+    The selected audio position is supplied before VLC opens the source, avoiding
+    a startup audio-track switch. The handoff may briefly rebuffer. Keep VLC for
+    the rest of that item, including subtitle Off, to avoid repeated reloads.
+    This policy does not change iOS; AVPlayer still reveals its native layer
+    while captions are selected. HDR/DV never gets this renderer handoff.
+  - VLCKit supports enhancement with embedded text/ASS/bitmap and mounted
+    sidecar subtitles. libVLC 3's `vmem` output CPU-blends SPU subtitles into
+    the pixels before `DuskVLCRawVideoOutput` forwards them to Metal (see the
+    [callback API contract](https://videolan.videolan.me/vlc-3.0/group__libvlc__media__player.html)).
+    Keep those pixels intact; no separate overlay or Plex burn-in is needed.
+  - AVPlayer's `AVPlayerItemVideoOutput` excludes native captions. While a
+    legible option is selected, `AVPlayerEngine` removes the Metal view to
+    reveal the existing `AVPlayerLayer` and skips enhancement frame submission.
+    Turning subtitles off restores Metal without reloading or seeking; a forced
+    frame refresh handles this while paused too. The cached engine view contains
+    an observing SwiftUI wrapper, so changes apply immediately. Item media
+    selection notifications cover automatic/system choices as well as Dusk's
+    picker; observers are removed on load, stop, recovery, and deinit.
+    Playback Info reports `Native AVPlayer renderer required while subtitles
+    are selected` only while that selection is active (Off/HDR/fps reasons
+    retain precedence). A general AVPlayer overlay is not implemented: copying
+    plain text cues would lose native positioning/styling and bitmap support.
+  - `VideoEnhancementSubtitleTests` covers metadata-only tracks, the preference,
+    engine-specific selection eligibility, HDR/fps reason precedence, tvOS SDR
+    routing with HDR/DV/HLG/unknown-range exclusions, and handoff continuity.
 - AVPlayer attaches an `AVPlayerItemVideoOutput` and, from a display link,
   pulls the time-current pixel buffer (`itemTime(forHostTime:)` +
   `hasNewPixelBuffer`) into `VideoEnhancementRenderer.submit`. This path paces
@@ -1235,6 +1665,11 @@ so the whole live HUD is derived from one instant.
   cadence correction. NTSC rates are deliberately not snapped to integers. tvOS
   picks the closest mode the TV supports, so an unsupported request degrades
   rather than fails.
+- Dolby Vision is requested (`dvh1` codec type; PQ, or HLG for 8.4) only
+  for remux sessions that restore DV signaling
+  (`PlaybackCoordinator.remuxDolbyVisionConfiguration`, passed to `apply`).
+  Every other path shows a DV file's base layer, so it asks for that range
+  and Playback Info reads `HDR10 (Dolby Vision base layer)`.
 - Dynamic range is carried by the `CMVideoFormatDescription`'s color tags, read
   from the stream's own `colorTrc`/`colorPrimaries`/`colorSpace` (ffmpeg
   spellings) rather than the looser `isHDRVideo` heuristic, and defaulting to
@@ -1269,7 +1704,8 @@ so the whole live HUD is derived from one instant.
 - Intro auto-skip honors `AutoSkipIntroMode`: off, always, or always except
   episode 1 of a season. The episode check comes from the active
   `PlexMediaDetails.index`, so missing episode numbers are treated as not the
-  first episode.
+  first episode. It waits for the player's saved settings to load before arming
+  a countdown and checks the current mode again before skipping.
 - **Auto-skip fires at most once per marker per playback session.** Skipping a
   marker — by countdown or by tapping Skip Intro — records its id in
   `PlaybackCoordinator.spentAutoSkipMarkerIDs`, and `updateAutoSkipState` never
@@ -1319,17 +1755,12 @@ so the whole live HUD is derived from one instant.
   coordinator can still read final time/duration before finalization.
 - iOS uses touch overlays, a gear menu for playback info, quality, and track
   selection, sheets for quality/audio/subtitle choices, and double-tap seek
-  zones when enabled. The center play/pause button is replaced by the shared
-  spinner for as long as that spinner is up
-  (`PlaybackCoordinator.playerLoadingState.isVisible`): startup (engine
-  `.idle`/`.loading`, which includes the VLCKit audio warmup, also covered
-  same-frame by `PlayerViewModel.isAwaitingPlaybackStart`), mid-play
-  buffering, and
-  automatic direct-play recovery. So the two never stack in the center slot,
-  and startup never flashes a play icon that immediately flips to pause. The
-  button stays mounted at zero opacity instead of being removed, for the same
-  reason the HUD does (see the fade note above) and so the HUD's layout does
-  not change when buffering starts.
+  zones when enabled. Play/pause and the optional episode buttons are compact
+  controls above the scrubber, leaving the center of the picture clear for the
+  shared loading spinner. Play/pause stays mounted at zero opacity while the
+  loading presentation is active so startup and buffering cannot shift the HUD
+  or offer a misleading transport action. The compact transport row fades out
+  during scrubbing to leave room for the thumbnail above the track.
 - The iOS/iPadOS controls expose a round zoom button at the top-right that
   toggles `PlayerViewModel.aspectFillEnabled` and calls
   `PlaybackEngine.setVideoFillEnabled(_:)`. Fill zooms the picture to cover the
@@ -1355,11 +1786,11 @@ so the whole live HUD is derived from one instant.
   base delay) via `PlayerViewModel.noteSettingsMenuInteraction()`, so the HUD
   does not hide while the menu is open. iOS detects the gear's opening tap with
   a `simultaneousGesture` (a native `Menu` exposes no presentation callback).
-- Controls auto-hide while playing on every platform. **tvOS also auto-hides
-  while paused** (`PlayerViewModel.stateAllowsControlsAutoHide`): the picture is
-  the point, the remote has a dedicated play/pause button, and any click brings
-  the transport straight back. iOS keeps the HUD up while paused because the
-  play button is the only way back.
+- Controls auto-hide only while playing on every platform. Pausing reveals the
+  full HUD (including pauses from system transport, AirPlay or SharePlay) and
+  cancels its hide deadline. Resuming starts a fresh normal auto-hide window.
+  There is no transient center play/pause badge on tvOS; the transport provides
+  the feedback. Explicit HUD dismissal still works while paused.
 - With a mouse/trackpad (Mac or iPad), the system pointer hides together with the
   controls and returns the moment the pointer moves. The non-tvOS
   `PlayerTapInteractionOverlay` owns this: a `UIPointerInteraction` returns
@@ -1436,10 +1867,21 @@ so the whole live HUD is derived from one instant.
   (`PlayerSessionView.isTVRemoteCaptureEnabled`). Never add a tvOS
   `onExitCommand` / `onPlayPauseCommand` to the player: the bridge already owns
   Menu and Play/Pause and the two would double-fire.
+- Back has a Menu-only tap recognizer on the bridge, allowed alongside its
+  touch pan. Raw Menu press callbacks are swallowed, so one physical Back is
+  delivered exactly once and cannot also dismiss the enclosing cover. Back
+  rejects the remainder of an active touch pan until lift-off. Any pending
+  scrub or debounced click-seek consumes Back before the mode's normal action;
+  cancellation clears preview/repeat/commit state without seeking or changing
+  play/pause. Scrubbing also rejects queued HUD hides, keeping the visible
+  "Click to seek · Back to cancel" hint consistent with the pending target.
+  `PlayerTVScrubCancellationTests` covers cancellation, playing/paused state,
+  trailing pan updates, visibility races, and the debounced seek task. Physical
+  Siri Remote gesture arbitration still needs an Apple TV.
 - Mode transitions:
   - `hidden`: tap or Select or Up → `transport`; Left/Right → accumulate a seek
     (see below) with a centred badge, stays hidden; horizontal swipe → `scrubbing`;
-    Down → `panel`; Play/Pause → toggles with a transient badge, stays hidden;
+    Down → `panel`; Play/Pause → toggles and reveals `transport`;
     Menu → dismiss the player. While a Skip Intro chip or an Up Next poster is on
     screen, Select activates it and Down dismisses it (the chip has nothing to
     dismiss, so Down falls through to the panel).
@@ -1488,7 +1930,7 @@ so the whole live HUD is derived from one instant.
   `syncControlsVisibility(_:)` so a reveal that came from playback code (an
   auto-skip, a marker jump) still lands in a coherent mode.
   `PlayerViewModel.suppressControlsReveal` is the tvOS-only escape hatch for the
-  actions that must *not* raise the HUD (play/pause and Skip Intro from `hidden`).
+  Skip Intro activation from `hidden`, which must not raise the HUD.
   The panel and an in-flight scrub hold the HUD up via the existing
   `beginControlsInteractionHold()` / `endControlsInteractionHold()` pair.
 - Chapters are marker-backed only. Plex exposes no chapter list through the
@@ -1654,7 +2096,11 @@ so the whole live HUD is derived from one instant.
 - `forceAVPlayer` and `forceVLCKit` are mutually exclusive in their setters.
 - `spatialAudioRemuxEnabled` (default on; "Dolby Atmos" on tvOS, "Dolby Atmos &
   Spatial Audio" on iOS, under Playback Advanced) gates the Atmos remux.
-  Either forced engine also disables it.
+  `hdrVideoRemuxEnabled` (default on; "HDR & Dolby Vision" on both) gates
+  the HDR remux and profile 8 Dolby Vision signaling. Either forced engine
+  also disables both. `dolbyVision7ConversionEnabled` (default on; "Dolby
+  Vision 7 → 8.1" on both, disabled while HDR is off) gates the on-device
+  profile 7 conversion.
 - Settings UI is split by platform; shared labels/options live in
   `SettingsSupport`.
 - Adding a playback preference usually requires edits in `UserPreferences`,
@@ -1682,10 +2128,20 @@ so the whole live HUD is derived from one instant.
   platform `VLCKitRenderer*.swift` files.
 - Plex playback calls: `PlexService+Playback.swift`; metadata shape/fetching:
   `PlexService+Library.swift` and `PlexMediaDetails.swift`.
-- Dolby Atmos / spatial audio remux: eligibility in `StreamResolver`, Plex
-  request in `PlexService+Playback.swift`, session logic in
-  `PlaybackCoordinator+SpatialAudio.swift`, Atmos init-segment fix in
-  `Playback/RemuxHLSLoader.swift`.
+- Dolby Atmos / spatial audio, HDR and Dolby Vision remux: eligibility in
+  `StreamResolver` (`spatialAudioRemuxBlocker`, `hdrVideoRemuxBlocker`,
+  `dolbyVisionRemuxBlocker`), Plex request in `PlexService+Playback.swift`,
+  session logic in `PlaybackCoordinator+SpatialAudio.swift`, Atmos and Dolby
+  Vision init-segment/playlist fixes in `Playback/RemuxHLSLoader.swift`
+  (tests: `DuskTests/HDRVideoRemuxTests.swift`).
+- Dolby Vision 7 → 8.1: gate in `remuxDolbyVision7Conversion`
+  (`PlaybackCoordinator+SpatialAudio.swift`) and
+  `StreamResolver.dolbyVision7ConversionTarget`, retry branch in
+  `performDirectPlayServerStreamFallback`, proxy lifecycle in
+  `AVPlayerEngine`, proxy/fMP4/playlist rewriting in
+  `Playback/DolbyVision7/`, RPU conversion in `Native/DuskDovi` (Rust,
+  libdovi) behind `DoviBridge.swift` (tests:
+  `DuskTests/DolbyVision7*Tests.swift`, `DuskTests/DoviBridgeTests.swift`).
 - Session orchestration: `PlaybackCoordinator+Session.swift`; timeline:
   `PlaybackCoordinator+Timeline.swift`; Up Next: `PlaybackCoordinator+UpNext.swift`.
 - Display mode matching (tvOS): `Features/Player/DisplayModeMatcher.swift`,

@@ -48,13 +48,19 @@ xcodegen generate
 open Dusk.xcodeproj
 ```
 
-VLCKit is vendored but **not committed** to git: the `Frameworks/MobileVLCKit.xcframework` (iOS/iPadOS) and `Frameworks/TVVLCKit.xcframework` (tvOS) binaries are downloaded on demand. After cloning, fetch them (this also refreshes the pinned version):
+VLCKit is vendored but **not committed** to git: the `Frameworks/MobileVLCKit.xcframework` (iOS/iPadOS) and `Frameworks/TVVLCKit.xcframework` (tvOS) binaries are downloaded on demand. With `gh` access to the private `marvinvr/dusk-vlckit` repo you get Dusk's own VLCKit 3.x build with Dolby TrueHD decoding (see `ci_scripts/build_vlckit.sh`); without it, VideoLAN's stock VLCKit, and TrueHD plays through Plex. After cloning, fetch them (this also refreshes the pinned version):
 
 ```bash
 ./ci_scripts/install_vlckit.sh
 ```
 
-CI does this automatically via `ci_scripts/ci_post_clone.sh`, so no binaries live in the repo.
+The Dolby Vision 7 → 8.1 converter (`Frameworks/DuskDovi.xcframework`) is built from the Rust crate in `Native/DuskDovi`. Install [rustup](https://rustup.rs), then:
+
+```bash
+./ci_scripts/install_dusk_dovi.sh
+```
+
+CI does both automatically via `ci_scripts/ci_post_clone.sh`, so no binaries live in the repo.
 
 ## License
 
@@ -62,3 +68,11 @@ Dusk is released under the [MIT License](LICENSE).
 
 Playback is powered by [VLCKit](https://code.videolan.org/videolan/VLCKit)
 (MobileVLCKit/TVVLCKit), which is licensed separately under the LGPL v2.1.
+
+Dolby Vision profile 7 conversion uses quietvoid's
+[`dolby_vision`](https://github.com/quietvoid/dovi_tool/tree/main/dolby_vision)
+crate (libdovi, MIT) and its MIT-licensed (or MIT-dual-licensed) dependencies,
+statically linked. Their notices ship in the app as
+[`Dusk/Resources/ThirdPartyNotices.txt`](Dusk/Resources/ThirdPartyNotices.txt).
+Dolby and Dolby Vision are trademarks of Dolby Laboratories; Dusk is not
+affiliated with or certified by Dolby.

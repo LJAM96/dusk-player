@@ -36,6 +36,12 @@ final class AVPlayerEngine: NSObject, PlaybackEngine {
     }
     private(set) var selectedAudioTrackID: Int?
     var videoEnhancementStatus: VideoEnhancementStatus {
+        if let subtitleStatus = videoEnhancementRequest.nativeSubtitleRenderingStatus(
+            engine: .avPlayer,
+            hasSelectedSubtitle: isRenderingNativeSubtitles
+        ) {
+            return subtitleStatus
+        }
         if let videoEnhancementRenderer {
             return videoEnhancementRenderer.status
         }
@@ -70,10 +76,17 @@ final class AVPlayerEngine: NSObject, PlaybackEngine {
     @ObservationIgnored private var videoEnhancementRequest: VideoEnhancementRequest = .disabled
     @ObservationIgnored private var videoEnhancementRenderer: VideoEnhancementRenderer?
     @ObservationIgnored private var enhancedVideoOutput: AVPlayerItemVideoOutput?
+    @ObservationIgnored private var needsEnhancedVideoRefresh = false
+    private var isRenderingNativeSubtitles = false
     /// Front for `.spatialAudio` sessions (see `RemuxHLSLoader`). The
     /// asset's resource loader holds its delegate weakly, so the engine owns it
     /// for as long as the item plays.
     @ObservationIgnored private var remuxHLSLoader: RemuxHLSLoader?
+    /// Loopback front for a Dolby Vision 7 → 8.1 session (see
+    /// `DolbyVision7HLSProxy`), alive for as long as the source is loaded,
+    /// and the master playlist URL it serves.
+    @ObservationIgnored nonisolated(unsafe) private var dolbyVision7Proxy: DolbyVision7HLSProxy?
+    @ObservationIgnored private var dolbyVision7ProxyURL: URL?
     @ObservationIgnored nonisolated(unsafe) private var enhancedVideoDisplayLink: CADisplayLink?
     @ObservationIgnored nonisolated(unsafe) private var enhancedVideoDisplayLinkTarget: AVPlayerDisplayLinkTarget?
 
@@ -84,6 +97,7 @@ final class AVPlayerEngine: NSObject, PlaybackEngine {
     @ObservationIgnored nonisolated(unsafe) private var timeControlStatusObserver: NSKeyValueObservation?
     @ObservationIgnored nonisolated(unsafe) private var playbackEndedObserver: NSObjectProtocol?
     @ObservationIgnored nonisolated(unsafe) private var playbackStalledObserver: NSObjectProtocol?
+    @ObservationIgnored nonisolated(unsafe) private var subtitleSelectionObserver: NSObjectProtocol?
     #if os(iOS)
     @ObservationIgnored nonisolated(unsafe) private var externalPlaybackObserver: NSKeyValueObservation?
     #endif
@@ -142,6 +156,7 @@ final class AVPlayerEngine: NSObject, PlaybackEngine {
 
     deinit {
         loadValidationTask?.cancel()
+        dolbyVision7Proxy?.stop()
         #if os(iOS)
         externalPlaybackObserver?.invalidate()
         externalPlaybackObserver = nil
@@ -163,16 +178,21 @@ final class AVPlayerEngine: NSObject, PlaybackEngine {
             NotificationCenter.default.removeObserver(playbackStalledObserver)
             self.playbackStalledObserver = nil
         }
+        if let subtitleSelectionObserver {
+            NotificationCenter.default.removeObserver(subtitleSelectionObserver)
+        }
     }
 
     // MARK: - Lifecycle
 
     func load(source: PlaybackSource) {
         loadValidationTask?.cancel()
+        stopDolbyVision7Proxy()
         removeEnhancedVideoOutput()
         removeTimeObserver()
         removePlaybackEndedObserver()
         removePlaybackStalledObserver()
+        removeSubtitleSelectionObserver()
         player.defaultRate = 1
 
         currentAttemptContext = source.context
@@ -206,6 +226,13 @@ final class AVPlayerEngine: NSObject, PlaybackEngine {
         let attemptID = source.context.attemptID
         loadValidationTask = Task { [weak self] in
             guard let self else { return }
+
+            if let target = source.dolbyVision7Conversion {
+                // The proxy's preflight fetches the master playlist, which
+                // validates the URL too.
+                await self.startDolbyVision7Proxy(source: source, target: target, attemptID: attemptID)
+                return
+            }
 
             if let validationError = await PlaybackError.validateDirectPlayURL(source.url) {
                 guard !Task.isCancelled else { return }
@@ -287,12 +314,14 @@ final class AVPlayerEngine: NSObject, PlaybackEngine {
     func stop() {
         loadValidationTask?.cancel()
         loadValidationTask = nil
+        stopDolbyVision7Proxy()
         removeEnhancedVideoOutput()
         player.pause()
         player.defaultRate = 1
         removeTimeObserver()
         removePlaybackEndedObserver()
         removePlaybackStalledObserver()
+        removeSubtitleSelectionObserver()
         player.replaceCurrentItem(with: nil)
 
         state = .stopped
@@ -369,6 +398,7 @@ final class AVPlayerEngine: NSObject, PlaybackEngine {
         removeTimeObserver()
         removePlaybackEndedObserver()
         removePlaybackStalledObserver()
+        removeSubtitleSelectionObserver()
         player.pause()
 
         error = nil
@@ -489,6 +519,21 @@ final class AVPlayerEngine: NSObject, PlaybackEngine {
             option = nil
         }
         item.select(option, in: group)
+        updateNativeSubtitleRendering()
+    }
+
+    private func updateNativeSubtitleRendering() {
+        let isSelected: Bool
+        if let item = player.currentItem, let group = subtitleGroup {
+            isSelected = item.currentMediaSelection.selectedMediaOption(in: group) != nil
+        } else {
+            isSelected = false
+        }
+        guard isRenderingNativeSubtitles != isSelected else { return }
+        isRenderingNativeSubtitles = isSelected
+        // Discard pre-caption frames before the Metal view is mounted again.
+        videoEnhancementRenderer?.clear()
+        needsEnhancedVideoRefresh = !isSelected
     }
 
     func selectAudioTrack(_ track: AudioTrack) {
@@ -508,14 +553,25 @@ final class AVPlayerEngine: NSObject, PlaybackEngine {
             // view) so it stays in the view hierarchy: that is what lets native
             // Picture in Picture stay possible while enhancement is on. The PiP
             // window then projects the non-upscaled stream directly from AVPlayer.
-            return AnyView(
-                ZStack {
-                    AVPlayerLayerRepresentable(playerLayer: playerLayer)
-                    VideoEnhancementRepresentable(renderer: videoEnhancementRenderer)
-                }
-            )
+            return AnyView(EnhancedPlayerView(engine: self, renderer: videoEnhancementRenderer))
         }
         return AnyView(AVPlayerLayerRepresentable(playerLayer: playerLayer))
+    }
+
+    // PlayerViewModel caches engineView. Observe the engine inside this view,
+    // so subtitle changes reveal the native layer immediately, even paused.
+    private struct EnhancedPlayerView: View {
+        let engine: AVPlayerEngine
+        let renderer: VideoEnhancementRenderer
+
+        var body: some View {
+            ZStack {
+                AVPlayerLayerRepresentable(playerLayer: engine.playerLayer)
+                if !engine.isRenderingNativeSubtitles {
+                    VideoEnhancementRepresentable(renderer: renderer)
+                }
+            }
+        }
     }
 
     // MARK: - Private: KVO
@@ -574,7 +630,20 @@ final class AVPlayerEngine: NSObject, PlaybackEngine {
         guard currentAttemptContext?.attemptID == attemptID else { return }
 
         let item: AVPlayerItem
-        if source.usesRemuxHLSLoader {
+        if source.dolbyVision7Conversion != nil {
+            // Never the bare remux in its place: without the proxy, fail so
+            // the coordinator retries the remux without conversion.
+            guard let dolbyVision7ProxyURL else {
+                failLoad(
+                    .unknown("Dolby Vision 7 conversion is unavailable for this stream."),
+                    attemptID: attemptID,
+                    message: "Dolby Vision 7 proxy is not running"
+                )
+                return
+            }
+            remuxHLSLoader = nil
+            item = AVPlayerItem(url: dolbyVision7ProxyURL)
+        } else if source.usesRemuxHLSLoader {
             let loader = RemuxHLSLoader(
                 restoresDolbyAtmos: source.restoresDolbyAtmos,
                 dolbyVision: source.dolbyVisionRemux
@@ -604,10 +673,77 @@ final class AVPlayerEngine: NSObject, PlaybackEngine {
         }
 
         player.replaceCurrentItem(with: item)
+        observeSubtitleSelection(for: item)
         observePlaybackEnd(for: item)
         observePlaybackStall(for: item)
         addTimeObserver()
         loadValidationTask = nil
+    }
+
+    // MARK: - Private: Dolby Vision 7 conversion
+
+    /// Brings the loopback proxy up for `source` and loads its master
+    /// playlist; a failed preflight fails the load, which the coordinator
+    /// answers by retrying the remux without conversion.
+    private func startDolbyVision7Proxy(
+        source: PlaybackSource,
+        target: DolbyVisionConfiguration,
+        attemptID: UUID
+    ) async {
+        let proxy = DolbyVision7HLSProxy(
+            upstreamMasterURL: source.url,
+            target: target,
+            restoresDolbyAtmos: source.restoresDolbyAtmos
+        )
+        proxy.onFatalError = { [weak self] error in
+            Task { @MainActor [weak self] in
+                self?.failDolbyVision7Conversion(error, attemptID: attemptID)
+            }
+        }
+        dolbyVision7Proxy = proxy
+
+        do {
+            let url = try await proxy.start()
+            guard !Task.isCancelled, dolbyVision7Proxy === proxy else {
+                if dolbyVision7Proxy === proxy {
+                    stopDolbyVision7Proxy()
+                } else {
+                    proxy.stop()
+                }
+                return
+            }
+            dolbyVision7ProxyURL = url
+            finishValidatedLoad(source: source, attemptID: attemptID)
+        } catch {
+            let isCurrentProxy = dolbyVision7Proxy === proxy
+            if isCurrentProxy {
+                stopDolbyVision7Proxy()
+            }
+            guard isCurrentProxy, !Task.isCancelled else { return }
+            failLoad(
+                .unknown("Dolby Vision 7 conversion is unavailable for this stream."),
+                attemptID: attemptID,
+                message: "Dolby Vision 7 proxy preflight failed (\(String(describing: error)))"
+            )
+        }
+    }
+
+    /// The proxy hit something it cannot convert mid-session.
+    private func failDolbyVision7Conversion(_ conversionError: DolbyVision7ConversionError, attemptID: UUID) {
+        guard currentAttemptContext?.attemptID == attemptID, state != .error else { return }
+        avPlayerEngineLogger.error(
+            "Playback attempt \(self.currentAttemptContext?.attemptLabel ?? "unknown", privacy: .public) Dolby Vision 7 conversion failed: \(String(describing: conversionError), privacy: .public)"
+        )
+        player.pause()
+        error = .unknown("Dolby Vision 7 conversion failed.")
+        state = .error
+        isBuffering = false
+    }
+
+    private func stopDolbyVision7Proxy() {
+        dolbyVision7Proxy?.stop()
+        dolbyVision7Proxy = nil
+        dolbyVision7ProxyURL = nil
     }
 
     private func failLoad(_ error: PlaybackError, attemptID: UUID, message: String) {
@@ -774,17 +910,45 @@ final class AVPlayerEngine: NSObject, PlaybackEngine {
             item.remove(enhancedVideoOutput)
         }
         enhancedVideoOutput = nil
+        needsEnhancedVideoRefresh = false
         videoEnhancementRenderer?.clear()
     }
 
+    private func observeSubtitleSelection(for item: AVPlayerItem) {
+        // Includes AVFoundation automatic/accessibility choices and changes
+        // while paused, in addition to Dusk's manual/automatic track picker.
+        subtitleSelectionObserver = NotificationCenter.default.addObserver(
+            forName: AVPlayerItem.mediaSelectionDidChangeNotification,
+            object: item,
+            queue: .main
+        ) { [weak self, weak item] _ in
+            Task { @MainActor [weak self, weak item] in
+                guard let self, let item, self.player.currentItem === item else { return }
+                self.updateNativeSubtitleRendering()
+            }
+        }
+    }
+
+    private func removeSubtitleSelectionObserver() {
+        if let subtitleSelectionObserver {
+            NotificationCenter.default.removeObserver(subtitleSelectionObserver)
+            self.subtitleSelectionObserver = nil
+        }
+        isRenderingNativeSubtitles = false
+    }
+
     fileprivate func renderEnhancedFrame(hostTime: CFTimeInterval) {
+        updateNativeSubtitleRendering()
+        guard !isRenderingNativeSubtitles else { return }
         guard let enhancedVideoOutput,
               let videoEnhancementRenderer else {
             return
         }
 
         let itemTime = enhancedVideoOutput.itemTime(forHostTime: hostTime)
-        guard enhancedVideoOutput.hasNewPixelBuffer(forItemTime: itemTime) else { return }
+        // Turning subtitles off while paused must redraw the current frame,
+        // even if this output already delivered it before captions were on.
+        guard needsEnhancedVideoRefresh || enhancedVideoOutput.hasNewPixelBuffer(forItemTime: itemTime) else { return }
 
         var displayTime = CMTime.invalid
         guard let pixelBuffer = enhancedVideoOutput.copyPixelBuffer(
@@ -794,6 +958,7 @@ final class AVPlayerEngine: NSObject, PlaybackEngine {
             return
         }
 
+        needsEnhancedVideoRefresh = false
         videoEnhancementRenderer.submit(pixelBuffer: pixelBuffer)
     }
 
@@ -912,6 +1077,7 @@ final class AVPlayerEngine: NSObject, PlaybackEngine {
                 subtitleOptionsByID[i] = option
             }
             applyRequestedSubtitleSelection()
+            updateNativeSubtitleRendering()
         }
     }
 }

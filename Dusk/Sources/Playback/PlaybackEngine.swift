@@ -160,6 +160,8 @@ protocol PlaybackEngine: AnyObject {
     /// Mounts a sidecar subtitle file (a Plex `/library/streams/{id}` URL) on
     /// the current media, optionally making it the active subtitle track.
     ///
+    /// `codec` identifies text sidecars for encoding normalization; bitmap and
+    /// unknown codecs retain their original delivery.
     /// The track appears in `availableSubtitleTracks` asynchronously, carrying
     /// `externalURL == url` so the caller can map it back to the Plex stream it
     /// came from. Returns whether the engine accepted the request, not whether
@@ -167,7 +169,7 @@ protocol PlaybackEngine: AnyObject {
     /// them whenever they reopen the media in place (slaves live on the input,
     /// not on the media).
     @discardableResult
-    func attachExternalSubtitle(_ url: URL, select: Bool) -> Bool
+    func attachExternalSubtitle(_ url: URL, codec: String?, select: Bool) -> Bool
 
     /// Whether automatic (app-driven) audio track selection may run right now.
     /// VLCKit defers it until playback is steadily rendering: switching the
@@ -176,6 +178,11 @@ protocol PlaybackEngine: AnyObject {
     /// activation, resume seek — can leave the restarted output dead until a
     /// manual pause/resume. Steady-state switches are safe.
     var isReadyForAutomaticAudioSelection: Bool { get }
+
+    /// An audio track whose decoder turned out not to work during this load
+    /// (VLCKit: libvlc reported that it could not open the TrueHD decoder).
+    /// The view model hands it to the server audio-conversion fallback once.
+    var failedAudioDecoderTrackID: Int? { get }
 
     // MARK: - Audio session
 
@@ -249,10 +256,14 @@ extension PlaybackEngine {
     // Default: no startup fragility — only VLCKit defers automatic selection.
     var isReadyForAutomaticAudioSelection: Bool { true }
 
+    // Default: decoders are the platform's own. Only VLCKit watches its
+    // TrueHD decoder.
+    var failedAudioDecoderTrackID: Int? { nil }
+
     // Default: sidecar subtitles cannot be mounted. Only VLCKit opts in.
     var supportsExternalSubtitles: Bool { false }
     @discardableResult
-    func attachExternalSubtitle(_ url: URL, select: Bool) -> Bool { false }
+    func attachExternalSubtitle(_ url: URL, codec: String?, select: Bool) -> Bool { false }
 
     // Default: keep the rich movie-playback session. Only VLCKit opts out.
     var prefersSpatializedAudioSession: Bool { true }

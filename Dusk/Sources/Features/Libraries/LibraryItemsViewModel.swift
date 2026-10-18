@@ -78,6 +78,7 @@ enum LibrarySortOption: String, CaseIterable, Identifiable {
 private struct LibraryItemsQuery: Hashable {
     let genreValue: String?
     let sort: LibrarySortOption
+    let unwatchedOnly: Bool
 }
 
 @MainActor
@@ -90,6 +91,7 @@ final class LibraryItemsViewModel {
     private let collection: PlexLibraryCollection?
     private let preferredInitialGenre: LibraryGenreOption?
     private let preferLocalGenreFiltering: Bool
+    private let unwatchedFilterStore: LibraryUnwatchedFilterStore
 
     private(set) var items: [PlexItem] = []
     private(set) var isLoading = false
@@ -99,6 +101,9 @@ final class LibraryItemsViewModel {
     private(set) var availableGenres: [LibraryGenreOption] = [.all]
     private(set) var selectedGenre: LibraryGenreOption = .all
     private(set) var selectedSort: LibrarySortOption = .titleAscending
+    /// Remembered per library, so it also applies to the library's genre and
+    /// collection grids.
+    private(set) var showsUnwatchedOnly: Bool
 
     private let pageSize = 50
     private var hasLoadedBrowseOptions = false
@@ -110,7 +115,8 @@ final class LibraryItemsViewModel {
         plexService: PlexService,
         collection: PlexLibraryCollection? = nil,
         initialGenre: LibraryGenreOption? = nil,
-        preferLocalGenreFiltering: Bool = false
+        preferLocalGenreFiltering: Bool = false,
+        unwatchedFilterStore: LibraryUnwatchedFilterStore = LibraryUnwatchedFilterStore()
     ) {
         self.library = library
         self.plexService = plexService
@@ -119,6 +125,8 @@ final class LibraryItemsViewModel {
         self.preferLocalGenreFiltering = preferLocalGenreFiltering
         self.selectedGenre = initialGenre ?? .all
         self.selectedSort = LibrarySortOption.defaultOption(for: library.libraryType)
+        self.unwatchedFilterStore = unwatchedFilterStore
+        self.showsUnwatchedOnly = unwatchedFilterStore.isEnabled(forLibraryID: library.id)
     }
 
     /// Every fetch on this screen is scoped to the library's own server.
@@ -145,15 +153,31 @@ final class LibraryItemsViewModel {
     }
 
     var showsBrowseControls: Bool {
-        !items.isEmpty || selectedGenre != .all || availableGenres.count > 1
+        !items.isEmpty || selectedGenre != .all || showsUnwatchedOnly || availableGenres.count > 1
+    }
+
+    var emptyStateSystemImage: String {
+        switch library.libraryType {
+        case .video: "play.rectangle.fill"
+        case .show: "tv"
+        default: "film"
+        }
     }
 
     var emptyStateTitle: String {
+        if showsUnwatchedOnly {
+            return selectedGenre == .all ? "You're all caught up" : "No unwatched titles"
+        }
         guard selectedGenre == .all else { return "No matching titles" }
         return collection == nil ? "This library is empty" : "This collection is empty"
     }
 
     var emptyStateMessage: String? {
+        if showsUnwatchedOnly {
+            return selectedGenre == .all
+                ? "Everything here has been watched. Turn off Unwatched to see it all."
+                : "Try another genre or turn off Unwatched."
+        }
         guard selectedGenre != .all else { return nil }
         return "Try another genre or switch back to all titles."
     }
@@ -197,6 +221,13 @@ final class LibraryItemsViewModel {
     func selectSort(_ sort: LibrarySortOption) async {
         guard selectedSort != sort else { return }
         selectedSort = sort
+        await reloadItems()
+    }
+
+    func setShowsUnwatchedOnly(_ unwatchedOnly: Bool) async {
+        guard showsUnwatchedOnly != unwatchedOnly else { return }
+        showsUnwatchedOnly = unwatchedOnly
+        unwatchedFilterStore.setEnabled(unwatchedOnly, forLibraryID: library.id)
         await reloadItems()
     }
 
@@ -250,7 +281,11 @@ final class LibraryItemsViewModel {
     }
 
     private var currentQuery: LibraryItemsQuery {
-        LibraryItemsQuery(genreValue: selectedGenre.value, sort: selectedSort)
+        LibraryItemsQuery(
+            genreValue: selectedGenre.value,
+            sort: selectedSort,
+            unwatchedOnly: showsUnwatchedOnly
+        )
     }
 
     private func beginNewQuery() -> Int {
@@ -272,25 +307,24 @@ final class LibraryItemsViewModel {
         return try await fetchServerFilteredItems(start: start, query: query)
     }
 
-    /// Filters that apply to every fetch on this screen (collection scoping).
-    private var baseFilters: [String: String] {
-        guard let collection else { return [:] }
-        return ["collection": collection.key]
+    /// The query's filters Plex applies; the genre is left out when it is
+    /// matched locally instead.
+    private func serverFilters(for query: LibraryItemsQuery, includingGenre: Bool) -> [String: String] {
+        LibraryUnwatchedFilter.serverFilters(
+            libraryType: library.libraryType,
+            collectionKey: collection?.key,
+            unwatchedOnly: query.unwatchedOnly,
+            genreValue: includingGenre ? query.genreValue : nil
+        )
     }
 
     private func fetchServerFilteredItems(start: Int, query: LibraryItemsQuery) async throws -> [PlexItem] {
-        var filters = baseFilters
-
-        if let genreValue = query.genreValue {
-            filters["genre"] = genreValue
-        }
-
-        return try await plexService.getLibraryItems(
+        try await plexService.getLibraryItems(
             sectionId: library.key,
             start: start,
             size: pageSize,
             sort: query.sort.plexValue,
-            filters: filters,
+            filters: serverFilters(for: query, includingGenre: true),
             serverID: serverID
         )
     }
@@ -300,6 +334,7 @@ final class LibraryItemsViewModel {
         query: LibraryItemsQuery,
         genre: LibraryGenreOption
     ) async throws -> [PlexItem] {
+        let baseFilters = serverFilters(for: query, includingGenre: false)
         let totalCount = try await plexService.getLibraryItemCount(
             sectionId: library.key,
             filters: baseFilters,

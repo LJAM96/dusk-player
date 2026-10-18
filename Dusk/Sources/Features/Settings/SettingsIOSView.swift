@@ -191,6 +191,8 @@ struct SettingsIOSView: View {
             .listRowBackground(Color.duskSurface)
 
             Section {
+                Toggle("Personalized shelves", isOn: $preferences.personalizedShelvesEnabled)
+                    .foregroundStyle(Color.duskTextPrimary)
                 Toggle("Show Live TV", isOn: $preferences.showsLiveTVOnHome)
                     .foregroundStyle(Color.duskTextPrimary)
             } header: {
@@ -432,6 +434,13 @@ struct SettingsIOSView: View {
             Section {
                 Toggle("Dolby Atmos & Spatial Audio", isOn: $preferences.spatialAudioRemuxEnabled)
                     .foregroundStyle(Color.duskTextPrimary)
+
+                Toggle("HDR & Dolby Vision", isOn: $preferences.hdrVideoRemuxEnabled)
+                    .foregroundStyle(Color.duskTextPrimary)
+
+                Toggle("Dolby Vision 7 → 8.1", isOn: $preferences.dolbyVision7ConversionEnabled)
+                    .foregroundStyle(Color.duskTextPrimary)
+                    .disabled(!preferences.hdrVideoRemuxEnabled)
 
                 Toggle("Force AVPlayer", isOn: $preferences.forceAVPlayer)
                     .foregroundStyle(Color.duskTextPrimary)

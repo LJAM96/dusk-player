@@ -14,7 +14,7 @@ settings:
   base:
     SWIFT_VERSION: "6.0"
     GENERATE_INFOPLIST_FILE: true
-    MARKETING_VERSION: "1.7.0"
+    MARKETING_VERSION: "1.8.0"
     CURRENT_PROJECT_VERSION: "1"
 
 targets:
@@ -46,6 +46,10 @@ targets:
     dependencies:
       - framework: Frameworks/MobileVLCKit.xcframework
         embed: true
+      # Static Rust archive (Dolby Vision 7 -> 8.1), built by
+      # ci_scripts/install_dusk_dovi.sh. Linked into the app binary, never embedded.
+      - framework: Frameworks/DuskDovi.xcframework
+        embed: false
     postBuildScripts:
       - script: ./scripts/verify_embedded_vlckit.sh
         name: Verify embedded VLCKit is not stale
@@ -98,6 +102,8 @@ targets:
       - sdk: AVKit.framework
       - framework: Frameworks/TVVLCKit.xcframework
         embed: true
+      - framework: Frameworks/DuskDovi.xcframework
+        embed: false
       - target: DuskTopShelf
     postBuildScripts:
       - script: ./scripts/verify_embedded_vlckit.sh

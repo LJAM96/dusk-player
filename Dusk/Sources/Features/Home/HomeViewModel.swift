@@ -127,13 +127,33 @@ final class HomeViewModel {
     private var firstPaintGate: HomeFirstPaintGate?
     private var recentlyAddedExpansionTask: Task<Void, Never>?
     private var personalizedShelvesTask: Task<Void, Never>?
+    private var personalizedShelvesEnabled: Bool
 
     private let plexService: PlexService
     private let recommendationEngine: HomeRecommendationEngine
 
-    init(plexService: PlexService) {
+    init(plexService: PlexService, personalizedShelvesEnabled: Bool = true) {
         self.plexService = plexService
+        self.personalizedShelvesEnabled = personalizedShelvesEnabled
         self.recommendationEngine = HomeRecommendationEngine(plexService: plexService)
+    }
+
+    /// Apply Settings immediately, including while recommendation requests are
+    /// in flight. Ordinary Plex hubs and Continue Watching are unaffected.
+    func setPersonalizedShelvesEnabled(_ enabled: Bool) {
+        guard personalizedShelvesEnabled != enabled else { return }
+        personalizedShelvesEnabled = enabled
+        personalizedShelvesTask?.cancel()
+        personalizedShelvesTask = nil
+        if enabled, hasLoadedContent {
+            startPersonalizedShelvesLoad(
+                excluding: continueWatching,
+                generation: loadGeneration,
+                maxRecentlyAddedItems: maxRecentlyAddedItems
+            )
+        } else {
+            personalizedShelves = []
+        }
     }
 
     /// True once Plex has returned anything Home could render.
@@ -465,7 +485,8 @@ final class HomeViewModel {
         return (
             HomeHubArrangement.arrange(
                 hubs: mergedHubs.hubs,
-                libraryOrder: libraryOrderIdentities()
+                libraryOrder: libraryOrderIdentities(),
+                libraries: plexService.libraryOrder.sections
             ),
             mergedContinueWatching.items
         )
@@ -751,8 +772,10 @@ final class HomeViewModel {
         generation: Int,
         maxRecentlyAddedItems: Int
     ) {
+        guard personalizedShelvesEnabled else { return }
+        personalizedShelvesTask?.cancel()
         personalizedShelvesTask = Task { @MainActor [weak self] in
-            guard let self else { return }
+            guard let self, !Task.isCancelled, personalizedShelvesEnabled else { return }
 
             guard let loadedShelves = try? await recommendationEngine.loadShelves(
                 itemsPerShelf: maxRecentlyAddedItems
@@ -766,7 +789,7 @@ final class HomeViewModel {
                 maxRecentlyAddedItems: maxRecentlyAddedItems
             )
 
-            guard !Task.isCancelled, generation == loadGeneration else { return }
+            guard !Task.isCancelled, generation == loadGeneration, personalizedShelvesEnabled else { return }
 
             withAnimation(.easeInOut(duration: 0.3)) {
                 personalizedShelves = newPersonalizedShelves

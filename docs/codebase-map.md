@@ -14,7 +14,10 @@ Dusk/Sources
     MultiServer/       Cross-server merging (continue watching, hubs, search),
                        the alternates index, and library server labelling
   SeerrService/        Optional Seerr auth sessions, API calls, and request state
-  Playback/            PlaybackEngine protocol, AVPlayer/VLCKit engines, resolver
+  Playback/            PlaybackEngine protocol, AVPlayer/VLCKit engines, resolver,
+                       VLCKit build capabilities (TrueHD)
+    DolbyVision7/      Dolby Vision 7 → 8.1: loopback HLS proxy, fMP4 init/fragment
+                       and playlist rewriting, DoviBridge over Native/DuskDovi
   Downloads/           Queue, file store, metadata cache, offline sync
   Shared/              Reusable UI, formatting, image loading, recommendation helpers
   Features/
@@ -33,6 +36,11 @@ Dusk/Sources
   TopShelf/            tvOS Top Shelf: App Group snapshot, publisher, deep-link router
                        (the extension itself lives in DuskTopShelf/)
 ```
+
+Outside `Dusk/Sources`, `Native/DuskDovi/` is the Rust wrapper crate over
+libdovi (`dolby_vision`) with its frozen C header. It is built into
+`Frameworks/DuskDovi.xcframework` (not committed, like VLCKit) and only
+`DoviBridge.swift` imports it.
 
 ## App Lifetime
 
@@ -175,6 +183,9 @@ Player:
   stay in the coordinator and use Plex HLS plus AVPlayer, so receivers do not
   need Dusk installed.
 - `PlayerView` and `PlayerViewModel` own on-screen player interaction.
+- `ShowTrackPreferences` owns semantic per-show track matching and profile/server/
+  show-scoped persistence; `PlaybackCoordinator+ShowTracks` records explicit
+  choices and syncs per-part selections to Plex. See `docs/playback.md`.
 - tvOS's HUD is its own small stack, all of it file-scope `#if os(tvOS)`:
   `PlayerTVHUDController` (the `hidden`/`transport`/`scrubbing`/`panel` state
   machine), `PlayerTVRemoteInputBridge` (the player's single remote-input
@@ -188,7 +199,10 @@ Player:
 - `SubtitleSearchViewModel`/`SubtitleSearchView` own the "Download Subtitles"
   flow (Plex-proxied OpenSubtitles search + install). Detail screens reuse both
   through their own view models; only the player refreshes the live session.
-- Engine-specific work stays in `Playback/`.
+- Engine-specific work stays in `Playback/`. The Dolby Vision 7 conversion is
+  decided in `PlaybackCoordinator+SpatialAudio` (`remuxDolbyVision7Conversion`)
+  and run by `AVPlayerEngine` through `Playback/DolbyVision7/`; see
+  `docs/playback.md` → "Dolby Vision 7 (on-device 8.1 conversion)".
 
 Downloads:
 

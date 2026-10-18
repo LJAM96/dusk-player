@@ -1,0 +1,38 @@
+From af57617a296770ca2a8c6396c27edb0373c28d25 Mon Sep 17 00:00:00 2001
+From: Dusk Player <dusk@localhost>
+Date: Fri, 16 Oct 2026 03:19:19 +0200
+Subject: [PATCH] contrib: ffmpeg: re-enable TrueHD/MLP decoding on iOS/tvOS
+
+VLCKit's patch 0003 (Enable System DL) adds --disable-decoder/demuxer/
+parser=mlp to the ffmpeg contrib so stock MobileVLCKit/TVVLCKit ship
+without Dolby TrueHD/MLP decoding (App Store / Dolby licensing). ffmpeg's
+truehd decoder selects the mlp parser, so that block removes TrueHD as
+well: libvlc fails with "Codec 'trhd' (TrueHD Audio) is not supported".
+
+Dropping the block restores stock ffmpeg behaviour: the mlp and truehd
+decoders decode up to 8 discrete channels to PCM (for TrueHD Atmos that is
+the 7.1 bed; the object extension substream is ignored).
+
+NOTE: shipping this is a deliberate licensing decision by the Dusk
+maintainer, not a VideoLAN default. See docs/playback.md in Dusk.
+---
+ contrib/src/ffmpeg/rules.mak | 3 ---
+ 1 file changed, 3 deletions(-)
+
+diff --git a/contrib/src/ffmpeg/rules.mak b/contrib/src/ffmpeg/rules.mak
+index 6cd21dc4b9..4fcc360d01 100644
+--- a/contrib/src/ffmpeg/rules.mak
++++ b/contrib/src/ffmpeg/rules.mak
+@@ -33,9 +33,6 @@ FFMPEGCONF = \
+ 	--disable-encoder=vorbis \
+ 	--disable-decoder=opus \
+ 	--enable-libgsm \
+-	--disable-decoder=mlp \
+-	--disable-demuxer=mlp \
+-	--disable-parser=mlp \
+ 	--disable-debug \
+ 	--disable-avdevice \
+ 	--disable-devices \
+-- 
+2.54.0 (Apple Git-157)
+

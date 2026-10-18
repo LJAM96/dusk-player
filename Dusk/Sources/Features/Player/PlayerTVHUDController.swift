@@ -107,7 +107,6 @@ enum PlayerTVActionItem: Equatable, Identifiable {
 /// Transient feedback shown over the video while the HUD is hidden.
 enum PlayerTVTransientBadge: Equatable {
     case seek(direction: PlayerSeekFeedbackPresentation.Direction, seconds: Int)
-    case playPause(isPlaying: Bool)
 }
 
 /// Owns the tvOS HUD's state machine.
@@ -201,6 +200,12 @@ final class PlayerTVHUDController {
     /// Reconciles a `showControls` change that did not come from here (the
     /// auto-hide timer, an auto-skip that reveals the HUD).
     func syncControlsVisibility(_ isShowing: Bool) {
+        // An already queued hide must not discard an uncommitted target while
+        // its cancellation hint is visible. The scrub owns HUD visibility.
+        if scrubTarget != nil {
+            setControlsVisible(true)
+            return
+        }
         if isShowing, mode == .hidden {
             apply(.transport)
         } else if !isShowing, mode != .hidden {
@@ -281,6 +286,18 @@ final class PlayerTVHUDController {
     // MARK: - Input
 
     func handle(_ input: PlayerTVRemoteInput) {
+        // Pending previews take precedence over the resting mode's Back
+        // action. Cancellation never seeks, pauses, or dismisses the player.
+        if case .menu = input {
+            if scrubTarget != nil {
+                cancelScrub()
+                return
+            }
+            if seekPreviewPosition != nil {
+                cancelAccumulatedSeek()
+                return
+            }
+        }
         switch input {
         case .panBegan:
             beginScrub()
@@ -486,16 +503,9 @@ final class PlayerTVHUDController {
     private func togglePlayPause() {
         guard let viewModel else { return }
 
-        let staysHidden = mode == .hidden
-        viewModel.suppressControlsReveal = staysHidden
         viewModel.togglePlayPause()
-        viewModel.suppressControlsReveal = false
-
-        if staysHidden {
-            showBadge(.playPause(isPlaying: viewModel.state == .playing))
-        } else {
-            noteInteraction()
-        }
+        syncControlsVisibility(viewModel.showControls)
+        noteInteraction()
     }
 
     // MARK: - Hold-to-seek
@@ -604,6 +614,19 @@ final class PlayerTVHUDController {
         noteInteraction()
     }
 
+    private func cancelAccumulatedSeek() {
+        seekRepeatTask?.cancel()
+        seekRepeatTask = nil
+        seekCommitTask?.cancel()
+        seekCommitTask = nil
+        seekPreviewPosition = nil
+        seekAccumulator = 0
+        badgeTask?.cancel()
+        badgeTask = nil
+        transientBadge = nil
+        noteInteraction()
+    }
+
     // MARK: - Swipe scrubbing
 
     private func beginScrub() {
@@ -688,6 +711,8 @@ final class PlayerTVHUDController {
     }
 
     private func cancelScrub() {
+        isPanActive = false
+        scrubLastTranslationX = 0
         scrubTarget = nil
         apply(scrubOrigin == .hidden ? .hidden : .transport)
     }

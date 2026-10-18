@@ -15,8 +15,11 @@ DerivedData/
 *.dSYM.zip
 *.dSYM
 
-# Swift Package Manager
+# Swift Package Manager (also the DuskDovi Rust build/stage dirs)
 .build/
+
+# Rust (Native/DuskDovi when built with plain cargo)
+/Native/DuskDovi/target/
 Packages/
 Package.resolved
 
@@ -31,6 +34,8 @@ Carthage/Build/
 # into `Frameworks/`; CI runs it automatically via `ci_scripts/ci_post_clone.sh`,
 # and it must be run once locally after cloning. Only the license and the
 # pinned-version marker (Frameworks/VLCKit-VERSION.txt) are tracked.
+# DuskDovi.xcframework is built from Native/DuskDovi by
+# `ci_scripts/install_dusk_dovi.sh`, also never committed.
 *.xcframework/
 
 # OS files

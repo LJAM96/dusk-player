@@ -42,12 +42,25 @@ private final class VLCLibraryLogBridge: NSObject, VLCLogging, @unchecked Sendab
         category: "libvlc"
     )
     private let verbose = UserDefaults.standard.bool(forKey: "vlcVerboseLogging")
+    private let failureLock = NSLock()
+    private var failures = 0
+
+    /// How many times libvlc reported that it could not open a TrueHD/MLP
+    /// decoder ("Codec `trhd' (TrueHD Audio) is not supported.", from
+    /// `src/input/decoder.c`). Read by `VLCKitEngine.watchTrueHDDecoding`.
+    var trueHDDecoderFailures: Int {
+        failureLock.withLock { failures }
+    }
 
     func handleMessage(
         _ message: String,
         logLevel: VLCLogLevel,
         context: VLCLogContext?
     ) {
+        if logLevel == .error, Self.isTrueHDDecoderFailure(message) {
+            failureLock.withLock { failures += 1 }
+        }
+
         let module = context?.module ?? ""
         let objectType = context?.objectType ?? ""
 
@@ -69,6 +82,10 @@ private final class VLCLibraryLogBridge: NSObject, VLCLogging, @unchecked Sendab
         default:
             logger.notice("\(line, privacy: .public)")
         }
+    }
+
+    private static func isTrueHDDecoderFailure(_ message: String) -> Bool {
+        ["Codec `trhd'", "Codec `mlp '", "Codec `mlpa'"].contains { message.contains($0) }
     }
 
     /// Emitters and phrases covering the audio output, the aout core, the
@@ -192,6 +209,7 @@ final class VLCKitEngine: NSObject, PlaybackEngine {
         return index >= 0 ? modelIDsByTrackID["spu/\(index)"] : nil
     }
     private(set) var selectedAudioTrackID: Int?
+    private(set) var failedAudioDecoderTrackID: Int?
     private(set) var playbackDiagnostics: [PlaybackEngineDiagnostic] = []
     var videoEnhancementStatus: VideoEnhancementStatus {
         if let videoEnhancementRenderer {
@@ -337,6 +355,10 @@ final class VLCKitEngine: NSObject, PlaybackEngine {
     /// audio-output policy and diagnostics (VLCKit 3 exposes codec/channel data
     /// only through `VLCMedia.tracksInformation`, not on the player).
     private var latestAudioTrackInfosByIndex: [Int: VLCTrackInfo] = [:]
+    /// TrueHD decode watchdog (see `watchTrueHDDecoding(at:)`).
+    private var trueHDDecodeWatch: TrueHDDecodeWatch?
+    private var verifiedTrueHDTrackID: Int?
+    private var trueHDDecoderFailureBaseline = 0
     /// Last seen (audio, text) track counts; see `refreshTracksIfCountsChanged`.
     private var lastObservedTrackCounts: (audio: Int32, text: Int32) = (-1, -1)
     @ObservationIgnored nonisolated(unsafe) private var audioSessionObservers: [NSObjectProtocol] = []
@@ -385,10 +407,14 @@ final class VLCKitEngine: NSObject, PlaybackEngine {
     /// running.
     static let vendoredVLCKitAudit: (isExpectedBuild: Bool, detail: String) = {
         let version = sharedLibrary.version
-        if version.hasPrefix("3.0.") {
-            return (true, "Stable VLCKit 3.x (libvlc \(version))")
+        guard version.hasPrefix("3.0.") else {
+            return (false, "UNEXPECTED build (libvlc \(version)) — expected the stable 3.x line; clean build / reinstall")
         }
-        return (false, "UNEXPECTED build (libvlc \(version)) — expected the stable 3.x line; clean build / reinstall")
+        guard let duskBuild = VLCKitBuildInfo.duskBuild else {
+            return (false, "Stock VLCKit 3.x (libvlc \(version)) — not Dusk's build, TrueHD goes through Plex. Needs gh access to marvinvr/dusk-vlckit, then ci_scripts/install_vlckit.sh")
+        }
+        let trueHD = VLCKitBuildInfo.decodesTrueHD ? "TrueHD" : "no TrueHD"
+        return (true, "Dusk VLCKit \(duskBuild) (libvlc \(version), \(trueHD))")
     }()
 
     override init() {
@@ -470,6 +496,10 @@ final class VLCKitEngine: NSObject, PlaybackEngine {
         resetExternalSubtitleAttachments()
         reopenAudioTrackPosition = nil
         latestAudioTrackInfosByIndex = [:]
+        trueHDDecodeWatch = nil
+        verifiedTrueHDTrackID = nil
+        trueHDDecoderFailureBaseline = VLCLibraryLogBridge.shared.trueHDDecoderFailures
+        failedAudioDecoderTrackID = nil
         lastObservedTrackCounts = (-1, -1)
         syncRendererPlaybackState()
 
@@ -969,17 +999,22 @@ final class VLCKitEngine: NSObject, PlaybackEngine {
     private struct ExternalSubtitleAttachment {
         enum Status {
             case pending
+            case preparing
             case applying
             case resolved
             case failed
         }
 
         let url: URL
+        let codec: String?
+        var playbackURL: URL?
         var status: Status = .pending
         /// The SPU elementary-stream index libvlc gave the slave, once its
         /// track has appeared in the player's track list.
         var esIndex: Int?
     }
+
+    @ObservationIgnored private var subtitleFileStore = SubtitleFileStore()
 
     var supportsExternalSubtitles: Bool { true }
 
@@ -988,7 +1023,7 @@ final class VLCKitEngine: NSObject, PlaybackEngine {
     /// thread), which is why this returns acceptance rather than a track id:
     /// `availableSubtitleTracks` gains an entry carrying `externalURL == url`.
     @discardableResult
-    func attachExternalSubtitle(_ url: URL, select: Bool) -> Bool {
+    func attachExternalSubtitle(_ url: URL, codec: String?, select: Bool) -> Bool {
         guard currentSource != nil else { return false }
 
         if select {
@@ -1005,13 +1040,13 @@ final class VLCKitEngine: NSObject, PlaybackEngine {
             case .failed:
                 externalSubtitleAttachments[existing].status = .pending
                 pumpExternalSubtitleAttachments()
-            case .pending, .applying:
+            case .pending, .preparing, .applying:
                 break
             }
             return true
         }
 
-        externalSubtitleAttachments.append(ExternalSubtitleAttachment(url: url))
+        externalSubtitleAttachments.append(ExternalSubtitleAttachment(url: url, codec: codec))
         vlcKitEngineLogger.notice(
             "VLCKit queued external subtitle slave (select=\(select, privacy: .public), queued=\(self.externalSubtitleAttachments.count, privacy: .public))"
         )
@@ -1029,18 +1064,46 @@ final class VLCKitEngine: NSObject, PlaybackEngine {
         // slave list, and attributing elementary streams needs the container's
         // own tracks to be known first.
         guard currentSource != nil, state == .playing || state == .paused else { return }
-        guard !externalSubtitleAttachments.contains(where: { $0.status == .applying }) else { return }
+        guard !externalSubtitleAttachments.contains(where: { $0.status == .preparing || $0.status == .applying }) else { return }
         guard let next = externalSubtitleAttachments.firstIndex(where: { $0.status == .pending }) else {
             externalSubtitleAttachTask?.cancel()
             externalSubtitleAttachTask = nil
             return
         }
 
+        let attachment = externalSubtitleAttachments[next]
+        if let playbackURL = attachment.playbackURL {
+            mountExternalSubtitle(at: next, playbackURL: playbackURL)
+            return
+        }
+        externalSubtitleAttachments[next].status = .preparing
+        let store = subtitleFileStore
+        externalSubtitleAttachTask = Task { @MainActor [weak self] in
+            let playbackURL: URL
+            do {
+                playbackURL = try await store.prepare(attachment.url, codec: attachment.codec)
+            } catch {
+                guard !Task.isCancelled else { return }
+                // Preserve VLC's original delivery if fetching/detection fails.
+                // Never log the error: URLSession errors can include Plex tokens.
+                vlcKitEngineLogger.notice("Subtitle normalization unavailable; using original sidecar")
+                playbackURL = attachment.url
+            }
+            guard !Task.isCancelled, let self,
+                  self.externalSubtitleAttachments.indices.contains(next),
+                  self.externalSubtitleAttachments[next].url == attachment.url,
+                  self.externalSubtitleAttachments[next].status == .preparing else { return }
+            self.externalSubtitleAttachments[next].playbackURL = playbackURL
+            self.mountExternalSubtitle(at: next, playbackURL: playbackURL)
+        }
+    }
+
+    private func mountExternalSubtitle(at next: Int, playbackURL: URL) {
         captureEmbeddedSubtitleESIndexesIfNeeded()
         externalSubtitleAttachments[next].status = .applying
         let url = externalSubtitleAttachments[next].url
         let shouldSelect = pendingExternalSubtitleSelectionURL == url
-        let result = mediaPlayer.addPlaybackSlave(url, type: .subtitle, enforce: shouldSelect)
+        let result = mediaPlayer.addPlaybackSlave(playbackURL, type: .subtitle, enforce: shouldSelect)
         vlcKitEngineLogger.notice(
             "VLCKit adding subtitle slave (enforce=\(shouldSelect, privacy: .public), result=\(result, privacy: .public))"
         )
@@ -1159,6 +1222,7 @@ final class VLCKitEngine: NSObject, PlaybackEngine {
         externalSubtitleAttachTask?.cancel()
         externalSubtitleAttachTask = nil
         externalSubtitleAttachments = []
+        subtitleFileStore = SubtitleFileStore()
         embeddedSubtitleESIndexes = nil
         pendingExternalSubtitleSelectionURL = nil
     }
@@ -1453,6 +1517,7 @@ final class VLCKitEngine: NSObject, PlaybackEngine {
                 }
             }
             currentTime = updatedTime
+            watchTrueHDDecoding(at: updatedTime)
         }
         refreshTracksIfCountsChanged()
         reconcileSubtitleSelection()
@@ -1805,6 +1870,7 @@ final class VLCKitEngine: NSObject, PlaybackEngine {
                 channels: info.channels.nonZeroValue,
                 channelLayout: nil,
                 isDecodable: Self.canDecodeAudioCodec(info.codecFourCC ?? 0)
+                    && modelID(forTrackID: "audio/\(info.index)") != failedAudioDecoderTrackID
             )
         }
         let currentAudioIndex = Int(mediaPlayer.currentAudioTrackIndex)
@@ -1912,27 +1978,103 @@ final class VLCKitEngine: NSObject, PlaybackEngine {
         return characters.joined().trimmingCharacters(in: .whitespaces)
     }
 
-    /// Audio codecs present in containers that the vendored VLCKit build cannot
-    /// decode. Stock VideoLAN builds disable ffmpeg's TrueHD/MLP decoders on
-    /// iOS/tvOS for App Store licensing compliance ("Codec `mlpa' is not
-    /// supported"), and the vendored stable 3.x binaries are stock — the
-    /// patched source builds that re-enabled TrueHD were retired with the 4.x
-    /// alpha. Tracks matching these are skipped by automatic selection, and
-    /// picking one in the picker reroutes playback through a server transcode
-    /// (see `PlayerViewModel.selectAudio`). A file with no locally decodable
-    /// audio at all triggers the same fallback automatically.
+    /// Dolby TrueHD/MLP fourccs. Stock VideoLAN builds disable ffmpeg's
+    /// TrueHD/MLP decoders on iOS/tvOS (Dolby licensing; "Codec `trhd' is not
+    /// supported"). Dusk's own build re-enables them
+    /// (`VLCKitBuildInfo.decodesTrueHD`); only a stock framework still marks
+    /// these tracks undecodable, so automatic selection skips them and a pick
+    /// reroutes through a server transcode (see `PlayerViewModel.selectAudio`).
     ///
-    /// libvlc 3.x (the vendored 3.7.3) tags TrueHD as `trhd`; `mlpa` is the
-    /// retired 4.x alpha's fourcc. Missing `trhd` after the 3.x migration let
-    /// TrueHD pass as decodable, so TrueHD Atmos remuxes played silent.
-    private static let undecodableAudioFourCCs: Set<UInt32> = [
+    /// libvlc 3.x tags TrueHD as `trhd`; `mlpa` is the retired 4.x alpha's
+    /// fourcc. Missing `trhd` after the 3.x migration let TrueHD pass as
+    /// decodable on the stock build, so TrueHD Atmos remuxes played silent.
+    private static let trueHDAudioFourCCs: Set<UInt32> = [
         fourCC("t", "r", "h", "d"), // TrueHD (libvlc 3.x)
         fourCC("m", "l", "p", "a"), // TrueHD (libvlc 4.x)
         fourCC("m", "l", "p", " "), // MLP
     ]
 
     private static func canDecodeAudioCodec(_ codec: UInt32) -> Bool {
-        !undecodableAudioFourCCs.contains(codec)
+        VLCKitBuildInfo.decodesTrueHD || !trueHDAudioFourCCs.contains(codec)
+    }
+
+    private struct TrueHDDecodeWatch {
+        let trackID: Int
+        let startTime: TimeInterval
+        let decodedAudio: Int32
+        let decodedVideo: Int32
+    }
+
+    /// The TrueHD/MLP decoder is Dusk's addition, not part of VideoLAN's
+    /// tested builds. If it fails to open on a stream, libvlc keeps the ES
+    /// selected without a decoder and plays silent; its only trace is the
+    /// error "Codec `trhd' (…) is not supported.", which
+    /// `VLCLibraryLogBridge` counts. A TrueHD/MLP track selected after such an
+    /// error during this load is reported in `failedAudioDecoderTrackID` and
+    /// marked undecodable; the view model then reroutes it through the Plex
+    /// audio-conversion fallback.
+    ///
+    /// Missing audio blocks alone never mark a track: libvlc's decoded-audio
+    /// counter cannot tell a broken decoder from a track whose packets start
+    /// late or pause, and ffmpeg's own decode errors never reach the libvlc
+    /// log (VLC 3 installs no av_log callback). A TrueHD track whose counter
+    /// stays flat for 10 s of steady playback while video decodes is only
+    /// logged, once per track, as evidence for a device report.
+    private func watchTrueHDDecoding(at time: TimeInterval) {
+        guard VLCKitBuildInfo.decodesTrueHD,
+              failedAudioDecoderTrackID == nil,
+              let trackID = selectedAudioTrackID,
+              let index = vlcTrackIndex(forModelID: trackID),
+              let fourCC = latestAudioTrackInfosByIndex[index]?.codecFourCC,
+              Self.trueHDAudioFourCCs.contains(fourCC) else {
+            trueHDDecodeWatch = nil
+            return
+        }
+
+        if VLCLibraryLogBridge.shared.trueHDDecoderFailures > trueHDDecoderFailureBaseline {
+            failedAudioDecoderTrackID = trackID
+            trueHDDecodeWatch = nil
+            availableAudioTracks = availableAudioTracks.map { track in
+                var track = track
+                if track.id == trackID {
+                    track.isDecodable = false
+                }
+                return track
+            }
+            vlcKitEngineLogger.error(
+                "libvlc could not open the TrueHD decoder for track \(trackID, privacy: .public); handing it to the Plex fallback"
+            )
+            return
+        }
+
+        guard state == .playing,
+              pendingSeekTarget == nil,
+              steadyPlaybackTicks >= 4,
+              trackID != verifiedTrueHDTrackID,
+              let media = mediaPlayer.media else {
+            trueHDDecodeWatch = nil
+            return
+        }
+
+        let stats = media.statistics
+        guard let watch = trueHDDecodeWatch, watch.trackID == trackID, time >= watch.startTime else {
+            trueHDDecodeWatch = TrueHDDecodeWatch(
+                trackID: trackID,
+                startTime: time,
+                decodedAudio: stats.decodedAudio,
+                decodedVideo: stats.decodedVideo
+            )
+            return
+        }
+        guard time - watch.startTime >= 10 else { return }
+
+        trueHDDecodeWatch = nil
+        verifiedTrueHDTrackID = trackID
+        if stats.decodedAudio == watch.decodedAudio, stats.decodedVideo > watch.decodedVideo {
+            vlcKitEngineLogger.warning(
+                "TrueHD track \(trackID, privacy: .public) decoded no audio for 10 s while video decoded (\(watch.decodedVideo, privacy: .public)→\(stats.decodedVideo, privacy: .public)); no decoder error was reported, so it stays on VLCKit"
+            )
+        }
     }
 
     /// Packs characters the way libvlc's VLC_FOURCC macro does (little endian),
@@ -1987,6 +2129,9 @@ final class VLCKitEngine: NSObject, PlaybackEngine {
         // track again — that is exactly how the VLCKit 4 -> 3.7.3 migration
         // regressed 5.1/7.1, because `selectedAudioTrackInfo()` is nil until
         // `tracks-refreshed`, long after libvlc committed to stereo.
+        // Dusk's VLCKit build (vlc-patches/0101) also opts in inside libvlc
+        // and mixes 7.1 down to a 5.1 route; this app-side opt-in keeps a
+        // stock framework working too.
         let wantsMultichannelOutput = true
         let signatureChannels = expectedChannels ?? 0
         #else

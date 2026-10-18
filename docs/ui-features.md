@@ -214,6 +214,17 @@ in Dusk. Read this with `docs/codebase-map.md`, `STYLE.md`, and `docs/data-and-p
   the outgoing model can let its in-flight load suppress the incoming user's load.
 - Home data combines global hubs from `getHubs()`, continue watching from
   `getContinueWatching()`, and personalized shelves from `HomeRecommendationEngine`.
+- Settings › Home › Personalized shelves is a device-local switch, on by default.
+  `HomeView` passes it into `HomeViewModel` and applies changes immediately: off
+  clears generated shelves, cancels their task and skips recommendation loading
+  on subsequent refreshes; on reloads them. Cancellation and a publication guard
+  prevent an old request from restoring shelves after they were disabled. Plex
+  hubs, Continue Watching, and library-tab recommendations are unaffected.
+- `HomeHubArrangement` places library rows in Library Order even when PMS omits
+  the hub's section ID: it uses the paging URL, numeric identifier suffix, or
+  consistent item section IDs from the representative server. Unscoped Recently
+  Added rows can also use the only matching library type on that server. Ambiguous
+  rows remain global; mixed/global rows such as Continue Watching keep their place.
 - `LiveTVHomeShelf` adds currently airing channels when Live TV is available and
   `UserPreferences.showsLiveTVOnHome` (Settings › Home › Show Live TV, off by
   default) is on. When off, Home neither renders the shelf nor requests the
@@ -291,6 +302,13 @@ in Dusk. Read this with `docs/codebase-map.md`, `STYLE.md`, and `docs/data-and-p
   rotation while `PlaybackCoordinator.showPlayer` is true and restarts it fresh on
   return, so opening the player no longer advances the hero in the background.
   Rotation also respects Reduce Motion, scene phase, and drag interaction.
+  The hero is Home's only Continue Watching surface (iOS shows every item, tvOS
+  caps at 10), so the pager is a `UIPageControl`-style sliding window
+  (`HomeHeroPagerWindow`): at most `pagerMaxVisibleItems` pills (iPhone 7,
+  iPad 9, tvOS 10), the current one centred, the outer two shrunk on a side with
+  more items beyond. On iOS it is one adjustable accessibility element. The
+  pager is an `.overlay` of the hero so it can never size it: as a `ZStack`
+  sibling, one pill per item once widened the hero past the screen.
   **tvOS pages natively, through focus.** On tvOS every hero item
   is a full-width page of one horizontal `ScrollView` (`HomeCinematicHero.tvPages`,
   a plain `HStack`: the page focus moves to must exist before it is on screen), and
@@ -557,9 +575,10 @@ in Dusk. Read this with `docs/codebase-map.md`, `STYLE.md`, and `docs/data-and-p
 
 - The `DuskTopShelf` app extension (tvOS only, bundle id
   `com.dusk-player.app.topshelf`) shows Continue Watching in the Top Shelf when
-  Dusk sits in the Home Screen's top row: sectioned content, 16:9 tiles,
-  "Continue Watching" (started items, with progress) and "Up Next" (Plex's
-  not-yet-started next episodes), each in Home's order, at most 10 items.
+  Dusk sits in the Home Screen's top row: sectioned content, 16:9 tiles, one
+  "Continue Watching" section that is Home's merged list as-is (started items
+  with progress and next episodes mixed, `ContinueWatchingMerge` order), at
+  most 10 items. No separate "Up Next" section; the app never splits them.
 - **The extension never talks to Plex.** `TopShelfPublisher`
   (`Dusk/Sources/TopShelf/`) is called from `HomeViewModel.publish` on every
   Continue Watching publish; it caches each tile's artwork with the app's own
@@ -619,6 +638,12 @@ in Dusk. Read this with `docs/codebase-map.md`, `STYLE.md`, and `docs/data-and-p
   video libraries default to Release Date (newest).
 - Use `LibraryGenreSupport` for Plex genre filter discovery, normalization, URL
   parameter extraction, and fallback matching. Do not compare genre strings ad hoc.
+- The grid's **Unwatched** chip (between Genre and Sort) is a one-tap filter, remembered
+  per library (`LibraryUnwatchedFilterStore`, keyed on `PlexLibrary.id`) and applied to
+  that library's genre and collection grids too. `LibraryUnwatchedFilter` sends
+  `unwatched=1` for movie/video sections (in-progress titles stay) and
+  `unwatchedLeaves=1` for shows (listed while any episode is unwatched). Active = inverted
+  `TextPrimary` fill with a filled checkmark (STYLE.md selected treatment).
 - `LibraryItemsViewModel` uses a `queryGeneration` guard so stale async page loads do
   not mutate current results. Preserve this pattern when adding filters.
 - Infinite scroll is triggered from `PlexItemPosterGrid.onItemAppear`; keep pagination

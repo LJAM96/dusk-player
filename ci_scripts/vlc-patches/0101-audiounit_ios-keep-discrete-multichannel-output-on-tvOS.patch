@@ -1,0 +1,113 @@
+From 47c332d3210cf1916069a771c2a72d3146520473 Mon Sep 17 00:00:00 2001
+From: Dusk Player <dusk@localhost>
+Date: Fri, 16 Oct 2026 03:20:12 +0200
+Subject: [PATCH] audiounit_ios: keep discrete multichannel output on tvOS
+
+Two defects folded surround sources on Apple TV:
+
+- avas_SetActive() opted the session into multichannel content with
+  b_spatial_audio_supported, which is only read from the route after the
+  activation and the channel query. On the first Start() it is always
+  false, so the HDMI route was measured without multichannel support and
+  libvlc downmixed to stereo in software. tvOS now always opts in (VLC 4
+  dropped the clobbering the same way); iOS keeps the old behaviour.
+
+- avas_setPreferredNumberOfChannels() required outputNumberOfChannels to
+  equal the requested count synchronously, else stereo. Any multichannel
+  route is now accepted, and when it carries fewer channels than the
+  source (7.1 TrueHD / DTS-HD MA into a 5.1 receiver) Start() asks the core
+  to mix down to 5.x instead of letting the AudioUnit drop the channels it
+  has no label for.
+---
+ modules/audio_output/audiounit_ios.m | 40 +++++++++++++++++++++++++++-
+ 1 file changed, 39 insertions(+), 1 deletion(-)
+
+diff --git a/modules/audio_output/audiounit_ios.m b/modules/audio_output/audiounit_ios.m
+index 535a7dc139..2fc7072f65 100644
+--- a/modules/audio_output/audiounit_ios.m
++++ b/modules/audio_output/audiounit_ios.m
+@@ -151,6 +151,7 @@ - (NSInteger)removeAoutInstance:(AoutWrapper *)wrapperInstance
+     bool      b_muted;
+     bool      b_stopped;
+     bool      b_preferred_channels_set;
++    unsigned  i_output_channels;
+     bool      b_spatial_audio_supported;
+     enum au_dev au_dev;
+ 
+@@ -253,20 +254,33 @@ - (void)handleSpatialCapabilityChange:(NSNotification *)notification
+     NSInteger max_channel_count = [instance maximumOutputNumberOfChannels];
+     unsigned channel_count = aout_FormatNbChannels(fmt);
+ 
++    p_sys->i_output_channels = 0;
++
+     /* Increase the preferred number of output channels if possible */
+     if (channel_count > 2 && max_channel_count > 2)
+     {
+         channel_count = __MIN(channel_count, max_channel_count);
+         bool success = [instance setPreferredOutputNumberOfChannels:channel_count
+                         error:nil];
+-        if (success && [instance outputNumberOfChannels] == channel_count)
++        NSInteger output_channel_count = [instance outputNumberOfChannels];
++        /* Accept any multichannel route: requiring an exact match folded a
++         * 7.1 source to stereo whenever the route settled on a different
++         * channel count than requested. Start() mixes down to the route
++         * (7.1 -> 5.1) when it carries fewer channels than the source. */
++        if (success && output_channel_count > 2)
++        {
+             p_sys->b_preferred_channels_set = true;
++            p_sys->i_output_channels = output_channel_count;
++        }
+         else
+         {
+             /* Not critical, output channels layout will be Stereo */
+             msg_Warn(p_aout, "setPreferredOutputNumberOfChannels failed");
+         }
+     }
++    msg_Dbg(p_aout, "multichannel: source %u, route max %ld, output %u",
++            aout_FormatNbChannels(fmt), (long)max_channel_count,
++            p_sys->i_output_channels);
+ }
+ 
+ static void
+@@ -400,7 +414,16 @@ static int role2policy_cmp(const void *key, const void *val)
+             /* Not AVAudioSessionRouteSharingPolicy on older devices */
+         }
+         if (@available(iOS 15.0, tvOS 15.0, *)) {
++#if TARGET_OS_TV
++            /* Always opt in on tvOS. b_spatial_audio_supported is only read
++             * from the route after this call and the channel query, so it is
++             * still false on the first Start(): the session then measured
++             * the HDMI route without multichannel support and every
++             * surround source was folded to stereo. */
++            ret = ret && [instance setSupportsMultichannelContent:YES error:&error];
++#else
+             ret = ret && [instance setSupportsMultichannelContent:p_sys->b_spatial_audio_supported error:&error];
++#endif
+         }
+         ret = ret && [instance setActive:YES withOptions:options error:&error];
+         if (ret)
+@@ -619,6 +642,21 @@ static int role2policy_cmp(const void *key, const void *val)
+         fmt->i_physical_channels = AOUT_CHANS_STEREO;
+         aout_FormatPrepare(fmt);
+     }
++    else if (p_sys->b_preferred_channels_set
++          && p_sys->i_output_channels < aout_FormatNbChannels(fmt))
++    {
++        /* The route carries fewer channels than the source (7.1 into a 5.1
++         * receiver). Let the core mix down; the AudioUnit would otherwise
++         * drop every source channel the route has no label for. */
++        if (p_sys->i_output_channels >= 6)
++            fmt->i_physical_channels = AOUT_CHANS_5_0
++                | (fmt->i_physical_channels & AOUT_CHAN_LFE);
++        else if (p_sys->i_output_channels >= 4)
++            fmt->i_physical_channels = AOUT_CHANS_4_0;
++        else
++            fmt->i_physical_channels = AOUT_CHANS_STEREO;
++        aout_FormatPrepare(fmt);
++    }
+ 
+     p_aout->current_sink_info.headphones = port_type == PORT_TYPE_HEADPHONES;
+ 
+-- 
+2.54.0 (Apple Git-157)
+

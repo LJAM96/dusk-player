@@ -55,6 +55,9 @@ final class PlaybackCoordinator {
     /// (quality switch, delivery-ladder fallback, Picture in Picture restore);
     /// cleared when the next item's session commits.
     @ObservationIgnored var spentAutoSkipMarkerIDs: Set<Int> = []
+    /// The Dolby Vision 7 → 8.1 conversion failed for the item now playing,
+    /// so its remux is rebuilt (and kept) without it. Reset for each new item.
+    @ObservationIgnored var isDolbyVision7ConversionSuppressed = false
     var isSwitchingQuality = false
     var qualitySwitchError: String?
     /// System AirPlay route state shared by playback preparation and the iOS
@@ -65,29 +68,42 @@ final class PlaybackCoordinator {
     /// True while Plex prepares an AVPlayer HLS replacement after the user
     /// selects an AirPlay route during an active local session.
     var isPreparingAirPlay = false
+    @ObservationIgnored var showTrackPreferenceStore = ShowTrackPreferenceStore()
+    @ObservationIgnored var activeShowTrackScope: ShowTrackPreferenceStore.Scope?
     /// Plex stream selections that must survive local → AirPlay handoffs. Engine
     /// ids are implementation-local, so the player maps them back to these ids.
     var activeAudioStreamID: Int?
     var activeSubtitleStreamID: Int?
+    /// Set while a remux session has Plex convert its audio (TrueHD and other
+    /// codecs the fMP4 cannot carry). Rebuilding that remux around the same
+    /// audio stream must keep converting: the stream itself may be locally
+    /// decodable (TrueHD on Dusk's VLCKit), so decodability cannot re-derive it.
+    var remuxAudioConversion: RemuxAudioConversion?
+    /// Confirmed tracks in the loaded remux, retained while a new selection
+    /// is being prepared so a declined HDR track change can keep playing.
+    var remuxTrackSelection: ExplicitTrackSelection?
     /// Plex subtitle stream id to select as soon as the player can mount it.
     /// Set by the sidecar-download flow and by the AVPlayer → VLCKit switch,
     /// consumed by `PlayerViewModel.configureAutomaticTrackSelection`.
     var pendingExternalSubtitleStreamID: Int?
     /// Plex audio/subtitle choice to carry into the next player configuration
-    /// when a Dolby Atmos remux session moves to direct play because of a
-    /// track change. Consumed once by `PlayerView`.
+    /// when a remux returns to direct play or enhanced SDR subtitles switch
+    /// tvOS from AVPlayer to VLCKit. Consumed once by `PlayerView`.
     var pendingExplicitTrackSelection: ExplicitTrackSelection?
     /// Bumped when `refreshSubtitleStreamsAfterDownload` replaced the active
     /// part snapshot. The player observes it and re-reads the part's subtitle
     /// streams in place, without rebuilding the session.
     var externalSubtitleRefreshToken = UUID()
-    /// True while an online direct-play attempt still has its one-shot Plex
-    /// server-stream fallback available. Used to keep a transient engine error
+    /// True while a direct-play or remux attempt still has automatic recovery
+    /// available. Used to keep a transient engine error
     /// hidden until that recovery attempt succeeds or definitively fails.
     var isAutomaticDirectPlayFallbackAvailable = false
-    /// True only after direct play has failed and Plex is preparing the
-    /// replacement server stream. Drives the continuous loading presentation.
+    /// True after an attempt fails while its replacement is being prepared.
+    /// Drives the continuous loading presentation.
     var isAutomaticDirectPlayFallbackActive = false
+    var isAutomaticDirectPlayFallbackPending: Bool {
+        isAutomaticDirectPlayFallbackAvailable || isAutomaticDirectPlayFallbackActive
+    }
     /// True while a Picture in Picture window is showing. The full-screen player
     /// cover is dropped while this is set, so the engine must outlive the cover's
     /// dismissal (see `onPlayerDismissed`).
@@ -200,10 +216,7 @@ final class PlaybackCoordinator {
             return .recovering
         }
 
-        let hasAutomaticFallback = isAutomaticDirectPlayFallbackAvailable ||
-            isAutomaticDirectPlayFallbackActive
-        if case .directPlay? = debugInfo?.decision,
-           hasAutomaticFallback,
+        if isAutomaticDirectPlayFallbackPending,
            engine.state == .error || engine.error != nil {
             return .recovering
         }
@@ -576,6 +589,27 @@ final class PlaybackCoordinator {
         )
     }
 
+    #if DEBUG
+    /// Screenshot mode (`ScreenshotMode`): starts at an exact position instead
+    /// of the item's resume point. With `-DuskScreenshotUpNext` it then raises
+    /// the full-screen Up Next screen for the following episode.
+    func playForScreenshot(id: PlexItemID, startPosition: TimeInterval?) async {
+        await beginPlayback(
+            id: id,
+            startPositionOverride: startPosition,
+            resumeOffsetMilliseconds: nil,
+            selectedMediaID: nil,
+            placeholder: nil
+        )
+        guard ScreenshotMode.frozenUpNextSeconds != nil,
+              let details = activeItemDetails,
+              details.type == .episode,
+              let next = await nextEpisode(after: details) else { return }
+        try? await Task.sleep(for: .seconds(1))
+        presentUpNext(for: next)
+    }
+    #endif
+
     /// An explicitly chosen media version stays on the server it was chosen
     /// from: another server's copy of the same title has entirely different
     /// versions, so falling back would silently play something else.
@@ -657,6 +691,7 @@ final class PlaybackCoordinator {
         playbackSource = nil
         debugInfo = nil
         activeItemDetails = nil
+        activeShowTrackScope = nil
         activeAudioStreamID = nil
         activeSubtitleStreamID = nil
         pendingExternalSubtitleStreamID = nil

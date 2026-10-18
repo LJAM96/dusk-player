@@ -61,7 +61,7 @@ final class PlayerViewModel {
     #if os(tvOS)
     /// tvOS routes every HUD reveal through `PlayerTVHUDController`. Set while
     /// the controller performs an action that must not raise the HUD — a
-    /// play/pause press or a Skip Intro activation from the hidden state.
+    /// Skip Intro activation from the hidden state.
     @ObservationIgnored var suppressControlsReveal = false
     #endif
 
@@ -150,6 +150,7 @@ final class PlayerViewModel {
     @ObservationIgnored var explicitTrackSelection: ExplicitTrackSelection?
     var serverSelectedAudioStreamID: Int?
     var serverSelectedSubtitleStreamID: Int?
+    var userTrackSelectionHandler: (@MainActor (PlexStreamType, Int?) -> Void)?
     var plexTrackSelectionHandler: (@MainActor (Int?, Int?) -> Void)?
     var pendingPlaybackState: PlaybackState?
     var pendingPlaybackStateExpiration: Date?
@@ -266,6 +267,7 @@ final class PlayerViewModel {
         rebuildExternalSubtitleStreamIndex()
         syncTrackLists()
         applyAutomaticTrackSelectionIfNeeded()
+        updateAutoSkipState()
     }
 
     func startPlaybackIfNeeded(source: PlaybackSource) {

@@ -23,7 +23,10 @@ Docs can lag source. Confirm current behavior in code before making specific cla
 - `docs/codebase-map.md`: intended code boundaries and extension patterns.
 - `docs/product-and-scope.md`: product requirements and non-goals; check
   `project.yml` for current platform details.
-- `Frameworks/`: vendored VLCKit binaries. Refresh only when explicitly asked.
+- `Frameworks/`: vendored VLCKit binaries and the locally built
+  `DuskDovi.xcframework` (all git-ignored). Refresh VLCKit only when explicitly asked.
+- `Native/DuskDovi/`: the Rust crate behind `DuskDovi.xcframework` (Dolby Vision 7 → 8.1
+  sample conversion over quietvoid's `dolby_vision`); its C header is the frozen ABI.
 
 ## Current Source Layout
 
@@ -100,6 +103,76 @@ Prefer existing files and same-type extension patterns for small additions. Add 
 - The archives are checksum-verified. Network, TLS, and CDN transfer failures
   are retried, with partial downloads resumed; do not weaken the checksum or
   replace this with an unverified framework fallback.
+- The archives are Dusk's own build (TrueHD), assets of the release
+  `vlckit-<version>` (currently `vlckit-3.7.3-dusk1`) in the PRIVATE repo
+  `marvinvr/dusk-vlckit` — private on purpose: a public binary with the
+  Dolby TrueHD decoder is a distribution Marvin decided against. The
+  installer downloads them with `gh release download`, so it needs `gh` with a
+  login (or `GH_TOKEN`) that can read that repo; `gh auth status` checks it.
+- Without that access the installer falls back to VideoLAN's stock 3.7.3
+  (public CocoaPods archives, thinned to arm64, also checksum-pinned). The app
+  builds and runs with it; Playback Info's "VLCKit Build" row says "Stock
+  VLCKit 3.x" and TrueHD goes through Plex. Once access exists, the next run
+  replaces the stock install. `DUSK_VLCKIT_REQUIRE_DUSK=1` makes the fallback
+  an error; `scripts/testflight.sh` sets it, so a release can never ship the
+  stock build by accident.
+- "Already installed" is decided from each slice's `DuskVLCKitBuild` stamp
+  (Dusk) or the `vlckit-installed.txt` marker the installer writes into each
+  xcframework (stock), never from the tracked `Frameworks/VLCKit-VERSION.txt`:
+  that file names the new version as soon as you pull, while the git-ignored
+  frameworks (and the copies `scripts/testflight.sh` takes from the checkout)
+  are still old. A stock fallback leaves `VLCKit-VERSION.txt` untouched.
+
+## VLCKit Build
+
+- `ci_scripts/build_vlckit.sh [ios|tvos|all]` builds MobileVLCKit/TVVLCKit
+  from source: VLCKit tag 3.7.3 (pinned commit, libvlc 3.0.x at VLCKit's
+  tested hash), arm64 device + arm64 simulator slices. Manual only; nothing
+  in CI runs it. iOS and tvOS use separate trees under `.build/vlckit/`, so
+  `build_vlckit.sh ios & build_vlckit.sh tvos` runs both in parallel. A cold
+  build compiles VLC's own toolchain and every contrib; trees are reused, and
+  `DUSK_VLCKIT_CLEAN=1` starts over. Logs: `.build/vlckit/<platform>.log`.
+- Patches: `ci_scripts/vlckit-patches/` apply to the VLCKit checkout (build
+  script: arm64-only packaging, iOS/tvOS 15 minimum, current Xcode);
+  `ci_scripts/vlc-patches/` (0100+) are appended to VLCKit's own libvlc
+  series, which `buildMobileVLCKit.sh` git-am's onto vlc. 0100 re-enables
+  TrueHD/MLP (read "Dolby TrueHD decoding" in `playback.md` for the licensing
+  decision), 0101 fixes tvOS multichannel output.
+- The script fails unless `libavcodec.a` defines `ff_truehd_decoder` and
+  `ff_mlp_decoder`, stamps each framework's Info.plist (`DuskVLCKitBuild`,
+  `DuskVLCKitTrueHD`, read by `VLCKitBuildInfo`), and writes
+  `<Name>-<version>.tar.xz` + `.sha256` to `.build/vlckit/out/`.
+- Releasing a new build: bump `DUSK_VLCKIT_BUILD` in `build_vlckit.sh`, build
+  both platforms, then
+  `gh release create vlckit-<version> --repo marvinvr/dusk-vlckit
+  .build/vlckit/out/*.tar.xz .build/vlckit/out/*.sha256` (upload the archives
+  unchanged; repacking changes the checksums), and pin
+  `VLCKIT_VERSION` plus both SHA-256 values in `install_vlckit.sh` in the same
+  commit. Test locally before publishing with
+  `DUSK_VLCKIT_CACHE_DIR=.build/vlckit/out ci_scripts/install_vlckit.sh`.
+- The libvlc version string stays `3.0.x`; the stamp is what distinguishes
+  Dusk's build from VideoLAN's.
+
+## DuskDovi Bootstrap
+
+- `Frameworks/DuskDovi.xcframework` is a static library (iOS + tvOS, device + simulator,
+  arm64 only) built from `Native/DuskDovi` and linked into both apps, never embedded.
+  It is git-ignored; after cloning run `./ci_scripts/install_dusk_dovi.sh` once (needs
+  [rustup](https://rustup.rs)). `ci_post_clone.sh` runs it too, installing rustup on CI.
+- The installer stamps a hash of the crate, `Cargo.lock`, the toolchain pin, the build
+  script and the `project.yml` deployment targets into the xcframework, and is a no-op
+  until one of them changes. `scripts/build_dusk_dovi_xcframework.sh` forces a rebuild.
+- Toolchain: pinned in `Native/DuskDovi/rust-toolchain.toml`, installed with the four
+  Apple targets on demand. Deployment targets are read from `project.yml`.
+- Homebrew trap: `/opt/homebrew/bin/cargo` and `rustc` usually come first on PATH and
+  have no iOS/tvOS standard library (`can't find crate for core`). Recent rustup no
+  longer puts the toolchain first on PATH for `rustup run`, so even
+  `rustup run 1.96.0 cargo build` reaches Homebrew's `rustc`. The build script pins
+  `RUSTC` and cargo via `rustup which`; do the same for manual builds:
+  `RUSTC="$(rustup which rustc --toolchain 1.96.0)" "$(rustup which cargo --toolchain 1.96.0)" test --manifest-path Native/DuskDovi/Cargo.toml`.
+- Changing `dusk_dovi.h` means bumping `DUSK_DOVI_ABI_VERSION` (and the check in
+  `DoviBridgeTests`). New crates in `Cargo.lock` need an entry in
+  `Dusk/Resources/ThirdPartyNotices.txt` and `Native/DuskDovi/THIRD_PARTY_LICENSES.md`.
 
 ## Metal Toolchain
 
@@ -137,7 +210,8 @@ scripts/testflight.sh [ref] [--platform ios|tvos|all] [--dry-run] [--no-wait]
   `archive.log` / `export.log` in the work dir. One failing platform doesn't stop the other.
 - `--dry-run`: archive, sign and export the `.ipa` locally, no upload. `--no-wait`: upload only.
 - Before building it copies the checkout's `Frameworks/*.xcframework` into the build copy and runs
-  `ci_scripts/ci_post_clone.sh` (verifies VLCKit or downloads the pinned version, installs the Metal toolchain).
+  `ci_scripts/ci_post_clone.sh` (verifies VLCKit or downloads the pinned version, rebuilds
+  DuskDovi only if its sources changed, installs the Metal toolchain).
 - Apple assigns the build number (`manageAppVersionAndBuildNumber`); versions in the repo are
   never changed. A VALID build lands in the internal TestFlight group automatically.
 
@@ -229,3 +303,4 @@ For docs-only changes, a build is normally unnecessary. Verify the file and `git
 - Putting AVPlayer/VLCKit-specific behavior into generic player UI.
 - Assuming docs platform versions are newer than `project.yml`.
 - Editing vendored VLCKit binaries or unrelated worktree changes.
+- Building `Native/DuskDovi` with Homebrew's `cargo` (see DuskDovi Bootstrap).

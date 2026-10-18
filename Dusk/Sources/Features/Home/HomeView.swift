@@ -54,9 +54,16 @@ struct HomeView: View {
             // server connects or drops, when priority changes, and when the
             // profile changes — the tab shell mounts before any of that.
             .task(id: plexService.serverContentRevision) {
-                let newViewModel = viewModel ?? HomeViewModel(plexService: plexService)
+                let newViewModel = viewModel ?? HomeViewModel(
+                    plexService: plexService,
+                    personalizedShelvesEnabled: preferences.personalizedShelvesEnabled
+                )
                 viewModel = newViewModel
+                newViewModel.setPersonalizedShelvesEnabled(preferences.personalizedShelvesEnabled)
                 await newViewModel.load(maxRecentlyAddedItems: recentlyAddedInlineItemLimit)
+            }
+            .onChange(of: preferences.personalizedShelvesEnabled) { _, enabled in
+                viewModel?.setPersonalizedShelvesEnabled(enabled)
             }
             .onAppear {
                 guard viewModel != nil else { return }

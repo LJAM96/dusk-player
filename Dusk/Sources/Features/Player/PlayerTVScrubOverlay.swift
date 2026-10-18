@@ -6,7 +6,7 @@ import SwiftUI
 /// say both how to commit and how to back out.
 struct PlayerTVScrubHint: View {
     var body: some View {
-        Text("Click to seek · Menu to cancel")
+        Text("Click to seek · Back to cancel")
             .font(DuskFont.TV.caption)
             .foregroundStyle(.white.opacity(0.66))
             .padding(.horizontal, 14)
@@ -22,9 +22,8 @@ struct PlayerTVScrubHint: View {
 }
 
 /// Centred feedback shown over the video while the HUD is hidden: the running
-/// total of a held left/right seek, or the state a play/pause press just put
-/// the session in. The transport is not up in this mode, so this badge is the
-/// only thing that makes the press legible.
+/// total of a held left/right seek. The transport is not up in this mode,
+/// so this badge makes the press legible.
 struct PlayerTVTransientBadgeOverlay: View {
     let badge: PlayerTVTransientBadge
 
@@ -59,8 +58,6 @@ struct PlayerTVTransientBadgeOverlay: View {
         switch badge {
         case let .seek(direction, _):
             return direction.symbolName
-        case let .playPause(isPlaying):
-            return isPlaying ? "play.fill" : "pause.fill"
         }
     }
 
@@ -69,8 +66,6 @@ struct PlayerTVTransientBadgeOverlay: View {
         case let .seek(direction, seconds):
             let sign = direction == .backward ? "−" : "+"
             return "\(sign)\(PlayerTVTimeFormatter.string(TimeInterval(seconds)))"
-        case .playPause:
-            return nil
         }
     }
 }

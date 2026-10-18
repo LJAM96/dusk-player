@@ -38,8 +38,8 @@ extension PlexService {
         /// subtitles ride along as WebVTT segments. Only accepted when Plex
         /// confirms both tracks are copied (`TranscodeStreamDecisions`).
         /// With `convertsAudio`, the video is still copied but Plex converts
-        /// the selected audio stream (e.g. TrueHD, which neither local engine
-        /// decodes) to E-AC-3 — Plex caps converted audio at 5.1.
+        /// the selected audio stream to E-AC-3 surround. The profile allows
+        /// 7.1; current Plex versions may still cap conversion at 5.1.
         case spatialAudioRemux(convertsAudio: Bool)
 
         var logLabel: String {
@@ -60,6 +60,8 @@ extension PlexService {
         var videoCodec: String?
         var audioDecision: String?
         var audioCodec: String?
+        var audioChannels: Int? = nil
+        var audioProfile: String? = nil
         var subtitleDecision: String?
         var subtitleLocation: String?
 
@@ -70,15 +72,36 @@ extension PlexService {
         }
 
         /// The video is copied bit-for-bit and any subtitle is delivered as
-        /// text segments; the audio may be converted.
+        /// text segments or explicitly ignored; the audio may be converted.
+        /// Plex can retain an ignored embedded subtitle in an Off decision.
         var isVideoCopyRemux: Bool {
             videoDecision == "copy"
                 && (audioDecision == "copy" || audioDecision == "transcode")
-                && (subtitleDecision == nil || subtitleLocation == "segments-subs")
+                && (subtitleDecision == nil || subtitleDecision == "ignore" || subtitleLocation == "segments-subs")
+        }
+
+        /// Refuse incompatible audio/container decisions before AVPlayer is
+        /// loaded. A multichannel source must remain surround, not stereo AAC.
+        func isConvertedAudioRemux(sourceChannels: Int?) -> Bool {
+            isVideoCopyRemux
+                && container?.lowercased() == "mp4"
+                && ["hevc", "h264"].contains(videoCodec?.lowercased() ?? "")
+                && audioDecision == "transcode"
+                && audioCodec?.lowercased() == "eac3"
+                && ((sourceChannels ?? 0) < 6 || audioChannels == 6 || audioChannels == 8)
+        }
+
+        /// Only output metadata can authorize restoring JOC after conversion.
+        /// TrueHD Atmos on the input does not make a plain DD+ encode Atmos.
+        var hasDolbyAtmosAudio: Bool {
+            let profile = audioProfile?.lowercased() ?? ""
+            return audioCodec?.lowercased() == "eac3"
+                && (profile.contains("atmos") || profile.contains("joc"))
+                && !profile.contains("truehd")
         }
 
         var logDescription: String {
-            "container=\(container ?? "?") video=\(videoCodec ?? "?")/\(videoDecision ?? "?") audio=\(audioCodec ?? "?")/\(audioDecision ?? "?") subtitle=\(subtitleDecision ?? "none")/\(subtitleLocation ?? "-")"
+            "container=\(container ?? "?") video=\(videoCodec ?? "?")/\(videoDecision ?? "?") audio=\(audioCodec ?? "?")/\(audioDecision ?? "?") channels=\(audioChannels.map(String.init) ?? "?") profile=\(audioProfile ?? "?") subtitle=\(subtitleDecision ?? "none")/\(subtitleLocation ?? "-")"
         }
     }
 
@@ -304,12 +327,12 @@ extension PlexService {
         )
     }
 
-    /// Asks Plex for a copy-only fMP4 HLS remux of the item for Dolby Atmos /
-    /// spatial audio (see `TranscodeDeliveryMode.spatialAudioRemux`). Plex
+    /// Asks Plex for an fMP4 HLS remux, optionally converting audio to E-AC-3
+    /// (see `TranscodeDeliveryMode.spatialAudioRemux`). Plex
     /// picks the session's subtitle from the part's server-side selection, so
     /// the caller sets that first (`selectStreams(partID:...)`). Returns the
-    /// per-track decisions so the caller can refuse anything but a lossless
-    /// remux.
+    /// per-track decisions so the caller validates copy/conversion and codecs
+    /// before loading the stream.
     func spatialAudioRemuxURL(
         ratingKey: String,
         mediaIndex: Int,
@@ -343,19 +366,42 @@ extension PlexService {
         subtitleStreamID: Int?,
         serverID: String? = nil
     ) async throws {
-        var queryItems = [URLQueryItem(name: "allParts", value: "1")]
-        if let audioStreamID {
-            queryItems.append(URLQueryItem(name: "audioStreamID", value: String(audioStreamID)))
+        try await enqueueStreamSelection(
+            partID: partID, audioStreamID: audioStreamID,
+            subtitleStreamID: subtitleStreamID, serverID: serverID
+        ).value
+        try Task.checkCancellation()
+    }
+
+    /// Enqueue synchronously so quick picker changes and remux rebuilds share
+    /// one write order. A late PUT must never undo a newer subtitle On/Off.
+    func enqueueStreamSelection(
+        partID: Int,
+        audioStreamID: Int?,
+        subtitleStreamID: Int?,
+        serverID: String?
+    ) -> Task<Void, Error> {
+        let previous = streamSelectionWriteTask
+        let session = serverSessionToken
+        let task = Task { @MainActor [weak self] in
+            _ = try? await previous?.value
+            guard let self, session == self.serverSessionToken else { throw CancellationError() }
+            var queryItems = [URLQueryItem(name: "allParts", value: "1")]
+            if let audioStreamID {
+                queryItems.append(URLQueryItem(name: "audioStreamID", value: String(audioStreamID)))
+            }
+            if let subtitleStreamID {
+                queryItems.append(URLQueryItem(name: "subtitleStreamID", value: String(subtitleStreamID)))
+            }
+            _ = try await self.rawServerRequest(
+                method: "PUT",
+                path: "/library/parts/\(partID)",
+                queryItems: queryItems,
+                serverID: serverID
+            )
         }
-        if let subtitleStreamID {
-            queryItems.append(URLQueryItem(name: "subtitleStreamID", value: String(subtitleStreamID)))
-        }
-        _ = try await rawServerRequest(
-            method: "PUT",
-            path: "/library/parts/\(partID)",
-            queryItems: queryItems,
-            serverID: serverID
-        )
+        streamSelectionWriteTask = task
+        return task
     }
 
     /// Starts a Plex HLS consumer for an already-tuned Live TV session.
@@ -509,7 +555,10 @@ private extension PlexService {
 
         return (url, outcome, streams)
     }
+}
 
+extension PlexService {
+    /// Pure request construction, shared by decision/start and codec-policy tests.
     func transcodeQueryItems(
         ratingKey: String,
         mediaIndex: Int,
@@ -621,16 +670,26 @@ private extension PlexService {
 
         return items
     }
+}
 
+private extension PlexService {
     func transcodeClientProfileExtra(for mode: TranscodeDeliveryMode) -> String {
         var clauses: [String] = []
+        let convertsAudio: Bool
+        if case let .spatialAudioRemux(conversion) = mode {
+            convertsAudio = conversion
+        } else {
+            convertsAudio = false
+        }
         if case .spatialAudioRemux = mode {
             // Listed first so Plex prefers it: fragmented MP4 is the only HLS
             // container AVPlayer plays HEVC from (HEVC in MPEG-TS comes out
-            // audio-only), and it carries E-AC-3/AC-3 untouched. The WebVTT
-            // subtitle target turns text subtitles into HLS subtitle segments.
+            // audio-only). Copy-remuxes accept E-AC-3/AC-3/AAC; converted
+            // audio must be E-AC-3. The WebVTT subtitle target turns text
+            // subtitles into HLS subtitle segments.
+            let audioCodecs = convertsAudio ? "eac3" : "eac3,ac3,aac"
             clauses.append(
-                "add-transcode-target(type=videoProfile&context=streaming&protocol=hls&container=mp4&videoCodec=hevc,h264&audioCodec=eac3,ac3)"
+                "add-transcode-target(type=videoProfile&context=streaming&protocol=hls&container=mp4&videoCodec=hevc,h264&audioCodec=\(audioCodecs))"
             )
             clauses.append(
                 "add-transcode-target(type=subtitleProfile&context=streaming&protocol=hls&container=webvtt&subtitleCodec=webvtt)"
@@ -644,15 +703,18 @@ private extension PlexService {
         // Plex's HEVC transcoder can choose HEVC HLS from this profile, but the
         // current Generic/mpegts target is not reliable with AVPlayer on Apple
         // platforms and can produce audio-only playback.
-        clauses.append(
-            "add-transcode-target(type=videoProfile&context=streaming&protocol=hls&container=mpegts&videoCodec=h264&audioCodec=aac)"
-        )
+        if !convertsAudio {
+            clauses.append(
+                "add-transcode-target(type=videoProfile&context=streaming&protocol=hls&container=mpegts&videoCodec=h264&audioCodec=aac)"
+            )
+        }
 
         // Surround survival on the server-side rungs. With only the Generic
         // profile's lone AAC target declared, Plex downmixes every 5.1/7.1
         // source to 2-channel AAC — which is what the direct-stream fallback
-        // and every TrueHD title (undecodable in the vendored VLCKit, so always
-        // routed through the server) has been getting. AC-3/E-AC-3 in
+        // and every TrueHD title (undecodable in stock VLCKit, so routed
+        // through the server before Dusk's own build decoded it) had been
+        // getting. AC-3/E-AC-3 in
         // HLS/mpegts is decoded natively by AVPlayer on tvOS and iOS, so
         // offering them keeps discrete channels intact instead of handing the
         // player a pre-folded stereo mix.
@@ -671,11 +733,14 @@ private extension PlexService {
             clauses.append(
                 "add-transcode-target-audio-codec(type=videoProfile&context=streaming&protocol=hls&audioCodec=eac3)"
             )
+            if !convertsAudio {
+                clauses.append(
+                    "add-transcode-target-audio-codec(type=videoProfile&context=streaming&protocol=hls&audioCodec=ac3)"
+                )
+            }
+            let maxEAC3Channels = convertsAudio ? 8 : 6
             clauses.append(
-                "add-transcode-target-audio-codec(type=videoProfile&context=streaming&protocol=hls&audioCodec=ac3)"
-            )
-            clauses.append(
-                "add-limitation(scope=videoAudioCodec&scopeName=eac3&type=upperBound&name=audio.channels&value=6&replace=true)"
+                "add-limitation(scope=videoAudioCodec&scopeName=eac3&type=upperBound&name=audio.channels&value=\(maxEAC3Channels)&replace=true)"
             )
             clauses.append(
                 "add-limitation(scope=videoAudioCodec&scopeName=ac3&type=upperBound&name=audio.channels&value=6&replace=true)"
@@ -755,6 +820,8 @@ private struct PlexTranscodeDecisionResponse: Decodable {
         let codec: String?
         let decision: String?
         let location: String?
+        let channels: Int?
+        let profile: String?
     }
 
     struct Container: Decodable {
@@ -815,6 +882,8 @@ private struct PlexTranscodeDecisionResponse: Decodable {
             videoCodec: video?.codec,
             audioDecision: audio?.decision,
             audioCodec: audio?.codec,
+            audioChannels: audio?.channels,
+            audioProfile: audio?.profile,
             subtitleDecision: subtitle?.decision,
             subtitleLocation: subtitle?.location
         )

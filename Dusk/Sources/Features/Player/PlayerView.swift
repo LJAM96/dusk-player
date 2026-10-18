@@ -708,6 +708,10 @@ private struct PlayerSessionView: View {
             viewModel.externalSubtitleRestartHandler = { streamID in
                 playback.switchToVLCKitForExternalSubtitle(streamID: streamID)
             }
+            viewModel.userTrackSelectionHandler = { type, streamID in
+                guard playback.playerPresentationID == presentationID else { return }
+                playback.rememberShowTrackChoice(type: type, streamID: streamID)
+            }
             viewModel.configureAutomaticTrackSelection(
                 preferences: preferences,
                 part: debugInfo?.part ?? mediaDetails?.media.first?.parts.first,
@@ -717,7 +721,7 @@ private struct PlayerSessionView: View {
                 selectedAudioStreamID: playback.activeAudioStreamID,
                 selectedSubtitleStreamID: playback.activeSubtitleStreamID,
                 pendingExternalSubtitleStreamID: playback.consumePendingExternalSubtitleStreamID(),
-                explicitTrackSelection: playback.consumePendingExplicitTrackSelection(),
+                explicitTrackSelection: playback.consumePendingExplicitTrackSelection() ?? playback.rememberedShowTrackSelection(),
                 spentAutoSkipMarkerIDs: playback.spentAutoSkipMarkerIDs
             )
             viewModel.autoSkipHandler = { marker in
@@ -768,6 +772,7 @@ private struct PlayerSessionView: View {
         .onDisappear {
             viewModel.playbackSnapshotHandler = nil
             viewModel.upNextPosterHandler = nil
+            viewModel.userTrackSelectionHandler = nil
             viewModel.plexTrackSelectionHandler = nil
             viewModel.externalSubtitleRestartHandler = nil
             viewModel.cleanup()
@@ -817,6 +822,11 @@ private struct PlayerSessionView: View {
         }
         #endif
         #if !os(tvOS)
+        #if DEBUG
+        .onChange(of: viewModel.audioTracks.count + viewModel.subtitleTracks.count, initial: true) {
+            ScreenshotMode.openRequestedPlayerSheet(in: viewModel)
+        }
+        #endif
         .sheet(isPresented: $vm.showQualityPicker) {
             PlayerSelectionSheet(
                 title: "Quality",
@@ -1054,13 +1064,13 @@ private struct PlayerSessionView: View {
         #endif
     }
 
-    /// A failed direct-play engine is only an intermediate state while the
-    /// automatic Plex server-stream replacement is active. Keep the existing
+    /// A failed direct-play or remux engine is an intermediate state while
+    /// automatic recovery is pending. Keep the existing
     /// loading presentation and controls alive until recovery succeeds or this
     /// becomes the final error the user needs to act on.
     private var hasVisiblePlaybackError: Bool {
         viewModel.playbackError != nil &&
-            !playback.isAutomaticDirectPlayFallbackAvailable
+            !playback.isAutomaticDirectPlayFallbackPending
     }
 
     private var scrubPreviewPartID: Int? {
@@ -1300,6 +1310,9 @@ private struct PlayerSessionView: View {
         hudController.backwardSeekInterval = preferences.playerDoubleTapBackwardInterval.timeInterval
         hudController.forwardSeekInterval = preferences.playerDoubleTapForwardInterval.timeInterval
         hudController.syncControlsVisibility(viewModel.showControls)
+        #if DEBUG
+        ScreenshotMode.replayTVRemoteInputs(into: hudController)
+        #endif
     }
     #endif
 }
