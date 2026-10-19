@@ -65,3 +65,38 @@ struct LibraryUnwatchedFilterStore {
         keyPrefix + libraryID
     }
 }
+
+/// Remembers the last sort picked per library (`PlexLibrary.id`), device-local
+/// like the Unwatched choice. A stored sort the library type no longer offers
+/// falls back to the type's default.
+struct LibrarySortStore {
+    static let keyPrefix = "librarySort."
+
+    private let defaults: UserDefaults
+
+    init(defaults: UserDefaults = .standard) {
+        self.defaults = defaults
+    }
+
+    func sort(for library: PlexLibrary) -> LibrarySortOption {
+        let options = LibrarySortOption.options(for: library.libraryType)
+        guard let stored = defaults.string(forKey: Self.key(forLibraryID: library.id))
+            .flatMap(LibrarySortOption.init(rawValue:)),
+            options.contains(stored) else {
+            return LibrarySortOption.defaultOption(for: library.libraryType)
+        }
+        return stored
+    }
+
+    func setSort(_ sort: LibrarySortOption, for library: PlexLibrary) {
+        if sort == LibrarySortOption.defaultOption(for: library.libraryType) {
+            defaults.removeObject(forKey: Self.key(forLibraryID: library.id))
+        } else {
+            defaults.set(sort.rawValue, forKey: Self.key(forLibraryID: library.id))
+        }
+    }
+
+    static func key(forLibraryID libraryID: String) -> String {
+        keyPrefix + libraryID
+    }
+}

@@ -643,6 +643,8 @@ in Dusk. Read this with `docs/codebase-map.md`, `STYLE.md`, and `docs/data-and-p
   video libraries default to Release Date (newest).
 - Use `LibraryGenreSupport` for Plex genre filter discovery, normalization, URL
   parameter extraction, and fallback matching. Do not compare genre strings ad hoc.
+- The grid's sort is remembered per library (`LibrarySortStore`, keyed on
+  `PlexLibrary.id`; a sort the type no longer offers falls back to its default).
 - The grid's **Unwatched** chip (between Genre and Sort) is a one-tap filter, remembered
   per library (`LibraryUnwatchedFilterStore`, keyed on `PlexLibrary.id`) and applied to
   that library's genre and collection grids too. `LibraryUnwatchedFilter` sends

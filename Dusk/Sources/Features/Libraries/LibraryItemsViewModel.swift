@@ -92,6 +92,7 @@ final class LibraryItemsViewModel {
     private let preferredInitialGenre: LibraryGenreOption?
     private let preferLocalGenreFiltering: Bool
     private let unwatchedFilterStore: LibraryUnwatchedFilterStore
+    private let sortStore: LibrarySortStore
 
     private(set) var items: [PlexItem] = []
     private(set) var isLoading = false
@@ -100,6 +101,7 @@ final class LibraryItemsViewModel {
     private(set) var hasMoreItems = true
     private(set) var availableGenres: [LibraryGenreOption] = [.all]
     private(set) var selectedGenre: LibraryGenreOption = .all
+    /// Remembered per library, like the Unwatched filter.
     private(set) var selectedSort: LibrarySortOption = .titleAscending
     /// Remembered per library, so it also applies to the library's genre and
     /// collection grids.
@@ -116,7 +118,8 @@ final class LibraryItemsViewModel {
         collection: PlexLibraryCollection? = nil,
         initialGenre: LibraryGenreOption? = nil,
         preferLocalGenreFiltering: Bool = false,
-        unwatchedFilterStore: LibraryUnwatchedFilterStore = LibraryUnwatchedFilterStore()
+        unwatchedFilterStore: LibraryUnwatchedFilterStore = LibraryUnwatchedFilterStore(),
+        sortStore: LibrarySortStore = LibrarySortStore()
     ) {
         self.library = library
         self.plexService = plexService
@@ -124,7 +127,8 @@ final class LibraryItemsViewModel {
         self.preferredInitialGenre = initialGenre
         self.preferLocalGenreFiltering = preferLocalGenreFiltering
         self.selectedGenre = initialGenre ?? .all
-        self.selectedSort = LibrarySortOption.defaultOption(for: library.libraryType)
+        self.selectedSort = sortStore.sort(for: library)
+        self.sortStore = sortStore
         self.unwatchedFilterStore = unwatchedFilterStore
         self.showsUnwatchedOnly = unwatchedFilterStore.isEnabled(forLibraryID: library.id)
     }
@@ -221,6 +225,7 @@ final class LibraryItemsViewModel {
     func selectSort(_ sort: LibrarySortOption) async {
         guard selectedSort != sort else { return }
         selectedSort = sort
+        sortStore.setSort(sort, for: library)
         await reloadItems()
     }
 
