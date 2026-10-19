@@ -44,6 +44,7 @@ extension PlaybackCoordinator {
         resumeOffsetDurationMilliseconds: Int? = nil,
         selectedMediaID: Int?,
         restrictToItemServer: Bool = false,
+        prerollFeature: PrerollPlayback.Feature? = nil,
         attemptID: UUID
     ) async -> Bool {
         let isPlayableOffline = downloadManager?.isPlayableOffline(id: id) == true
@@ -93,6 +94,7 @@ extension PlaybackCoordinator {
                 // Both spellings count: the resolver fills in a missing server.
                 carriesRequestedOffset: candidate == id || candidate == resolution.requestedID,
                 selectedMediaID: selectedMediaID,
+                prerollFeature: prerollFeature,
                 attemptID: attemptID,
                 fetchDeadline: isLastCandidate ? nil : Self.candidateFetchDeadline
             )
@@ -136,6 +138,9 @@ extension PlaybackCoordinator {
     ///   - suppressLocalDownload: ignore the completed download for this item
     ///     and stream from the server instead. Set when the file on disk turned
     ///     out to be unusable.
+    ///   - prerollFeature: set only for a fresh Play from the UI. A movie
+    ///     starting from the beginning then plays the server's pre-rolls first
+    ///     and replays this request once they are done.
     ///   - fetchDeadline: bounds the metadata fetch so a dead server does not
     ///     hold the candidate walk for the full request timeout. nil leaves the
     ///     session's own timeout in charge (the last candidate).
@@ -146,6 +151,7 @@ extension PlaybackCoordinator {
         resumeOffsetDurationMilliseconds: Int? = nil,
         carriesRequestedOffset: Bool = true,
         selectedMediaID: Int?,
+        prerollFeature: PrerollPlayback.Feature? = nil,
         attemptID: UUID,
         suppressLocalDownload: Bool = false,
         fetchDeadline: Duration? = nil
@@ -205,6 +211,24 @@ extension PlaybackCoordinator {
             // When the matching Plex server is reachable, ask it for HLS even if
             // this item also has a completed local download.
             let localURL = (wantsAirPlay || suppressLocalDownload) ? nil : downloadedURL
+            if let prerollFeature,
+               localURL == nil, !wantsAirPlay,
+               startPositionOverride == 0 || (startPositionOverride == nil && !resumesMidway(
+                   details: details,
+                   resumeOffsetMilliseconds: resumeOffsetMilliseconds,
+                   resumeOffsetDurationMilliseconds: resumeOffsetDurationMilliseconds,
+                   carriesRequestedOffset: carriesRequestedOffset
+               )) {
+                if await startPrerollsIfConfigured(
+                    for: details,
+                    serverID: itemServerID,
+                    feature: prerollFeature,
+                    attemptID: attemptID
+                ) {
+                    return .started
+                }
+                guard !Task.isCancelled, currentPlaybackAttemptID == attemptID, profileSession == plexService.serverSessionToken else { return .superseded }
+            }
             let localMediaVersion = localURL.flatMap { _ in
                 downloadManager?.downloadedMediaVersion(
                     for: id,
@@ -226,6 +250,7 @@ extension PlaybackCoordinator {
                     resumeOffsetDurationMilliseconds: resumeOffsetDurationMilliseconds,
                     carriesRequestedOffset: carriesRequestedOffset,
                     selectedMediaID: selectedMediaID,
+                    prerollFeature: prerollFeature,
                     attemptID: attemptID,
                     suppressLocalDownload: true,
                     fetchDeadline: fetchDeadline
@@ -696,6 +721,22 @@ extension PlaybackCoordinator {
             )
             return .hardFailure(error.localizedDescription)
         }
+    }
+
+    /// Whether this candidate would start part-way in: the same offsets the
+    /// start position is built from below. Pre-rolls only play from the top.
+    private func resumesMidway(
+        details: PlexMediaDetails,
+        resumeOffsetMilliseconds: Int?,
+        resumeOffsetDurationMilliseconds: Int?,
+        carriesRequestedOffset: Bool
+    ) -> Bool {
+        (details.viewOffset ?? 0) > 0 || carriedResumeOffsetMs(
+            resumeOffsetMilliseconds,
+            referenceDurationMs: resumeOffsetDurationMilliseconds,
+            candidateDurationMs: details.duration,
+            carriesRequestedOffset: carriesRequestedOffset
+        ) != nil
     }
 
     /// How much of the initiating offset a candidate may use.
@@ -1830,6 +1871,7 @@ extension PlaybackCoordinator {
         isPreparingAirPlay = false
         upNextPresentation = nil
         upNextPoster = nil
+        prerollPlayback = nil
         clearAdjacentEpisodes()
         spentAutoSkipMarkerIDs = []
         engine?.onPlaybackEnded = nil
