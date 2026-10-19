@@ -17,7 +17,6 @@ struct LibraryItemsView: View {
         plexService: PlexService,
         collection: PlexLibraryCollection? = nil,
         initialGenre: LibraryGenreOption? = nil,
-        preferLocalGenreFiltering: Bool = false,
         showsRecommendationsLink: Bool = false
     ) {
         self.showsRecommendationsLink = showsRecommendationsLink
@@ -25,8 +24,7 @@ struct LibraryItemsView: View {
             library: library,
             plexService: plexService,
             collection: collection,
-            initialGenre: initialGenre,
-            preferLocalGenreFiltering: preferLocalGenreFiltering
+            initialGenre: initialGenre
         ))
     }
 
