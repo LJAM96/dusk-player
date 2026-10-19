@@ -270,6 +270,19 @@ The arm64 override is also required for the vendored tvOS
 
 For docs-only changes, a build is normally unnecessary. Verify the file and `git status --short`.
 
+### Large-library reproduction
+
+`scripts/mock_large_plex.py` is a stdlib-only mock of plex.tv plus one PMS with a
+synthesized library (60k movies, 12k shows by default). Section queries pay a
+per-row scan cost (`--scan-us`, serialized through `--db-workers`), the way a big
+PMS on a NAS behaves; every request is logged with its arrival time and duration,
+which is the measurement. Point a Debug build at it with the screenshot-mode launch
+arguments (`-DuskScreenshotMode YES -DuskScreenshotPlexTV http://127.0.0.1:47600
+-DuskScreenshotScreen movies|shows|library`, see `docs/screenshots.md`) and take
+`simctl io screenshot`s at fixed offsets. Use it before and after touching library,
+hub or recommendation loading. Its costs are a model, not a real server: compare
+builds against each other, not against absolute numbers.
+
 ## Git and Push Expectations
 
 - Check `git status --short` before editing and before finishing.
