@@ -72,8 +72,30 @@ struct HomeHubArrangementTests {
         #expect(HomeHubArrangement.arrange(hubs: [merged, tv], libraryOrder: order).map(\.title) == ["tv", "movies"])
     }
 
-    private func item(section: Any) -> [String: Any] {
-        ["ratingKey": UUID().uuidString, "key": "/library/metadata/1", "type": "movie", "title": "Movie", "librarySectionID": section]
+    @Test("Per-library rows with one title fold into the first copy")
+    func repeatedTitlesCollapse() throws {
+        let horror = { (section: Int, server: String, titles: [String]) in
+            try self.hub("Oh, the Horror!", section: section, identifier: "movie.curated.\(section)",
+                         items: titles.map { self.item(section: section, title: $0) }, server: server)
+        }
+        let recent = try hub("Recently Added in Movies", section: 1)
+        let hubs = [
+            recent,
+            try horror(1, "a", ["Alien", "Scream"]),
+            try horror(3, "a", ["Halloween", "Alien", "It"]),
+            try horror(1, "b", ["The Thing"]),
+        ]
+        let collapsed = HubMerge.collapsingRepeatedTitles(hubs).hubs
+        #expect(collapsed.map(\.title) == ["Recently Added in Movies", "Oh, the Horror!"])
+        #expect(collapsed[0] == recent)
+        #expect(collapsed[1].sources.count == 3)
+        #expect(collapsed[1].items.map(\.title) == ["Alien", "Halloween", "The Thing"])
+        #expect(collapsed[1].representativeLibraryID == "a|1")
+        #expect(HubMerge.collapsingRepeatedTitles([recent]).hubs == [recent])
+    }
+
+    private func item(section: Any, title: String = "Movie") -> [String: Any] {
+        ["ratingKey": UUID().uuidString, "key": "/library/metadata/1", "type": "movie", "title": title, "librarySectionID": section]
     }
 
     private func hub(
