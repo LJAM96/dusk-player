@@ -17,8 +17,14 @@ mimics how a real PMS on a NAS behaves at that size:
 Every request is logged with its arrival time (relative to the first
 request), duration and path, so the client's critical path can be read off.
 
+With --photos N it also serves a photo library (section 3): year albums with
+month sub-albums, a few trip albums, loose root photos and ~5% video clips,
+answering the type=14 / type=13,12 / parent= / clusterZoomLevel=1 queries the
+app sends. Images come from /photo/:/transcode as generated plasma JPEGs
+(ImageMagick, cached under --image-cache) so grids look like photos.
+
 Usage (see docs/development-workflow.md -> "Large-library reproduction"):
-  python3 scripts/mock_large_plex.py [--movies 60000] [--scan-us 25]
+  python3 scripts/mock_large_plex.py [--movies 60000] [--scan-us 25] [--photos 5000]
 then launch a Debug build in DEBUG screenshot mode:
   xcrun simctl launch <device> com.dusk-player.app -DuskScreenshotMode YES \
     -DuskScreenshotPlexTV http://127.0.0.1:47600 -DuskScreenshotScreen movies
@@ -26,8 +32,10 @@ The request log (arrival time, duration, path) is the measurement.
 """
 import argparse
 import json
+import os
 import random
 import re
+import subprocess
 import threading
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -121,6 +129,164 @@ class Library:
         return md
 
 
+class PhotoLibrary:
+    """Section 3: albums are Plex `Directory type="photo"` rows, which JSON
+    flattens into Metadata with `type: "photo"` and a `/children` key."""
+
+    MONTHS = ["January", "February", "March", "April", "May", "June", "July", "August",
+              "September", "October", "November", "December"]
+    PLACES = ["Zürich, Switzerland", "Lisbon, Portugal", "Reykjavík, Iceland", "Kyoto, Japan",
+              "Bern, Switzerland", "Lucerne, Switzerland"]
+    CAMERAS = [("Apple", "iPhone 15 Pro"), ("Apple", "iPhone 13"), ("FUJIFILM", "X-T5"), ("SONY", "ILCE-7M4")]
+
+    def __init__(self, count, first_rk=900000):
+        rnd = random.Random(7)
+        self.items = {}
+        self.order = []
+        rk = first_rk
+
+        def add(item):
+            nonlocal rk
+            rk += 1
+            item["rk"] = str(rk)
+            self.items[item["rk"]] = item
+            self.order.append(item["rk"])
+            return item["rk"]
+
+        years = list(range(2019, 2027))
+        trips = [("Iceland 2023", 2023, 7), ("Japan 2024", 2024, 4), ("Lisbon 2025", 2025, 9)]
+        trips_rk = add({"kind": "album", "title": "Trips", "parent": None})
+        month_albums = []
+        for title, year, month in trips:
+            month_albums.append((add({"kind": "album", "title": title, "parent": trips_rk}), year, month))
+        for year in reversed(years):
+            year_rk = add({"kind": "album", "title": str(year), "parent": None})
+            for month in range(1, 13):
+                if year == 2026 and month > 10:
+                    break
+                month_albums.append((add({"kind": "album", "title": f"{self.MONTHS[month - 1]} {year}",
+                                          "parent": year_rk}), year, month))
+        loose = min(24, count)
+        for i in range(count):
+            if i < loose:
+                parent, year, month = None, 2026, 10
+            else:
+                parent, year, month = month_albums[rnd.randrange(len(month_albums))]
+            day = rnd.randint(1, 18 if (year, month) == (2026, 10) else 28)
+            is_clip = rnd.random() < 0.05
+            portrait = rnd.random() < 0.3
+            make, model = rnd.choice(self.CAMERAS)
+            add({"kind": "clip" if is_clip else "photo", "title": f"IMG_{4000 + i:04d}",
+                 "parent": parent, "date": f"{year}-{month:02d}-{day:02d}",
+                 "addedAt": NOW - rnd.randint(0, 86400 * 900),
+                 "width": 3024 if portrait else 4032, "height": 4032 if portrait else 3024,
+                 "make": make, "model": model,
+                 "place": rnd.choice(self.PLACES) if rnd.random() < 0.4 else None,
+                 "duration": rnd.randint(3000, 45000) if is_clip else None})
+
+    def metadata(self, rk):
+        it = self.items[rk]
+        md = {"ratingKey": rk, "type": "clip" if it["kind"] == "clip" else "photo", "title": it["title"],
+              "thumb": f"/library/metadata/{rk}/thumb/{NOW}", "librarySectionID": 3,
+              "addedAt": it.get("addedAt", NOW), "updatedAt": NOW, "guid": f"local://{rk}"}
+        if it["parent"]:
+            md["parentRatingKey"] = it["parent"]
+            md["parentKey"] = f"/library/metadata/{it['parent']}"
+        if it["kind"] == "album":
+            md["key"] = f"/library/metadata/{rk}/children"
+            md["composite"] = f"/library/metadata/{rk}/composite/{NOW}"
+            return md
+        md["key"] = f"/library/metadata/{rk}"
+        md["originallyAvailableAt"] = it["date"]
+        md["year"] = int(it["date"][:4])
+        if it.get("place"):
+            md["Place"] = [{"tag": it["place"]}]
+        if it["kind"] == "clip":
+            md["subtype"] = "photo"
+            md["duration"] = it["duration"]
+            md["Media"] = [{"id": int(rk), "duration": it["duration"], "width": 1920, "height": 1080,
+                            "videoCodec": "h264", "audioCodec": "aac", "audioChannels": 2, "container": "mov",
+                            "optimizedForStreaming": 1, "videoResolution": "1080",
+                            "Part": [{"id": int(rk), "key": f"/library/parts/{rk}/{NOW}/file.mov",
+                                      "duration": it["duration"], "file": f"/photos/{rk}.mov", "size": 20_000_000,
+                                      "container": "mov", "optimizedForStreaming": True}]}]
+        else:
+            md["Media"] = [{"id": int(rk), "width": it["width"], "height": it["height"], "aspectRatio": 1.33,
+                            "container": "jpeg", "make": it["make"], "model": it["model"],
+                            "Part": [{"id": int(rk), "key": f"/library/parts/{rk}/{NOW}/file.jpg",
+                                      "size": 3_000_000, "container": "jpeg"}]}]
+        return md
+
+    def children(self, parent):
+        return [rk for rk in self.order if self.items[rk]["parent"] == parent]
+
+    def query(self, q):
+        types = set((q.get("type") or "").split(",")) - {""}
+        parent = q.get("parent")
+        if types == {"14"}:
+            rks = [rk for rk in self.order if self.items[rk]["kind"] == "album" and self.items[rk]["parent"] == parent]
+        elif types:
+            kinds = {"13": "photo", "12": "clip"}
+            wanted = {kinds[t] for t in types if t in kinds}
+            clustered = q.get("clusterZoomLevel") == "1" and not parent
+            rks = [rk for rk in self.order if self.items[rk]["kind"] in wanted
+                   and (clustered or self.items[rk]["parent"] == parent)]
+        else:
+            rks = self.children(parent)
+        sort = (q.get("sort") or "titleSort").split(",")[0]
+        field, _, direction = sort.partition(":")
+        if field == "originallyAvailableAt":
+            key = lambda r: (self.items[r].get("date", ""), self.items[r]["title"])
+        elif field == "addedAt":
+            key = lambda r: self.items[r].get("addedAt", 0)
+        else:
+            key = lambda r: self.items[r]["title"].lower()
+        return sorted(rks, key=key, reverse=direction == "desc")
+
+
+class ImageBank:
+    """A few dozen generated photo-like JPEGs, picked by rating key."""
+
+    def __init__(self, directory, count=36):
+        self.paths = []
+        if not directory:
+            return
+        os.makedirs(directory, exist_ok=True)
+        palette = ["#1d3557-#e9c46a", "#264653-#f4a261", "#0b3c5d-#d9b310", "#2a9d8f-#e76f51",
+                   "#3d405b-#f2cc8f", "#14213d-#fca311", "#335c67-#e09f3e", "#023047-#ffb703",
+                   "#283618-#dda15e"]
+        for i in range(count):
+            portrait = i % 4 == 3
+            size = "900x1200" if portrait else "1200x900"
+            for variant, scale in (("full", None), ("small", "360x360^")):
+                path = os.path.join(directory, f"photo-{i:02d}-{variant}.jpg")
+                if not os.path.exists(path):
+                    if variant == "full":
+                        cmd = ["magick", "-seed", str(i + 1), "-size", size, f"plasma:{palette[i % len(palette)]}",
+                               "-blur", "0x6", "-modulate", "100,130", "-quality", "85", path]
+                    else:
+                        cmd = ["magick", os.path.join(directory, f"photo-{i:02d}-full.jpg"), "-resize", scale,
+                               "-gravity", "center", "-extent", "360x360", "-quality", "80", path]
+                    try:
+                        subprocess.run(cmd, check=True, capture_output=True)
+                    except (OSError, subprocess.CalledProcessError):
+                        self.paths = []
+                        return
+            self.paths.append(i)
+        self.directory = directory
+        self.cache = {}
+
+    def image(self, rk, large):
+        if not self.paths:
+            return None
+        i = self.paths[int(rk) % len(self.paths)]
+        path = os.path.join(self.directory, f"photo-{i:02d}-{'full' if large else 'small'}.jpg")
+        if path not in self.cache:
+            with open(path, "rb") as f:
+                self.cache[path] = f.read()
+        return self.cache[path]
+
+
 def container(**fields):
     mc = {"size": 0}
     mc.update({k: v for k, v in fields.items() if v is not None})
@@ -143,6 +309,8 @@ class Handler(BaseHTTPRequestHandler):
     args = None
     db = None
     port = None
+    photos = None
+    images = None
 
     def log_message(self, fmt, *args):
         pass
@@ -234,10 +402,19 @@ class Handler(BaseHTTPRequestHandler):
 
     def pms(self, path, q):
         lib = self.lib
-        if path.startswith("/photo") or re.fullmatch(r"/library/metadata/\d+/(thumb|art)/\d+", path) \
+        if path.startswith("/photo") or re.fullmatch(r"/library/metadata/\d+/(thumb|art|composite)/\d+", path) \
                 or re.fullmatch(r"/library/sections/\w+/composite/\d+", path):
             time.sleep(self.args.rtt / 1000)
-            self._send(PNG, "image/png")
+            source = q.get("url", path)
+            m = re.search(r"/library/(?:metadata|parts)/(\d+)", source)
+            jpeg = None
+            if m and self.photos and m.group(1) in self.photos.items:
+                large = int(q.get("width", 0) or 0) > 800 or "/library/parts/" in source
+                jpeg = self.images.image(m.group(1), large)
+            if jpeg:
+                self._send(jpeg, "image/jpeg")
+            else:
+                self._send(PNG, "image/png")
         elif path == "/identity":
             self.delay()
             self._json(container(claimed=True, machineIdentifier=SERVER_ID, version="1.42.1"))
@@ -246,16 +423,30 @@ class Handler(BaseHTTPRequestHandler):
             self._json(container(friendlyName="Big NAS", machineIdentifier=SERVER_ID, version="1.42.1"))
         elif path == "/library/sections":
             self.delay()
+            sections = list(lib.sections.values())
+            if self.photos:
+                sections.append({"key": "3", "type": "photo", "title": "Photos"})
             dirs = [{"key": s["key"], "type": s["type"], "title": s["title"], "agent": "tv.plex.agents.movie",
                      "scanner": "Plex Movie", "language": "en-US", "uuid": f"uuid-{s['key']}",
                      "art": f"/library/sections/{s['key']}/composite/{NOW}",
                      "thumb": f"/library/sections/{s['key']}/composite/{NOW}",
                      "updatedAt": NOW, "createdAt": NOW, "scannedAt": NOW, "content": True,
                      "directory": True, "hidden": 0, "filters": True, "refreshing": False}
-                    for s in lib.sections.values()]
+                    for s in sections]
+            for d in dirs:
+                if d["type"] == "photo":
+                    d["agent"], d["scanner"] = "com.plexapp.agents.none", "Plex Photo Scanner"
             self._json(container(Directory=dirs))
         elif m := re.fullmatch(r"/library/sections/(\w+)/all", path):
-            self.section_all(lib.sections.get(m.group(1)), q)
+            if m.group(1) == "3" and self.photos:
+                self.photo_all(q)
+            else:
+                self.section_all(lib.sections.get(m.group(1)), q)
+        elif self.photos and (m := re.fullmatch(r"/library/metadata/(\d+)(/children)?", path)) \
+                and m.group(1) in self.photos.items:
+            self.delay()
+            rks = self.photos.children(m.group(1)) if m.group(2) else [m.group(1)]
+            self._json(container(Metadata=[self.photos.metadata(rk) for rk in rks]))
         elif m := re.fullmatch(r"/library/sections/(\w+)/firstCharacter", path):
             sec = lib.sections[m.group(1)]
             self.delay(scan_rows=len(sec["rks"]))
@@ -373,6 +564,16 @@ class Handler(BaseHTTPRequestHandler):
         self._json(container(Metadata=[self.lib.metadata(rk) for rk in page], totalSize=len(rks), offset=start,
                              librarySectionID=int(sec["key"]), librarySectionTitle=sec["title"]))
 
+    def photo_all(self, q):
+        rks = self.photos.query(q)
+        start = int(q.get("X-Plex-Container-Start", 0) or 0)
+        size = q.get("X-Plex-Container-Size")
+        size = int(size) if size else len(rks)
+        page = rks[start:start + size]
+        self.delay(scan_rows=len(self.photos.items), items=len(page))
+        self._json(container(Metadata=[self.photos.metadata(rk) for rk in page], totalSize=len(rks), offset=start,
+                             librarySectionID=3, librarySectionTitle="Photos", viewGroup="photo"))
+
     def hub_rks(self, name, sec):
         lib = self.lib
         if name == "inProgress":
@@ -425,18 +626,24 @@ def main():
     p.add_argument("--scan-us", type=float, default=25, help="µs per section row scanned by a DB query")
     p.add_argument("--item-us", type=float, default=300, help="µs per returned item")
     p.add_argument("--db-workers", type=int, default=2)
+    p.add_argument("--photos", type=int, default=0, help="photos (and clips) in a photo library; 0 = none")
+    p.add_argument("--image-cache", default=os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                                                          "..", "build", "mock-photo-images"))
     args = p.parse_args()
     lib = Library(args.movies, args.shows)
     db = threading.BoundedSemaphore(args.db_workers)
+    photos = PhotoLibrary(args.photos) if args.photos else None
+    images = ImageBank(args.image_cache if photos else None)
 
     def make(role):
-        return type("H", (Handler,), {"lib": lib, "role": role, "args": args, "db": db, "port": args.port})
+        return type("H", (Handler,), {"lib": lib, "role": role, "args": args, "db": db, "port": args.port,
+                                      "photos": photos, "images": images})
 
     for role, port in (("plextv", args.port), ("pms", args.port + 1)):
         httpd = FastServer(("127.0.0.1", port), make(role))
         threading.Thread(target=httpd.serve_forever, daemon=True).start()
     log(f"plex.tv on :{args.port}, PMS on :{args.port + 1} — {args.movies} movies, {args.shows} shows; "
-        f"rtt={args.rtt}ms scan={args.scan_us}µs/row item={args.item_us}µs db_workers={args.db_workers}")
+        f"{args.photos} photos; rtt={args.rtt}ms scan={args.scan_us}µs/row item={args.item_us}µs db_workers={args.db_workers}")
     while True:
         time.sleep(3600)
 
