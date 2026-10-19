@@ -12,6 +12,7 @@ struct MainTabView: View {
     @State private var moviesPath = NavigationPath()
     @State private var showsPath = NavigationPath()
     @State private var videosPath = NavigationPath()
+    @State private var photosPath = NavigationPath()
     @State private var liveTVPath = NavigationPath()
     @State private var downloadsPath = NavigationPath()
     @State private var searchPath = NavigationPath()
@@ -352,6 +353,8 @@ struct MainTabView: View {
             showsPath
         case .library(.video):
             videosPath
+        case .library(.photo):
+            photosPath
         case .library(.liveTV), .liveTV:
             liveTVPath
         case .downloads:
@@ -375,6 +378,8 @@ struct MainTabView: View {
             showsPath = path
         case .library(.video):
             videosPath = path
+        case .library(.photo):
+            photosPath = path
         case .library(.liveTV), .liveTV:
             liveTVPath = path
         case .downloads:
@@ -396,6 +401,8 @@ struct MainTabView: View {
             $showsPath
         case .video:
             $videosPath
+        case .photo:
+            $photosPath
         case .liveTV:
             $liveTVPath
         }

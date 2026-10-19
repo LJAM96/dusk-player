@@ -10,6 +10,7 @@ enum AppNavigationRoute: Hashable {
     case libraryGenre(library: PlexLibrary, genre: LibraryGenreOption)
     case libraryCollection(library: PlexLibrary, collection: PlexLibraryCollection)
     case libraryRecommendations(PlexLibrary)
+    case photoAlbum(PhotoAlbumRoute)
     case hub(PlexHub)
     case media(type: PlexMediaType, id: PlexItemID)
     case downloadedMedia(type: PlexMediaType, id: PlexItemID)
@@ -55,7 +56,13 @@ struct AppNavigationDestinationView: View {
         case .search:
             SearchRootContent()
         case .library(let library):
-            LibraryItemsView(library: library, plexService: plexService)
+            if library.libraryType == .photo {
+                PhotoBrowserView(library: library, plexService: plexService)
+            } else {
+                LibraryItemsView(library: library, plexService: plexService)
+            }
+        case .photoAlbum(let album):
+            PhotoBrowserView(library: album.library, album: album, plexService: plexService)
         case .libraryGenre(let library, let genre):
             LibraryItemsView(
                 library: library,

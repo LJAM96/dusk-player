@@ -25,6 +25,7 @@ Dusk/Sources
     Home/              Home hubs, continue watching, recommendations
     Libraries/         Library list, library item grids, recommendations
     LiveTV/            Channel guide, on-now Home shelf, Live TV state
+    Photos/            Photo library grids (albums, timeline) and the full-screen viewer
     Detail/            Movie/show/season/episode/video/person detail flows
     Seerr/             Request-only external movie/show/season detail flows
     Player/            Full-screen playback UI and coordinator
@@ -76,7 +77,7 @@ blocking wall, and Downloads stays reachable throughout.
 `PlayerView` as a full-screen cover when `PlaybackCoordinator.showPlayer` is
 true. App-wide routes are declared in `AppNavigationRoute`; new top-level
 destinations should normally be added there. Content tabs cover library types
-(Movies, TV Shows, Videos) and Live TV when the highest-priority connected
+(Movies, TV Shows, Videos, Photos) and Live TV when the highest-priority connected
 server exposes it, with visibility and order supplied by `UserPreferences`;
 iOS/iPadOS expose Search from Home/library toolbars, while
 tvOS keeps it as a flat destination. iPadOS keeps every remaining destination
@@ -139,13 +140,13 @@ Live TV:
 
 Libraries:
 
-- `LibrariesViewModel` exposes the available Plex libraries (movie, show, and
-  video sections; `PlexLibrary.libraryType` classifies "Other Videos" sections).
+- `LibrariesViewModel` exposes the available Plex libraries (movie, show, video
+  and photo sections; `PlexLibrary.libraryType` classifies "Other Videos" sections).
   Its `libraries` is a read-through of `PlexService.libraryOrder.orderedSections`,
   so every library list follows the order stored on the Plex account — which now
   spans every connected server; it loads through `ensureLibraryOrderLoaded(force:)`
   and never stores its own copy. Video sections stay out of it until counted
-  non-empty. `ServerLabeling` decides when a library has to
+  non-empty (photo sections too). `ServerLabeling` decides when a library has to
   name its server (same type, same title).
 - `LibrariesView` lands each type tab on `LibraryRecommendationsView` for all of
   that type's libraries, or on the grid / `LibraryTypeListView` when Settings ›
@@ -153,6 +154,10 @@ Libraries:
   libraries when there is more than one.
 - `LibraryItemsViewModel` owns paged item loading, sorting, genre filtering, and
   optional collection scoping (`LibraryCollectionItemsView`).
+- Photo libraries live in `Features/Photos`: `PhotoBrowserViewModel` (paged
+  albums/timeline queries over `PlexService+Photos`, `PlexPhotoItem`),
+  `PhotoBrowserView` (grid, also the album route) and `PhotoViewerView` (full-screen
+  viewer, iOS zoom, tvOS slideshow). See `docs/ui-features.md` → "Photos".
 - `LibraryRecommendationsViewModel` takes one *or several* libraries of the same
   type and merges their hubs and shelves; `LibraryRecommendationEngine` owns the
   per-library personalization. `.video` libraries use `LibraryVideoShelfLoader`

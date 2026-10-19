@@ -25,6 +25,9 @@ enum ScreenshotMode {
         static let upNext = "DuskScreenshotUpNext"
         static let playerSheet = "DuskScreenshotPlayerSheet"
         static let heroIndex = "DuskScreenshotHeroIndex"
+        static let photoAlbum = "DuskScreenshotPhotoAlbum"
+        static let photoViewer = "DuskScreenshotPhotoViewer"
+        static let photoSlideshow = "DuskScreenshotPhotoSlideshow"
     }
 
     private static var defaults: UserDefaults { .standard }
@@ -73,7 +76,7 @@ enum ScreenshotMode {
     }
 
     enum Screen: String {
-        case home, movies, shows, library, detail, search, player, downloads, settings, serverPriority, supporter, icons
+        case home, movies, shows, photos, library, detail, search, player, downloads, settings, serverPriority, supporter, icons
     }
 
     static var screen: Screen? {
@@ -98,6 +101,24 @@ enum ScreenshotMode {
     @MainActor static var pendingSheet: Sheet?
 
     @MainActor private static var hasRouted = false
+    @MainActor private static var hasOpenedPhotoViewer = false
+
+    /// `-DuskScreenshotPhotoViewer <n>`: the photo grid opens the viewer on
+    /// its n-th photo or clip. Handed out once.
+    /// `-DuskScreenshotPhotoSlideshow YES`: that viewer starts as a slideshow.
+    static var startsPhotoSlideshow: Bool {
+        isActive && defaults.bool(forKey: Key.photoSlideshow)
+    }
+
+    @MainActor
+    /// With `-DuskScreenshotPhotoAlbum` only that album's grid opens it, not
+    /// the library root underneath.
+    static func consumePhotoViewerIndex(inAlbum: Bool) -> Int? {
+        guard isActive, !hasOpenedPhotoViewer, defaults.object(forKey: Key.photoViewer) != nil,
+              inAlbum == (defaults.string(forKey: Key.photoAlbum)?.nilIfEmpty != nil) else { return nil }
+        hasOpenedPhotoViewer = true
+        return max(defaults.integer(forKey: Key.photoViewer), 0)
+    }
 
     /// Resolves the requested screen once the demo server is connected and its
     /// libraries are known. Returns nil until then, and after it has routed once.
@@ -110,6 +131,9 @@ enum ScreenshotMode {
         guard isActive, !hasRouted, let screen,
               plexService.pool.primary != nil,
               !libraries.isEmpty else { return nil }
+
+        // Photo sections only join the list once counted non-empty.
+        if screen == .photos, !libraries.contains(where: { $0.libraryType == .photo }) { return nil }
 
         // The demo servers hand out globally unique rating keys, so an item is
         // found by asking each connected server for it.
@@ -134,6 +158,19 @@ enum ScreenshotMode {
             destination.tab = .library(.movie)
         case .shows:
             destination.tab = .library(.show)
+        case .photos:
+            // `-DuskScreenshotPhotoAlbum <ratingKey>:<title>` opens that album
+            // of the first photo library.
+            destination.tab = .library(.photo)
+            if let value = defaults.string(forKey: Key.photoAlbum)?.nilIfEmpty,
+               let library = libraries.first(where: { $0.libraryType == .photo }) {
+                let parts = value.split(separator: ":", maxSplits: 1).map(String.init)
+                destination.routes = [.photoAlbum(PhotoAlbumRoute(
+                    library: library,
+                    ratingKey: parts[0],
+                    title: parts.count > 1 ? parts[1] : "Album"
+                ))]
+            }
         case .library:
             let type = itemType == .show ? PlexLibraryType.show : .movie
             destination.tab = .library(type)

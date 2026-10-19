@@ -566,8 +566,8 @@ in Dusk. Read this with `docs/codebase-map.md`, `STYLE.md`, and `docs/data-and-p
   Plex Web sidebar and the other Plex apps signed in as this user.
 - A row carries its server name only when another library of the same type has the
   same title. The server name disambiguates; it is never decoration.
-- The screen lists **every** section, music and photo included, even
-  though Dusk cannot browse those. They occupy slots in the account's order, so
+- The screen lists **every** section, music included, even
+  though Dusk cannot browse it. They occupy slots in the account's order, so
   omitting them would silently move them when the list is written back.
 - iOS/iPadOS use native list editing (`EditButton` + `onMove`). tvOS uses a position
   menu per row (`TVSettingsMenuRow`), the same pattern as Navigation Tabs, with
@@ -630,7 +630,8 @@ in Dusk. Read this with `docs/codebase-map.md`, `STYLE.md`, and `docs/data-and-p
   screens, and reloads it on `plexService.serverContentRevision` because the available
   tabs derive from the merged library list. Avoid each tab independently discovering
   libraries.
-- `LibrariesView` is the direct Movies/Shows/Videos tab wrapper. Where the tab lands
+- `LibrariesView` is the direct Movies/Shows/Videos/Photos tab wrapper (Photos: see
+  "Photos" below). Where the tab lands
   is Settings › Navigation › **Libraries Open To** (`UserPreferences.libraryLandingPage`,
   device-local):
   - **Recommended** (default): `LibraryRecommendationsView` for **all** libraries of
@@ -699,6 +700,49 @@ in Dusk. Read this with `docs/codebase-map.md`, `STYLE.md`, and `docs/data-and-p
   not mutate current results. Preserve this pattern when adding filters.
 - Infinite scroll is triggered from `PlexItemPosterGrid.onItemAppear`; keep pagination
   logic in the view model.
+
+### Photos
+
+- Plex `photo` sections are `PlexLibraryType.photo` (Photos tab, hideable/reorderable
+  in Navigation Tabs like the others). Like "Other Videos", a photo section stays out
+  of `LibrariesViewModel.libraries` until `getLibraryItemCount` says it holds
+  something, so an empty one never adds a tab. Permissions need nothing extra: the
+  sections come through the same per-server, per-profile session as every library,
+  so a managed user only sees the photo libraries shared with them.
+- No recommendations: one photo library opens straight on `PhotoBrowserView`, several
+  on `LibraryTypeListView` (rows always open the grid, whatever Libraries Open To says).
+  `.library(photoLibrary)` and `.photoAlbum(PhotoAlbumRoute)` both land on
+  `PhotoBrowserView`.
+- `PhotoBrowserViewModel` walks a list of paged queries (`PlexPhotoQuery`): a library
+  root in **Albums** mode lists its root albums and then its loose photos, an album
+  its sub-albums then its photos and clips, and **Timeline** (root only, remembered per
+  library) is every photo and clip, newest first. 60 rows first, then 150 per page as
+  the grid (or the viewer) nears the end. Nothing walks the whole library.
+- Grid: album cards (composite artwork, title) above a tight square grid of photos;
+  clips carry a play glyph and duration and play straight away through
+  `PlaybackCoordinator.play` (they are ordinary Plex `clip` items).
+- `PhotoViewerView` is a full-screen cover over the grid's loaded `media`:
+  - iOS/iPadOS: horizontal paging `ScrollView` (`scrollPosition(id:)`), each photo in a
+    `UIScrollView` (`PhotoZoomScrollView`) for pinch / double-tap zoom; paging is off
+    while zoomed. Tap toggles the chrome (close, "n of m", date / place / camera).
+    Left/right arrow keys page, Escape closes.
+  - tvOS: left/right on the remote steps with a cross-fade, Select toggles the info,
+    Play/Pause toggles a 5 s slideshow (clips skipped, idle timer off while it runs).
+    The grid has a glass **Slideshow** button, and Play/Pause on a focused photo starts
+    the slideshow from it.
+  - A clip page shows its frame with a play button. Playing it closes the viewer and
+    the grid starts playback in the cover's `onDismiss`, because the player is itself
+    a full-screen cover of the tab shell and cannot present over another cover.
+- Images: grid tiles use the item's `thumb` through `imageURL` (square, `minSize=1`
+  crop). The viewer shows that cached thumbnail first, then
+  `photoDisplayURL(for:width:height:)`: the original **Part** through
+  `/photo/:/transcode` fitted inside the screen's long edge (no `minSize`, so portrait
+  photos are not oversized), which also applies EXIF rotation and converts HEIC. Clips
+  have no transcodable original and keep their thumb. Neighbours are prefetched.
+- Reproduce with `scripts/mock_large_plex.py --photos 5000` (see
+  `docs/development-workflow.md`); screenshot hooks: `-DuskScreenshotScreen photos`,
+  `-DuskScreenshotPhotoAlbum <ratingKey>:<title>`, `-DuskScreenshotPhotoViewer <n>`,
+  `-DuskScreenshotPhotoSlideshow YES`.
 
 ## Detail Screens
 

@@ -69,6 +69,15 @@ struct LibrariesRootContent: View {
             errorView(message: error)
         } else if libraries.isEmpty {
             emptyView
+        } else if libraryType == .photo {
+            // Photo libraries have no recommendations: one opens straight on
+            // its albums, several on the list of them.
+            if libraries.count == 1 {
+                PhotoBrowserView(library: libraries[0], plexService: plexService)
+                    .id(libraries[0].id)
+            } else {
+                LibraryTypeListView(libraryType: libraryType, viewModel: viewModel)
+            }
         } else if preferences.libraryLandingPage == .all {
             // "All (A–Z)": one library opens straight on its grid; several
             // open on the list of them, whose rows then open their grids.
@@ -176,7 +185,8 @@ struct LibraryTypeListView: View {
 
     /// A row opens its library the way Settings › Libraries Open To says.
     private func route(for library: PlexLibrary) -> AppNavigationRoute {
-        switch preferences.libraryLandingPage {
+        guard library.libraryType != .photo else { return .library(library) }
+        return switch preferences.libraryLandingPage {
         case .recommended: .libraryRecommendations(library)
         case .all: .library(library)
         }

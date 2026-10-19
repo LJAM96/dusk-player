@@ -280,7 +280,12 @@ which is the measurement. Point a Debug build at it with the screenshot-mode lau
 arguments (`-DuskScreenshotMode YES -DuskScreenshotPlexTV http://127.0.0.1:47600
 -DuskScreenshotScreen movies|shows|library`, see `docs/screenshots.md`) and take
 `simctl io screenshot`s at fixed offsets. Use it before and after touching library,
-hub or recommendation loading. Its costs are a model, not a real server: compare
+hub or recommendation loading. `--photos 5000` adds a photo library (section 3:
+year/month and trip albums, loose root photos, ~5% clips) that answers the
+`type=` / `parent=` / `clusterZoomLevel=1` queries and serves generated plasma JPEGs
+from `/photo/:/transcode` (ImageMagick, cached in `build/mock-photo-images`); open it
+with `-DuskScreenshotScreen photos`. Clip playback cannot be exercised there (no media
+files). Its costs are a model, not a real server: compare
 builds against each other, not against absolute numbers.
 
 ## Git and Push Expectations

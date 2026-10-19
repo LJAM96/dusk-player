@@ -474,6 +474,27 @@ File: `PlexService+Playback.swift`.
   engines do not use `PlexService` request headers.
 - Never log raw playback URLs; use `sanitizedPlaybackURLString(for:)`.
 
+## Photo Libraries
+File: `PlexService+Photos.swift`, model `Models/PlexPhoto.swift`.
+- Photo sections are decoded as `PlexPhotoItem`, never `PlexItem` (which keeps
+  `type: "photo"` as `.unknown`, and that is what keeps photos off Home, Search and the
+  detail routes). In JSON an album and a photo are both `type: "photo"` under
+  `Metadata`; only an album's `key` ends in `/children`. Clips are `type: "clip"`,
+  `subtype: "photo"`, with normal video `Media`/`Part`.
+- Everything is queried through `/library/sections/{id}/all` with Plex search types
+  (clip 12, photo 13, album 14): albums `type=14&parent=<album>` (no parent = root),
+  an album's photos `type=13,12&parent=<album>`, root loose photos `type=13,12`, the
+  timeline `type=13,12&clusterZoomLevel=1` (without it the type filter only reaches the
+  root). Not `/children`: it mixes sub-albums into the photos, so a sorted, paged walk
+  would bury the albums on the last page. Paging is the usual
+  `X-Plex-Container-Start/Size` + `totalSize`.
+- `originallyAvailableAt` is a camera-local day; `PlexPhotoItem.displayDate` parses it
+  in the device's time zone. Place names (`Place` tags) only exist when the server
+  saves location names (and are admin-only by default); there is no lat/lon.
+- Sources: python-plexapi `photo.py`/`library.py`, the LukeHagar plex-api-spec, and
+  JSON fixtures from another Swift client measured on PMS 1.43. Not yet checked
+  against a real PMS from Dusk.
+
 ## Image URL And Data Handling
 File: `PlexService+Images.swift`.
 - Call `plexService.imageURL(for:width:height:)` from view models/UI helpers.

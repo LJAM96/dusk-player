@@ -5,6 +5,7 @@ enum PlexLibraryType: String, Codable, Sendable, CaseIterable {
     case show
     case video
     case liveTV
+    case photo
 
     var tabTitle: String {
         switch self {
@@ -16,6 +17,8 @@ enum PlexLibraryType: String, Codable, Sendable, CaseIterable {
             "Videos"
         case .liveTV:
             "Live TV"
+        case .photo:
+            "Photos"
         }
     }
 
@@ -29,6 +32,8 @@ enum PlexLibraryType: String, Codable, Sendable, CaseIterable {
             "play.rectangle"
         case .liveTV:
             "dot.radiowaves.left.and.right"
+        case .photo:
+            "photo.on.rectangle"
         }
     }
 }
@@ -55,6 +60,8 @@ struct PlexLibrary: Codable, Sendable, Identifiable {
             isVideoSection ? .video : .movie
         case "show":
             .show
+        case "photo":
+            .photo
         default:
             nil
         }

@@ -13,17 +13,21 @@ final class LibrariesViewModel {
     private let plexService: PlexService
 
     /// Read-through of the shared library-order store so every browsable list
-    /// follows the order stored on the Plex account. Music and photo sections
-    /// occupy slots in that order but are not browsable in Dusk, so they are
-    /// filtered out here (and only here — the settings editor lists them).
-    /// So are "Other Videos" sections until they are known to hold something:
-    /// an empty one would otherwise put a Videos tab in front of everyone.
+    /// follows the order stored on the Plex account. Music sections occupy
+    /// slots in that order but are not browsable in Dusk, so they are filtered
+    /// out here (and only here — the settings editor lists them).
+    /// So are "Other Videos" and photo sections until they are known to hold
+    /// something: an empty one would otherwise put a tab in front of everyone.
     var libraries: [PlexLibrary] {
         plexService.libraryOrder.orderedSections.filter { library in
             guard let type = library.libraryType else { return false }
-            return type != .video || videoLibraryHasItems[library.id] == true
+            return !Self.countedTypes.contains(type) || libraryHasItems[library.id] == true
         }
     }
+
+    /// Types whose sections commonly exist empty (Plex creates them on a
+    /// whim, people forget them), so they stay hidden until counted.
+    private static let countedTypes: Set<PlexLibraryType> = [.video, .photo]
 
     /// Any browsable section, counted or not, so an uncounted video section
     /// does not read as "nothing loaded yet".
@@ -31,10 +35,10 @@ final class LibrariesViewModel {
         plexService.libraryOrder.orderedSections.contains { $0.libraryType != nil }
     }
 
-    /// Whether each video section (`PlexLibrary.id`) holds any items. Missing
-    /// means not counted yet, which keeps the section hidden; a failed count
-    /// shows it rather than hiding a library that may well have content.
-    private var videoLibraryHasItems: [String: Bool] = [:]
+    /// Whether each counted section (`PlexLibrary.id`) holds any items.
+    /// Missing means not counted yet, which keeps the section hidden; a failed
+    /// count shows it rather than hiding a library that may well have content.
+    private var libraryHasItems: [String: Bool] = [:]
 
     private(set) var isLoading = false
     private(set) var error: String?
@@ -77,9 +81,9 @@ final class LibrariesViewModel {
         }
         // Counting runs even when the sections are current: the shell's load
         // is often cancelled by the next server connecting, and an uncounted
-        // video section must not stay hidden for the rest of the session.
+        // section must not stay hidden for the rest of the session.
         guard force || !hasBrowsableSections || loadedRevision != serverContentRevision else {
-            await countVideoLibraryItems()
+            await countLibraryItems()
             return
         }
 
@@ -107,14 +111,15 @@ final class LibrariesViewModel {
             shouldForce = false
         } while needsReload || loadedRevision != serverContentRevision
 
-        await countVideoLibraryItems()
+        await countLibraryItems()
     }
 
-    /// Counts the video sections not yet known to have items, so empty ones
-    /// stay hidden and get another look on the next load.
-    private func countVideoLibraryItems() async {
+    /// Counts the video and photo sections not yet known to have items, so
+    /// empty ones stay hidden and get another look on the next load.
+    private func countLibraryItems() async {
         let uncounted = plexService.libraryOrder.orderedSections.filter {
-            $0.libraryType == .video && videoLibraryHasItems[$0.id] != true
+            guard let type = $0.libraryType else { return false }
+            return Self.countedTypes.contains(type) && libraryHasItems[$0.id] != true
         }
         guard !uncounted.isEmpty else { return }
 
@@ -137,7 +142,7 @@ final class LibrariesViewModel {
             }
             for await result in group {
                 guard let (libraryID, hasItems) = result else { continue }
-                videoLibraryHasItems[libraryID] = hasItems
+                libraryHasItems[libraryID] = hasItems
             }
         }
     }
