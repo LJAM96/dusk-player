@@ -2,6 +2,9 @@ import SwiftUI
 
 struct LibraryItemsView: View {
     @State private var viewModel: LibraryItemsViewModel
+    /// Set when the grid is a tab's landing page (Settings › Libraries Open
+    /// To › All), so the library's recommendations stay one step away.
+    private let showsRecommendationsLink: Bool
 
     private let horizontalPadding: CGFloat = DuskPosterMetrics.gridHorizontalPadding
     private let gridSpacing: CGFloat = DuskPosterMetrics.gridSpacing
@@ -14,8 +17,10 @@ struct LibraryItemsView: View {
         plexService: PlexService,
         collection: PlexLibraryCollection? = nil,
         initialGenre: LibraryGenreOption? = nil,
-        preferLocalGenreFiltering: Bool = false
+        preferLocalGenreFiltering: Bool = false,
+        showsRecommendationsLink: Bool = false
     ) {
+        self.showsRecommendationsLink = showsRecommendationsLink
         _viewModel = State(initialValue: LibraryItemsViewModel(
             library: library,
             plexService: plexService,
@@ -54,6 +59,21 @@ struct LibraryItemsView: View {
         .task {
             await viewModel.loadItems()
         }
+        #if os(iOS)
+        .toolbar {
+            if showsRecommendationsLink {
+                ToolbarItemGroup(placement: .topBarTrailing) {
+                    SearchToolbarLink()
+
+                    NavigationLink(value: AppNavigationRoute.libraryRecommendations(viewModel.library)) {
+                        Label("Recommended", systemImage: "sparkles")
+                            .font(.subheadline.weight(.semibold))
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+        }
+        #endif
     }
 
     private var libraryContent: some View {
@@ -115,6 +135,13 @@ struct LibraryItemsView: View {
 
                 sortMenu
 
+                #if os(tvOS)
+                // Last, so a focused (scaled) chip never sits under it.
+                if showsRecommendationsLink {
+                    recommendationsLink
+                }
+                #endif
+
                 if viewModel.isLoading && !viewModel.items.isEmpty {
                     ProgressView()
                         .padding(.leading, 6)
@@ -125,6 +152,35 @@ struct LibraryItemsView: View {
             .padding(.bottom, 4)
         }
     }
+
+    #if os(tvOS)
+    private var recommendationsLink: some View {
+        NavigationLink(value: AppNavigationRoute.libraryRecommendations(viewModel.library)) {
+            HStack(spacing: 10) {
+                Image(systemName: "sparkles")
+                    .font(DuskFont.glyphMedium(ios: .headline))
+                    .foregroundStyle(Color.duskTextSecondary)
+
+                Text("Recommended")
+                    .font(DuskFont.buttonLabel(ios: .subheadline.weight(.medium)))
+                    .foregroundStyle(Color.duskTextPrimary)
+                    .lineLimit(1)
+            }
+            .padding(.horizontal, 14)
+            .padding(.vertical, 10)
+            .background(
+                RoundedRectangle(cornerRadius: controlCornerRadius, style: .continuous)
+                    .fill(Color.duskSurface)
+            )
+            .overlay {
+                RoundedRectangle(cornerRadius: controlCornerRadius, style: .continuous)
+                    .stroke(Color.duskTextSecondary.opacity(0.18), lineWidth: 1)
+            }
+            .duskTVOSFocusEffectShape(RoundedRectangle(cornerRadius: controlCornerRadius, style: .continuous))
+        }
+        .duskSuppressTVOSButtonChrome()
+    }
+    #endif
 
     private var genreMenu: some View {
         Menu {
