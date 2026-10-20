@@ -24,8 +24,15 @@ words = ("Amber Black Broken Cold Crimson Dark Distant Echo Fallen Final Golden 
          "Yellow Zero Atlas Bridge City Dawn Empire Fire Garden Harbor Island Journey Kingdom Light Machine "
          "Night Ocean Path Queen River Signal Storm Tower Union Valley Water Xenon Youth Zone").split()
 def title(): return " ".join(rnd.sample(words, rnd.choice((2, 3))))
+import shutil
+n = 0
 def link(dst):
-    if not os.path.exists(dst): os.link(clip, dst)
+    # filesystems cap hardlinks per inode (~65k), so start a fresh copy of the clip every 50k links
+    global n
+    if os.path.exists(dst): return
+    src = clip if n < 50000 else f"{clip}.{n // 50000}"
+    if not os.path.exists(src): shutil.copy(clip, src)
+    os.link(src, dst); n += 1
 m = os.path.join(root, "Movies"); os.makedirs(m, exist_ok=True)
 for i in range(movies):
     t = f"{title()} {i:05d} ({rnd.randint(1950, 2026)})"
