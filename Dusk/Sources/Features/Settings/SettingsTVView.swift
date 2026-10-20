@@ -203,13 +203,6 @@ struct SettingsTVView: View {
 
                         tvRowDivider
 
-                    TVSettingsToggleRow(
-                        title: "Advanced Playback Controls",
-                        isOn: $preferences.playerAdvancedControlsEnabled
-                    )
-
-                    tvRowDivider
-
                         TVSettingsMenuRow(
                             title: "Pause After",
                             options: SettingsSupport.passoutProtectionEpisodeOptions,
@@ -233,6 +226,13 @@ struct SettingsTVView: View {
                 }
 
                 TVSettingsSection(title: "Playback Advanced", footer: SettingsSupport.playbackAdvancedFooterText) {
+                    TVSettingsToggleRow(
+                        title: "Advanced Playback Controls",
+                        isOn: $preferences.playerAdvancedControlsEnabled
+                    )
+
+                    tvRowDivider
+
                     TVSettingsToggleRow(title: "Dolby Atmos", isOn: $preferences.spatialAudioRemuxEnabled)
 
                     tvRowDivider

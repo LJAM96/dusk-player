@@ -431,9 +431,6 @@ struct SettingsIOSView: View {
                             .foregroundStyle(Color.duskTextSecondary)
                     }
                 }
-                Toggle("Advanced Playback Controls", isOn: $preferences.playerAdvancedControlsEnabled)
-                    .foregroundStyle(Color.duskTextPrimary)
-
                 .duskSuppressTVOSButtonChrome()
             } header: {
                 Text("Appearance")
@@ -445,6 +442,9 @@ struct SettingsIOSView: View {
             .listRowBackground(Color.duskSurface)
 
             Section {
+                Toggle("Advanced Playback Controls", isOn: $preferences.playerAdvancedControlsEnabled)
+                    .foregroundStyle(Color.duskTextPrimary)
+
                 Toggle("Dolby Atmos & Spatial Audio", isOn: $preferences.spatialAudioRemuxEnabled)
                     .foregroundStyle(Color.duskTextPrimary)
 
