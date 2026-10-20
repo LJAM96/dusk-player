@@ -630,6 +630,10 @@ extension PlaybackCoordinator {
             activePlaybackSessionIdentifier = sessionIdentifier
             activeTranscodeSessionID = transcodeSessionID
             activeItemDetails = details
+            if coverFirstCommittedItem == nil {
+                coverFirstCommittedItem = details
+            }
+            coverLastCommittedItem = details
             refreshAdjacentEpisodesIfNeeded()
             // Ahead of the engine so the display's mode switch (which blanks the
             // screen briefly) overlaps buffering instead of playback.

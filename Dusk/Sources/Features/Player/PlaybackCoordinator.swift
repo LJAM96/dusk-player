@@ -146,6 +146,16 @@ final class PlaybackCoordinator {
     /// a newer attempt supersedes a slow load instead of committing over it.
     @ObservationIgnored var currentPlaybackAttemptID: UUID?
 
+    /// The first and the latest item a session committed since the player cover
+    /// last opened. Survives teardown so the page under the cover can follow a
+    /// continuous-play run once it closes (see `advancedEpisodeOnClose`).
+    @ObservationIgnored var coverFirstCommittedItem: PlexMediaDetails?
+    @ObservationIgnored var coverLastCommittedItem: PlexMediaDetails?
+    /// Bumped once the player cover has finished dismissing (its `onDismiss`).
+    /// `showPlayer` turns false when the dismissal starts, before tvOS hands
+    /// focus back to whatever had it, so a page moving focus must wait for this.
+    var playerCoverDismissals = 0
+
     /// Latest play/pause state reported by the active session, fed from the
     /// player's snapshot handler. The Up Next poster countdown reads it so it
     /// freezes while the user pauses during the credits instead of autoplaying.
@@ -687,6 +697,10 @@ final class PlaybackCoordinator {
         }
 
         currentPlaybackAttemptID = attemptID
+        if !showPlayer {
+            coverFirstCommittedItem = nil
+            coverLastCommittedItem = nil
+        }
         loadError = nil
         qualitySwitchError = nil
         loadingPlaceholder = placeholder
@@ -719,6 +733,18 @@ final class PlaybackCoordinator {
         showPlayer = true
     }
 
+    /// The episode the player was on when its cover closed, when Up Next or
+    /// Next Episode moved it past the item the cover opened with; nil when it
+    /// never left that item. Detail pages read it when `playerCoverDismissals`
+    /// moves to put their episode list on it instead of where the run began.
+    var advancedEpisodeOnClose: PlexMediaDetails? {
+        guard let last = coverLastCommittedItem,
+              last.type == .episode,
+              let first = coverFirstCommittedItem,
+              first.id != last.id else { return nil }
+        return last
+    }
+
     /// Dismisses the player cover after a load-error alert. Teardown runs through
     /// the cover's `onDismiss` (`onPlayerDismissed` → `clearPlayerState`).
     func dismissFailedPlayback() {
@@ -740,6 +766,7 @@ final class PlaybackCoordinator {
         finalizeCurrentPlaybackSession(markCompleted: false)
         clearPlayerState()
         showPlayer = false
+        playerCoverDismissals += 1
     }
 
     /// Dismiss any loading error so the UI can return to normal.

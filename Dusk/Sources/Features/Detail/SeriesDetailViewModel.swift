@@ -131,6 +131,25 @@ final class SeriesDetailViewModel {
         await show?.refresh()
     }
 
+    /// Re-anchors the page on an episode that played after the player moved on
+    /// from where the page started it (Up Next / Next Episode), opening its
+    /// season when the run crossed into another one. Returns false when the
+    /// episode is not part of this show, leaving the page alone.
+    func follow(playedEpisode episode: PlexMediaDetails) async -> Bool {
+        guard episode.type == .episode,
+              let seasonKey = episode.parentRatingKey,
+              let showKey = season?.showID?.ratingKey ?? show?.id.ratingKey,
+              episode.grandparentRatingKey == showKey,
+              episode.serverID == nil || season?.serverID == nil || episode.serverID == season?.serverID else {
+            return false
+        }
+        entryEpisodeKey = episode.ratingKey
+        if seasonKey != season?.ratingKey {
+            await openSeason(id: PlexItemID(serverID: episode.serverID ?? serverID, ratingKey: seasonKey))
+        }
+        return season?.ratingKey == seasonKey
+    }
+
     func selectSeason(_ season: PlexSeason) async {
         guard season.ratingKey != selectedSeasonKey else { return }
         await openSeason(id: PlexItemID(serverID: season.serverID ?? serverID, ratingKey: season.ratingKey))

@@ -8,6 +8,9 @@ struct SeasonDetailView: View {
     @Environment(\.scenePhase) private var scenePhase
     @State private var viewModel: SeasonDetailViewModel
     @State private var episodeToDownload: PlexEpisode?
+    /// The episode the player closed on after Up Next / Next Episode moved it
+    /// on; the list scrolls to it instead of staying where the run began.
+    @State private var playedEpisodeScrollTarget: String?
 
     private let horizontalPadding: CGFloat = DuskPosterMetrics.detailHorizontalPadding
 
@@ -52,6 +55,12 @@ struct SeasonDetailView: View {
                 Task { await viewModel.refresh() }
             }
         }
+        .onChange(of: playback.playerCoverDismissals) { _, _ in
+            guard let advancedEpisode = playback.advancedEpisodeOnClose,
+                  advancedEpisode.parentRatingKey == viewModel.ratingKey,
+                  viewModel.displayEpisodes.contains(where: { $0.ratingKey == advancedEpisode.ratingKey }) else { return }
+            playedEpisodeScrollTarget = advancedEpisode.ratingKey
+        }
         .onChange(of: scenePhase) { _, newPhase in
             guard newPhase == .active, viewModel.details != nil else { return }
             Task { await viewModel.refresh() }
@@ -69,37 +78,46 @@ struct SeasonDetailView: View {
     @ViewBuilder
     private func contentView(_ details: PlexMediaDetails) -> some View {
         GeometryReader { geometry in
-            ScrollView {
-                VStack(alignment: .leading, spacing: 0) {
-                    heroSection(
-                        details,
-                        topInset: geometry.safeAreaInsets.top,
-                        containerWidth: geometry.size.width,
-                        containerHeight: geometry.size.height
-                    )
+            ScrollViewReader { proxy in
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 0) {
+                        heroSection(
+                            details,
+                            topInset: geometry.safeAreaInsets.top,
+                            containerWidth: geometry.size.width,
+                            containerHeight: geometry.size.height
+                        )
 
-                    if detailShowsSynopsisBelowHero(for: sizeClass), let summary = details.summary, !summary.isEmpty {
-                        ExpandableSummaryText(text: summary)
+                        if detailShowsSynopsisBelowHero(for: sizeClass), let summary = details.summary, !summary.isEmpty {
+                            ExpandableSummaryText(text: summary)
+                                .padding(.horizontal, horizontalPadding)
+                                .padding(.top, 36)
+                        }
+
+                        if let offlineBannerText = viewModel.offlineBannerText {
+                            OfflineMetadataBanner(message: offlineBannerText)
+                                .padding(.horizontal, horizontalPadding)
+                                .padding(.top, 24)
+                        }
+
+                        episodesSection(width: geometry.size.width)
                             .padding(.horizontal, horizontalPadding)
-                            .padding(.top, 36)
+                            .padding(.top, 40)
+                            .padding(.bottom, 56)
                     }
-
-                    if let offlineBannerText = viewModel.offlineBannerText {
-                        OfflineMetadataBanner(message: offlineBannerText)
-                            .padding(.horizontal, horizontalPadding)
-                            .padding(.top, 24)
-                    }
-
-                    episodesSection(width: geometry.size.width)
-                        .padding(.horizontal, horizontalPadding)
-                        .padding(.top, 40)
-                        .padding(.bottom, 56)
+                    .padding(.top, -geometry.safeAreaInsets.top)
+                    .frame(width: geometry.size.width, alignment: .topLeading)
                 }
-                .padding(.top, -geometry.safeAreaInsets.top)
-                .frame(width: geometry.size.width, alignment: .topLeading)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+                .scrollIndicators(.hidden)
+                .onChange(of: playedEpisodeScrollTarget) { _, ratingKey in
+                    guard let ratingKey else { return }
+                    withAnimation(.easeInOut(duration: 0.3)) {
+                        proxy.scrollTo(ratingKey, anchor: .center)
+                    }
+                    playedEpisodeScrollTarget = nil
+                }
             }
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-            .scrollIndicators(.hidden)
         }
     }
 

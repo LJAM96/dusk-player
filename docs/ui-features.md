@@ -707,9 +707,16 @@ in Dusk. Read this with `docs/codebase-map.md`, `STYLE.md`, and `docs/data-and-p
   focus commit debounced so rapid remote navigation does not shift the scroll
   position. Selecting a card, or the hero Play/Resume, plays the focused episode;
   the eye button toggles the season on screen. The row is only scrolled
-  programmatically when the season changes — never on focus or next-up changes.
+  programmatically when the season changes — never on focus or next-up changes —
+  with one exception: when the player cover closes on a later episode than it
+  opened with (`PlaybackCoordinator.advancedEpisodeOnClose`, i.e. Up Next / Next
+  Episode moved on), the page follows it (`SeriesDetailViewModel.follow`): its
+  season, banner, row position and, if playback began on a card, focus. This runs
+  on `playerCoverDismissals` plus a 600 ms beat, because tvOS restores focus to
+  the starting card after the cover's `onDismiss` and would undo an earlier move.
 - `SeasonDetailView` (iOS/iPadOS) keeps the vertical episode list with per-episode
-  detail navigation.
+  detail navigation; after a continuous-play run it scrolls the list to the
+  episode the player closed on (same `advancedEpisodeOnClose` signal).
 - `EpisodeDetailViewModel` (iOS/iPadOS) handles single-episode metadata, parent
   show/season links, watch toggles, and offline availability.
 - `ActorDetailViewModel` loads a person plus filmography by searching Plex for exact role

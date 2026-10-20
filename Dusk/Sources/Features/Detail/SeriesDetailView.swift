@@ -13,6 +13,11 @@ struct SeriesDetailView: View {
     @State private var viewModel: SeriesDetailViewModel
     @State private var focusedEpisodeKey: String?
     @State private var episodeFocusTask: Task<Void, Never>?
+    /// Set when the player closes on a later episode than it opened with (Up
+    /// Next / Next Episode): the row scrolls to that card and, if the run was
+    /// started from the row, focus moves onto it. Cleared once the card took it.
+    @State private var episodeFollowRequest: EpisodeFollowRequest?
+    @State private var playbackStartedFromEpisodeRow = false
 
     private let horizontalPadding: CGFloat = DuskPosterMetrics.detailHorizontalPadding
     /// The pills and the plain "Episodes" header share one fixed-height slot, so
@@ -82,6 +87,19 @@ struct SeriesDetailView: View {
         .onChange(of: playback.showPlayer) { _, isShowing in
             if !isShowing {
                 Task { await viewModel.refresh() }
+            }
+        }
+        // Only once the cover is gone, and a beat after: tvOS hands focus back
+        // to the card that started playback even after the cover's onDismiss
+        // (sim: the restore landed after onDismiss, 600 ms later it stuck), and
+        // that restore overrides any earlier focus move.
+        .onChange(of: playback.playerCoverDismissals) { _, _ in
+            let movesFocus = playbackStartedFromEpisodeRow
+            playbackStartedFromEpisodeRow = false
+            guard let advancedEpisode = playback.advancedEpisodeOnClose else { return }
+            Task {
+                try? await Task.sleep(for: .milliseconds(600))
+                await followPlayedEpisode(advancedEpisode, movesFocus: movesFocus)
             }
         }
         .onChange(of: scenePhase) { _, newPhase in
@@ -379,6 +397,12 @@ struct SeriesDetailView: View {
                             isUnavailableOffline: season.isUnavailableOffline(episode),
                             isWatched: season.isWatched(episode),
                             artworkWidth: artworkWidth,
+                            focusRequestID: episodeFollowRequest?.ratingKey == episode.ratingKey && episodeFollowRequest?.movesFocus == true
+                                ? episodeFollowRequest?.id
+                                : nil,
+                            onFocusRequestHandled: {
+                                episodeFollowRequest = nil
+                            },
                             onFocus: {
                                 focusEpisode(episode, in: season)
                             },
@@ -401,6 +425,15 @@ struct SeriesDetailView: View {
             .task(id: season.ratingKey) {
                 guard let anchor = viewModel.anchorEpisode else { return }
                 proxy.scrollTo(anchor.ratingKey, anchor: .leading)
+            }
+            // Playback moved on to another episode of this season: bring its
+            // card into view (a season switch is covered by the task above).
+            .onChange(of: episodeFollowRequest?.id) { _, id in
+                guard id != nil, let ratingKey = episodeFollowRequest?.ratingKey else { return }
+                proxy.scrollTo(ratingKey, anchor: .leading)
+                if episodeFollowRequest?.movesFocus == false {
+                    episodeFollowRequest = nil
+                }
             }
         }
         .opacity(viewModel.isSwitchingSeason ? 0.5 : 1)
@@ -560,8 +593,24 @@ struct SeriesDetailView: View {
         }
     }
 
+    /// Moves the page onto the episode the player closed on: its season, the
+    /// banner, the row's scroll position and (when the run began on a card)
+    /// focus. Without this the page stayed on the episode the run started
+    /// from, three episodes later costing three swipes to catch up.
+    @MainActor
+    private func followPlayedEpisode(_ details: PlexMediaDetails, movesFocus: Bool) async {
+        guard await viewModel.follow(playedEpisode: details),
+              let season = viewModel.season,
+              let episode = season.displayEpisodes.first(where: { $0.ratingKey == details.ratingKey }) else { return }
+        episodeFocusTask?.cancel()
+        setFocusedEpisodeKey(episode.ratingKey)
+        episodeFollowRequest = EpisodeFollowRequest(ratingKey: episode.ratingKey, movesFocus: movesFocus)
+        await season.focusEpisode(episode)
+    }
+
     private func play(_ episode: PlexEpisode, in season: SeasonDetailViewModel) {
         guard !season.constrainsPlaybackToOfflineAvailability || season.isPlayableOffline(episode) else { return }
+        playbackStartedFromEpisodeRow = true
         Task {
             await playback.play(
                 id: episode.id,
@@ -571,6 +620,12 @@ struct SeriesDetailView: View {
             )
         }
     }
+}
+
+private struct EpisodeFollowRequest {
+    let id = UUID()
+    let ratingKey: String
+    let movesFocus: Bool
 }
 
 // MARK: - Season Pills
@@ -701,6 +756,9 @@ private struct SeriesEpisodeCard: View {
     let isUnavailableOffline: Bool
     let isWatched: Bool
     let artworkWidth: CGFloat
+    /// Non-nil asks this card to take focus (see `episodeFollowRequest`).
+    let focusRequestID: UUID?
+    let onFocusRequestHandled: () -> Void
     let onFocus: () -> Void
     let onPlay: () -> Void
 
@@ -751,6 +809,13 @@ private struct SeriesEpisodeCard: View {
             if newValue {
                 onFocus()
             }
+        }
+        // Also runs when the card first appears, which is when a request for a
+        // card that was off screen (or in a season still loading) lands.
+        .task(id: focusRequestID) {
+            guard focusRequestID != nil else { return }
+            isFocused = true
+            onFocusRequestHandled()
         }
     }
 }
