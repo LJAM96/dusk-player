@@ -176,6 +176,8 @@ struct HomeCinematicHero: View {
     #if os(tvOS)
     /// The horizontal page scroll of the tvOS hero. See `tvPages`.
     @State private var tvPagePosition = ScrollPosition()
+    /// The page `tvPages` is on or sliding to.
+    @State private var tvRestingPage = 0
     #endif
     #if canImport(UIKit)
     @State private var preloadedHeroBackdropImages: [String: UIImage] = [:]
@@ -190,6 +192,11 @@ struct HomeCinematicHero: View {
     /// iOS-paced 0.5s read as lag there.
     #if os(tvOS)
     private let heroPressTransitionDuration: TimeInterval = 0.32
+    /// The tvOS page slide (`tvPages`). The focus engine's own reveal scroll
+    /// took ~0.9s, most of it a slow creep onto the page. Eased out, but not
+    /// as front-loaded as `heroSlideAnimation`: across the whole display that
+    /// curve's first frames read as a jump.
+    private let tvPageSlide = Animation.timingCurve(0.25, 0.75, 0.25, 1, duration: 0.5)
     #else
     private let heroPressTransitionDuration: TimeInterval = 0.5
     #endif
@@ -390,10 +397,11 @@ struct HomeCinematicHero: View {
     /// view, and each page carries its own play button.
     ///
     /// Paging is therefore an ordinary focus move: left/right from one play
-    /// button goes to its neighbour a page away, and the focus engine scrolls
-    /// it into view (snapped to whole pages by `HomeHeroTVPaging`). Clicks and
-    /// touch-surface swipes are the engine's own, exactly as in any row of
-    /// cards. The hero used to be a single slide with the only focusable item
+    /// button goes to its neighbour a page away. Clicks and touch-surface
+    /// swipes are the engine's own, exactly as in any row of cards. The page
+    /// scroll itself is the hero's: scrolling is disabled, so the engine does
+    /// not reveal the newly focused button with its own slow scroll (~0.9s),
+    /// and the hero slides to the focused page instead (`tvPageSlide`). The hero used to be a single slide with the only focusable item
     /// on screen, paged by `onMoveCommand`; with nothing to the left or right
     /// the engine had no horizontal move to make, and the arc of a sideways
     /// swipe ended as a move down into the shelves.
@@ -425,12 +433,17 @@ struct HomeCinematicHero: View {
         .scrollIndicators(.hidden)
         .contentMargins(.zero, for: .scrollContent)
         .scrollPosition($tvPagePosition)
-        .scrollTargetBehavior(
-            HomeHeroTVPaging(
-                pageWidth: heroWidth,
-                actionLeadingInset: contentLeadingInset + layout.contentHorizontalPadding
-            )
-        )
+        .scrollDisabled(true)
+        .onChange(of: focusedItemKey) { _, key in
+            // The page slide follows focus, with the hero's own curve.
+            guard let key,
+                  let index = heroItemIDs.firstIndex(of: key),
+                  index != tvRestingPage else { return }
+            tvRestingPage = index
+            withAnimation(tvPageSlide) {
+                tvPagePosition.scrollTo(x: CGFloat(index) * heroWidth)
+            }
+        }
         .onScrollGeometryChange(for: Int.self) { geometry in
             guard heroWidth > 0 else { return 0 }
             return Int(((geometry.contentOffset.x + geometry.contentInsets.leading) / heroWidth).rounded())
@@ -1032,6 +1045,7 @@ struct HomeCinematicHero: View {
         resetHeroDragState()
         currentHeroIndex = Self.initialHeroIndex
         #if os(tvOS)
+        tvRestingPage = 0
         tvPagePosition.scrollTo(edge: .leading)
         #endif
 
@@ -1573,30 +1587,6 @@ private struct HeroIndirectScrollNavigation: UIViewRepresentable {
         ) -> Bool {
             true
         }
-    }
-}
-#endif
-
-#if os(tvOS)
-/// Snaps the tvOS hero's page scroll (`HomeCinematicHero.tvPages`) to whole
-/// pages.
-///
-/// The scroll that matters is the focus engine's: moving focus to the next
-/// page's play button proposes the smallest scroll that reveals that button,
-/// which on its own would leave the page half on screen. The proposed visible
-/// rect always contains the newly focused button and, being one page wide,
-/// never contains another page's button whole, so the page is the first one
-/// whose button starts at or after the rect's leading edge.
-private struct HomeHeroTVPaging: ScrollTargetBehavior {
-    var pageWidth: CGFloat
-    /// Leading edge of a page's play button, measured from the page's own.
-    var actionLeadingInset: CGFloat
-
-    func updateTarget(_ target: inout ScrollTarget, context: TargetContext) {
-        guard pageWidth > 0, context.axes.contains(.horizontal) else { return }
-        let pageCount = max(Int((context.contentSize.width / pageWidth).rounded()), 1)
-        let page = Int(((target.rect.minX - actionLeadingInset) / pageWidth).rounded(.up))
-        target.rect.origin.x = CGFloat(min(max(page, 0), pageCount - 1)) * pageWidth
     }
 }
 #endif

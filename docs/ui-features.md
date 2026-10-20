@@ -334,9 +334,10 @@ in Dusk. Read this with `docs/codebase-map.md`, `STYLE.md`, and `docs/data-and-p
   is a full-width page of one horizontal `ScrollView` (`HomeCinematicHero.tvPages`,
   a plain `HStack`: the page focus moves to must exist before it is on screen), and
   every page has its own play button. Left/right is an ordinary focus move to the
-  neighbouring page's button; the focus engine scrolls it into view, and
-  `HomeHeroTVPaging` snaps that reveal-scroll to whole pages (the proposed rect
-  always contains the new button whole and never another page's). Clicks and
+  neighbouring page's button. The page scroll is `.scrollDisabled`, so the engine
+  does not reveal the new button itself (its reveal took ~0.9s, mostly a slow creep);
+  the hero slides to the focused page with `tvPageSlide` (0.5s ease-out) instead.
+  Never let both scroll: they stack. Clicks and
   touch-surface swipes are therefore handled like any row of cards, and the pager
   pills follow the scroll offset. Past either end page the engine has no move, so
   the hero's `onMoveCommand` wraps around to the other end by moving focus there
