@@ -8,5 +8,6 @@ import json,sys
 for d in json.load(sys.stdin)[\"MediaContainer\"].get(\"Directory\",[]):
     if d[\"title\"].startswith(\"Stress\"): print(d[\"key\"])' | while read k; do
   curl -s -o /dev/null -w \"deleted section \$k: %{http_code}\n\" -X DELETE \"\$B/library/sections/\$k?X-Plex-Token=\$T\"
-done"
+done
+curl -s -o /dev/null -w \"cleaned bundles: %{http_code}\n\" -X PUT \"\$B/library/clean/bundles?X-Plex-Token=\$T\""
 ssh "$PLEX_SSH" "case '$STRESS_HOST_DIR' in */Stress) rm -rf '$STRESS_HOST_DIR' && echo 'files removed';; *) echo 'refusing to delete $STRESS_HOST_DIR'; exit 1;; esac"
