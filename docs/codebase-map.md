@@ -118,7 +118,10 @@ Home:
   enough to paint; `HomeContinueWatchingMemory` remembers which servers had
   Continue Watching so the gate knows whose answer to wait for.
 - `HomeRecommendationEngine` owns home-specific recommendation orchestration.
-- `HomeCinematicHero` is large and visual; keep reusable poster/list UI outside it.
+- `HomeCinematicHero` (iOS) is large and visual; keep reusable poster/list UI outside it.
+- `TVFeaturedHeroPage` (`Shared/TVFeaturedHero.swift`) is the tvOS featured hero
+  (artwork + card row, focus cross-fades) shared by `HomeTVView` and the Movies /
+  TV Shows `LibraryRecommendationsView`.
 - `LiveTVHomeShelf` renders currently airing programs without blocking ordinary
   Home content when Live TV is absent or unavailable.
 - `HomeHubFilter` owns the hub/item filter that keeps playlist/music/unknown

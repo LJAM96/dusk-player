@@ -612,13 +612,12 @@ final class HomeViewModel {
     }
 
     func heroEpisodeTitle(for item: PlexItem) -> String? {
-        guard item.type == .episode else { return nil }
-        return item.title == displayTitle(for: item) ? nil : item.title
+        item.featuredEpisodeTitle
     }
 
     func heroBackgroundURL(for item: PlexItem, width: Int, height: Int) -> URL? {
         plexService.imageURL(
-            for: heroBackgroundPath(for: item),
+            for: item.featuredBackgroundPath,
             serverID: item.serverID,
             width: width,
             height: height
@@ -635,38 +634,11 @@ final class HomeViewModel {
     }
 
     func heroMetadata(for item: PlexItem) -> [String] {
-        var parts: [String] = []
-
-        switch item.type {
-        case .episode:
-            if let label = MediaTextFormatter.seasonEpisodeLabel(
-                season: item.parentIndex,
-                episode: item.index
-            ) {
-                parts.append(label)
-            }
-        case .movie:
-            if let year = item.year {
-                parts.append(String(year))
-            }
-        default:
-            break
-        }
-
-        if let durationText = heroDurationText(for: item) {
-            parts.append(durationText)
-        }
-
-        return parts
+        item.featuredMetadata
     }
 
     func heroSummary(for item: PlexItem) -> String? {
-        guard let summary = item.summary?.trimmingCharacters(in: .whitespacesAndNewlines),
-              !summary.isEmpty else {
-            return nil
-        }
-
-        return summary
+        item.featuredSummary
     }
 
     func heroProgressLabel(for item: PlexItem) -> String? {
@@ -893,31 +865,6 @@ final class HomeViewModel {
                 items: filteredItems,
                 showAllLibrary: shelf.showAllLibrary
             )
-        }
-    }
-
-    private func heroDurationText(for item: PlexItem) -> String? {
-        guard let duration = item.duration, duration > 0 else { return nil }
-
-        if let offset = item.viewOffset, offset > 0 {
-            let remaining = max(duration - offset, 0)
-            guard let remainingText = MediaTextFormatter.playbackDuration(milliseconds: remaining) else {
-                return nil
-            }
-            return remaining > 0 ? "\(remainingText) left" : remainingText
-        }
-
-        return MediaTextFormatter.playbackDuration(milliseconds: duration)
-    }
-
-    private func heroBackgroundPath(for item: PlexItem) -> String? {
-        switch item.type {
-        case .episode:
-            return item.grandparentArt ?? item.art ?? item.banner ?? item.thumb ?? item.grandparentThumb
-        case .season:
-            return item.art ?? item.banner ?? item.thumb ?? item.parentThumb
-        default:
-            return item.preferredLandscapePath
         }
     }
 }

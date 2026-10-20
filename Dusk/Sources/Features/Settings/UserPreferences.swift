@@ -311,6 +311,7 @@ final class UserPreferences {
 
     /// Whether Home opens with the small Continue Watching row (the one the
     /// library pages use) instead of the cinematic hero. Off by default.
+    /// iOS only: the tvOS hero is already a row of cards.
     var compactHomeContinueWatching: Bool {
         didSet { UserDefaults.standard.set(compactHomeContinueWatching, forKey: Keys.compactHomeContinueWatching) }
     }

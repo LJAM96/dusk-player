@@ -240,12 +240,13 @@ in Dusk. Read this with `docs/codebase-map.md`, `STYLE.md`, and `docs/data-and-p
   Recently Added hubs and loads personalized shelves through cancellable follow-up
   tasks. Keep this two-phase behavior so expensive recommendation work does not block
   the first visible home content.
-- Continue-watching items drive `HomeCinematicHero`. Settings › Home Advanced ›
+- Continue-watching items drive `HomeCinematicHero` (iOS) and the featured hero
+  (tvOS, see "tvOS featured hero" below). **iOS only:** Settings › Home Advanced ›
   Compact Continue Watching (`UserPreferences.compactHomeContinueWatching`, off by
   default) swaps the hero for `HomeContinueWatchingShelf`, the library pages'
-  `PlexItemActionCarouselSection` row, as the first shelf. Both shells then take
-  their no-hero path (iOS large "Home" title; tvOS "Home" header, no fold snapping
-  or hero focus), so nothing is shown twice.
+  `PlexItemActionCarouselSection` row, as the first shelf, and `HomeIOSView` takes
+  its no-hero path (large "Home" title), so nothing is shown twice. tvOS has no such
+  setting: its hero already is a row of cards.
 - Home filters playlist/music/unknown content and hides Plex "continue watching/on deck"
   hubs so the custom continue-watching flow is not duplicated. That rule lives in
   `HomeHubFilter` (`HomeHubFilter.swift`).
@@ -313,8 +314,8 @@ in Dusk. Read this with `docs/codebase-map.md`, `STYLE.md`, and `docs/data-and-p
   season whose own poster fails to load falls back to the show's (`fallbackPosterPath`
   → `DuskAsyncImage(fallbackURL:)`): Plex can send a season poster path even when the
   season has none (unconfirmed against a real PMS; the show poster also covers any other failure). Home keeps one card per show in Recently Added (`oneCardPerShow`).
-- `HomeCinematicHero` owns hero rotation, drag navigation on iOS, tvOS focus-driven
-  paging, image preloading, title-logo fallback, pager state, and motion
+- `HomeCinematicHero` (iOS only since the tvOS featured hero; its tvOS paging code is
+  no longer reached) owns hero rotation, drag navigation on iOS, image preloading, title-logo fallback, pager state, and motion
   reduction. iOS enables automatic rotation (`autoRotates: true`): the hero advances
   every 7s and the pager pills animate a fill that tracks the timer. The hero pauses
   rotation while `PlaybackCoordinator.showPlayer` is true and restarts it fresh on
@@ -327,32 +328,7 @@ in Dusk. Read this with `docs/codebase-map.md`, `STYLE.md`, and `docs/data-and-p
   more items beyond. On iOS it is one adjustable accessibility element. The
   pager is an `.overlay` of the hero so it can never size it: as a `ZStack`
   sibling, one pill per item once widened the hero past the screen.
-  **tvOS pages natively, through focus.** On tvOS every hero item
-  is a full-width page of one horizontal `ScrollView` (`HomeCinematicHero.tvPages`,
-  a plain `HStack`: the page focus moves to must exist before it is on screen), and
-  every page has its own play button. Left/right is an ordinary focus move to the
-  neighbouring page's button; the focus engine scrolls it into view, and
-  `HomeHeroTVPaging` snaps that reveal-scroll to whole pages (the proposed rect
-  always contains the new button whole and never another page's). Clicks and
-  touch-surface swipes are therefore handled like any row of cards, and the pager
-  pills follow the scroll offset. Past either end page the engine has no move, so
-  the hero's `onMoveCommand` wraps around to the other end by moving focus there
-  (`onFocusItem`). That command fires for every move, also after the engine has
-  moved focus, and `focusedItemKey` may or may not have caught up yet (both seen
-  in the simulator); only a move on an end page that is also at rest on screen
-  (`currentHeroIndex`, which follows the scroll) wraps. Rotation is on
-  (`autoRotates: true`, the same 7s as iOS) and advances the same way, by moving
-  focus to the next page's button, so it is always the engine's own move and
-  scroll. It only runs while a play button has focus (`focusedItemKey`): focus in
-  the shelves, on the tab bar, in another tab or in the player holds it, and focus
-  coming back to a play button, or any left/right move, starts a fresh interval.
-  Playback, scene phase, Reduce Motion and the context menu pause it as on iOS.
-  This replaced a single
-  slide paged by `onMoveCommand`: with nothing focusable left or right of the only
-  play button, the engine had no horizontal move to make, and the arc of a sideways
-  swipe on a real remote ended as a move down into the shelves, which no gesture
-  threshold fixed. Rotation was off on tvOS from 2026-05 to 2026-10 because the
-  old single slide tore down the focused button on every advance. On iOS discrete hero moves still use the two-slot slide
+  On iOS discrete hero moves use the two-slot slide
   model: mount the incoming slide at its off-screen offset before advancing
   animation progress, and queue overlapping moves behind the in-flight slide.
   Backdrops are decoded off the main thread (`byPreparingForDisplay`) during
@@ -366,149 +342,50 @@ in Dusk. Read this with `docs/codebase-map.md`, `STYLE.md`, and `docs/data-and-p
   scroll affordance. Portrait is capped at a square (`maxHeightToWidthRatio: 1`) so a
   16:9 backdrop isn't cropped to a sliver. iPhone and compact-width iPad multitasking
   keep `.ios`. `HomeIOSView.heroLayout` makes the choice.
-- On tvOS, `HomeCinematicHero` pixel-aligns its render size and caps image dynamic
-  range to standard to avoid real-device HDR/SDR seams between the backdrop fade and
-  the shelves below.
-- **On tvOS the home hero is full-bleed: it occupies the entire display and nothing
-  else is on screen at rest.** This replaces the older "leave the first shelf peeking"
-  rule — discoverability now comes from an explicit scroll hint plus fold snapping,
-  not from a cropped shelf.
-  - `HomeCinematicHeroLayout.fillsContainerHeight` (set only by `.tv`) makes the hero
-    take the container height verbatim, with no `topInset` addition — the caller has
-    already sized the container to the whole display. `HomeTVView` builds that size
-    from `fullDisplayWidth` / `fullDisplayHeight`, floored at
-    `geometry.size + safeAreaInsets.top + .bottom`. While there is a hero, the scroll
-    view itself ignores the top safe area (no top content inset, no negative content
-    padding): that is what puts the artwork at screen y = 0, and it makes content y
-    equal the scroll offset, which the fold snapping relies on. Keep the explicit
-    frame/offset width handling and `.contentMargins(.zero…)` — do not swap either
-    for `containerRelativeFrame`.
-  - The `.tv` paddings are measured from the real display edges: the text block
-    sits just above the pager (124pt of bottom padding; the hint is bottom-centre
-    and the block's lowest element is the narrow leading play button, so only the
-    pills need clearing), the pager sits at
-    60pt overscan + ~18pt so its pills share a baseline with the hint, and the logo
-    caps grow to 640×150 for a 1920-wide frame. The backdrop is centre-aligned
-    because 16:9 artwork now lands in a 16:9 box.
-  - `HomeTVScrollHint` (tvOS-only, defined in `HomeTVView.swift`) is the "More" +
-    `chevron.down` affordance, attached as an `.overlay(alignment: .bottom)` on the
-    hero **after** the width frame and **before** the x-offset, so it moves with the
-    hero and centres on the true screen, and padded 60pt off the bottom. An offset
-    only moves what is drawn: attached after it, the hint centred on the un-offset
-    frame, one leading safe-area inset (80pt) right of centre (measured). It is decoration: non-focusable, `allowsHitTesting`
-    off, `accessibilityHidden`, with a gentle chevron bounce that is skipped under
-    Reduce Motion, faded out (0.25s) whenever focus is not on a hero play button,
-    and omitted entirely when there is nothing below the hero. Keep it out of
-    `HomeCinematicHero`'s pages so it does not scroll away with them.
-  - **Hero focus.** `HomeTVView.FocusTarget.heroPrimaryAction(storageKey)` names a
-    page's play button. `heroPrimaryKey(in:)` is the focused page while a play button
-    has focus, otherwise the page on screen (`visibleHeroKey`, reported by the hero
-    from its page scroll through `onVisibleItemChange`). Every other page's button
-    is `.disabled` unless a play button has focus, so coming in from the shelves or
-    the tab bar lands on the page on screen rather than whichever button is nearest
-    a page away. That is not the fencing warned against below: the hero's focus
-    section always keeps one enabled item. **Never key that button on a remembered
-    page.** It used to be the page last focused, reset to the first page whenever
-    Home appeared again (its `.task` reruns after a detail page). With the hero on
-    any other page, the only enabled button was then a page or more to the side,
-    and up from the shelves did nothing (reproduced in the simulator: down, into an
-    item, back, up). A hero reset (`heroSelectionResetRevision`, new hero items)
-    sends the page to the start, and a play button that had focus hands it to the
-    first page's.
-  - **Hero → shelves: the focus engine's move is overruled, never fenced**
-    (`HomeTVView.beginHeroExit`). Measured in the tvOS simulator with a replica of
-    this screen (SwiftUI hero + rows of lazy `NavigationLink` cards, driven by
-    `XCUIRemote`, UIKit focus logged through `UIFocusSystem.didUpdateNotification`):
-    - `onMoveCommand(.down)` on the hero fires on **every** down-press, also when
-      the engine already moved focus to a card (card focus first, then the
-      command). It is not a "no target" fallback.
-    - A region with nothing focusable in it — every card `.disabled`, or a lazy
-      row with nothing realised yet — is stood in for by a focusable
-      `UIKitFocusableFillerItem`. A down-press moves focus into that filler, the
-      play button's `@FocusState` drops to nil, and UIKit then re-resolves focus
-      on its own. That re-resolution is the "third card" / "fifth row, first
-      column" landing. Three rounds of `.disabled` fences (other shelves, then
-      other cards, then everything) each fed it. **Never disable shelves or cards
-      to steer the focus engine.**
-    - The engine's pick is geometric (play button over card 3 → card 3), so a
-      pick that does not match the layout is a filler re-resolution.
-    So the press is left alone and its result replaced:
-    - `beginHeroExit` starts from either the hero's `onMoveCommand(.down)`, or
-      from a shelf card taking focus while
-      the latch is closed (`CarouselItemFocusedKey`), whichever comes first (the
-      simulator shows both orders). It pins the page to the fold (`pinsToFold`)
-      and sets `carouselLeadingItemRequest = .focus`
-      on `firstShelfID`'s shelf (`.landing`). That shelf's first item takes focus
-      through its own `@FocusState` (`carouselLeadingFocusTarget()`), after the
-      row is rewound so the lazy stack has it. It reports through
-      `CarouselLeadingItemFocusedKey`, which opens the latch once; the landing
-      stays open 250ms more (a one-shot deadline), and if a further move of the
-      same gesture pulls focus off the item in that time, Home asks it again by
-      bumping `carouselLeadingFocusGeneration` — Home, not the item, so a request
-      Home has just withdrawn (focus went back up to the play button) is never
-      answered by a stale re-assertion. If nothing answers within 1.5s focus
-      returns to the hero: the page was pinned to the fold throughout, so whatever
-      card the engine picked may be off screen. The landing shelf is fixed when
-      the exit starts (`heroExitShelf`); Back, a hero focus reset, focus returning
-      to the play button, and Home disappearing go through `cancelHeroExit`, and
-      `requestHeroPrimaryFocusIfNeeded` suppresses the card-focus trigger while it
-      runs (`isReturningToHero`).
-    - **Down from the hero is the focus engine's call**, touch-surface moves
-      included; there is no gesture gate. The one exception is
-      `HomeTVHeroPressGuard`: while Select / Play-Pause is held on a play button,
-      or for 300ms after (a thumb rolling on the clickpad as it clicks Play), a
-      down move is refused, focus goes back through
-      `requestHeroPrimaryFocusIfNeeded`, and `HomeTVFoldSnapping` holds the page at
-      the hero meanwhile so it does not dip to the fold and back. The guard is fed
-      by `HeroPressObserver`, a never-recognizing recognizer on the **window**:
-      recognizers next to the play button never see remote presses (measured in
-      the simulator). An earlier catch strip under the play button plus a
-      touch-travel/velocity gate (35c8427, f3b2cea) were removed with the move to
-      native paging: sideways swipes were the moves they misjudged.
-    - `shelvesUnlocked` is **latched**: it means "focus has settled below the
-      hero". It drops when focus is back on the play button and stays open while
-      there is no hero. It drives `settleFold` and the engine-driven trigger
-      above, nothing else.
-    - A carousel that can be Home's first shelf must apply
-      `carouselLeadingFocusLock(leadingInset:)` to its scroll view,
-      `carouselItemFocusLock(isLeadingItem:)` to each item, and
-      `carouselLeadingFocusTarget()` to each item's focusable view.
-      `MediaCarousel` + the poster cards, `ShowAllCarouselTile`, `LiveTVHomeShelf`,
-      and `ServerOutageNote`'s Retry button do. `firstShelfID` must mirror
-      `shelves()`, including `LiveTVHomeShelf`'s "nothing on now" check.
-  - **Shelves → hero is the focus engine's own scroll, bent by a
-    `ScrollTargetBehavior`** (`HomeTVFoldSnapping`, Apple's fold-snapping pattern
-    from the "Creating a tvOS media catalog app in SwiftUI" sample). On tvOS the
-    offset the focus engine is about to scroll to when it reveals a newly focused
-    item goes through `updateTarget` first. From below the fold, a target short of
-    the fold either reveals the whole hero (it would show more than half of it, i.e.
-    focus is going back to the low play button) or stays at the fold (the focus
-    engine nudging the first shelf). From above the fold every real scroll goes
-    to the fold, including a target past it: that target is the engine revealing
-    its own pick, which the hero exit replaces with the first card at the fold.
-    During a hero exit every target is pinned to the fold (`pinsToFold`).
-  - **Never add a programmatic scroll on a focus change the engine made.** It
-    stacks on top of the engine's reveal scroll instead of replacing it; that threw
-    the page several rows past the first shelf. The hero exit used to start with a
-    `scrollTo` of its own, on the theory that pinning both to the fold left nothing
-    to stack with. Measured per frame in the simulator, it did stack: when the card
-    took focus first the curve bent mid-way, and when `onMoveCommand` came first
-    the page cut from the hero to the shelves in a single frame (the "jumpy" exit
-    on device). The exit now scrolls nothing; the engine's reveal of whichever
-    card takes focus is the one scroll, both ways.
-  - `settleFold` runs 200ms after the page stops moving, never during a hero exit.
-    Latch closed → the page rests on the full hero; open → at or past the fold,
-    never on a sliver of hero. Normally it does nothing.
-  - The shelf stack is a plain `VStack` on tvOS, not a `LazyVStack`: with the hero
-    filling the screen the first shelf starts exactly at the fold, and an
-    unmaterialised lazy stack turns the down-press into a dead end.
-    `shelfTopPadding` is derived from the measured top safe area because it is what
-    keeps the first shelf header clear of the floating tab bar at the fold.
-  - Unchanged and still load-bearing: both `.focusSection()`s, the focus
-    scope / `defaultFocus` / `requestHeroPrimaryFocusIfNeeded` dance.
-  - `HomeViewModel.heroItems()` caps the rotation at 10 items **on tvOS only**, since
-    every backdrop is now decoded at 1920×1080 and the whole set is prefetched
-    eagerly. iOS keeps the unbounded list.
+- **tvOS featured hero** (`TVFeaturedHeroPage`, `Shared/TVFeaturedHero.swift`), shared
+  by Home (Continue Watching, `HomeViewModel.heroItems()`, capped at 10) and the
+  Movies / TV Shows Recommended pages (their Continue Watching minus clips, capped at
+  10, which then drops the page's own Continue Watching row; the Videos page keeps its
+  row and has no hero). It works like the Apple TV app: the artwork fills the display,
+  the title (clear logo, else text), metadata and a three-line summary sit on the left,
+  and a row of small 16:9 cards below holds the items. **Focus on a card cross-fades
+  the artwork and text to it** (0.4s); selecting a card plays it (the page's own `play`,
+  the same resume behaviour the old Play button had). There is no Play button, no
+  rotation, no "More" hint.
+  - The card row is an ordinary row of focusable cards (`.focused` on each card's
+    button by `storageKey`, system card focus effect). Every move in and out of the
+    hero is the focus engine's own geometric move between rows, like between any two
+    shelves; nothing overrules, fences or lands focus. **No `.focusSection()` on the
+    hero or the shelves stack**: a move into a section is steered towards its middle,
+    and from the card row that landed on the fourth shelf (simulator). Only the
+    accessory row (the library pages' Browse / Library Order buttons, top left under the
+    tab bar) is a full-width focus section, so up from any card reaches it.
+  - The page has two stops: the full hero, or the first shelf at the top of the display.
+    `TVFeaturedHeroFoldSnapping` bends the engine's reveal scroll there (Apple's
+    fold-snapping pattern): from the hero any real scroll goes to the fold; from below,
+    a target that would show a good part of the hero (< 85% of the fold) goes to the
+    top, anything else stays at the fold. **Never add a programmatic scroll on a focus
+    change the engine made**: the two stack (that threw the old hero's down-press rows
+    past the first shelf). A settle check 200ms after the page stops (card focused →
+    top; otherwise never on a sliver of hero) is a safety net only.
+  - The hero is full-bleed: the scroll view ignores the top safe area while there is a
+    hero, so content y = scroll offset; the hero is offset by the leading safe-area
+    inset and sized from the screen bounds. Text is pinned to the dark scheme (the
+    scrim is dark in both appearances); the artwork uses `DuskHeroBackdropOverlay(.cinematic)`
+    plus `duskHeroBackdropBottomFade(.fullBleed)` and standard dynamic range against
+    the HDR seam.
+  - Every item's backdrop (screen size, `byPreparingForDisplay`) and clear logo are
+    prefetched up front, the selected one first. The artwork on screen trails the
+    selection until the new one has decoded, so a cross-fade never passes through an
+    empty frame; an item without artwork fades to the plain page.
+  - Home claims focus for the selected card once, on first appearance; library pages
+    leave it to the tab bar (down from the tab bar lands on the nearest card).
+    `selectionResetRevision` (playback over, app active, Home reselected) goes back to
+    the first item; `focusRequestRevision` (Home's Back press while scrolled down)
+    focuses the selected card and the engine scrolls the page up.
+  - The shelves stack is a plain `VStack` on tvOS (Home and library pages): the first
+    shelf starts right at the fold and must exist when down is pressed. Its top padding
+    (`max(safeAreaTop, 60) + 24`) keeps the first header clear of the tab bar at the fold.
 - On iOS the home hero play button uses `homeHeroNativeButtonStyle()` (prominent,
   `Color.primary`-tinted Liquid Glass that contrasts the artwork) with
   `HomeHeroActionButtonLabel(fillsWidth: true)`, sized as a wide, short pill
@@ -641,7 +518,8 @@ in Dusk. Read this with `docs/codebase-map.md`, `STYLE.md`, and `docs/data-and-p
   - **Recommended** (default): `LibraryRecommendationsView` for **all** libraries of
     that type. Browse reaches every library's grid in one step: on tvOS a leading row
     of glass buttons ("All Movies", one per library, then "Libraries" when there are
-    several) is the first thing under the tab bar, so focus lands there moving down;
+    several, then "Library Order") sits under the tab bar, at the top of the featured
+    hero when there is one (one press up from its cards) and first in the page otherwise;
     on iOS a toolbar link with one library, or a Browse menu (each library's grid, then
     "Libraries") with several. "Libraries" opens `LibraryTypeListView` for
     per-library recommendations.
