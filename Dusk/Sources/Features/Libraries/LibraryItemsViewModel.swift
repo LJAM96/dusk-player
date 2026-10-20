@@ -60,13 +60,13 @@ enum LibrarySortOption: String, CaseIterable, Identifiable {
 
     /// The sort choices offered for a library of the given type. Video
     /// libraries lead with upload-date sorts (year is meaningless for clips);
-    /// movie/show libraries keep their original options untouched.
+    /// movie/show libraries stay title-first, with recently added last.
     static func options(for libraryType: PlexLibraryType?) -> [LibrarySortOption] {
         switch libraryType {
         case .video:
             [.releaseDateDescending, .addedAtDescending, .titleAscending, .titleDescending, .durationDescending]
         default:
-            [.titleAscending, .titleDescending, .yearDescending, .yearAscending]
+            [.titleAscending, .titleDescending, .yearDescending, .yearAscending, .addedAtDescending]
         }
     }
 
