@@ -365,7 +365,10 @@ in Dusk. Read this with `docs/codebase-map.md`, `STYLE.md`, and `docs/data-and-p
     tab bar) is a full-width focus section, so up from any card reaches it.
   - The page has two stops: the full hero, or the first shelf at the top of the display.
     `TVFeaturedHeroFoldSnapping` bends the engine's reveal scroll there (Apple's
-    fold-snapping pattern): from the hero any real scroll goes to the fold; from below,
+    fold-snapping pattern): from the hero a scroll past half the fold goes to the fold
+    and anything less stays at the top (a card the row scrolls into view also asks the
+    page for ~0.17 of the fold; a down-press asks ~0.79; the old 0.15 cut-off threw the
+    page to the shelves at the fifth card); from below,
     a target that would show a good part of the hero (< 85% of the fold) goes to the
     top, anything else stays at the fold. **Never add a programmatic scroll on a focus
     change the engine made**: the two stack (that threw the old hero's down-press rows
@@ -381,6 +384,12 @@ in Dusk. Read this with `docs/codebase-map.md`, `STYLE.md`, and `docs/data-and-p
     prefetched up front, the selected one first. The artwork on screen trails the
     selection until the new one has decoded, so a cross-fade never passes through an
     empty frame; an item without artwork fades to the plain page.
+  - Artwork is 16:9 only (`tvFeaturedBackdropPaths` / `tvFeaturedCardPaths`, private
+    to `TVFeaturedHero.swift`; iOS keeps `featuredBackgroundPath`): an episode shows its
+    show's background (`grandparentArt`, then its own `art`, then the episode still) on
+    both the backdrop and its card; a movie or season its own `art`. Banners (5:1) and
+    posters never fill the backdrop; a card falls back to the still, then the poster.
+    Dusk decodes no season art on an episode, so season art is not used.
   - Home claims focus for the selected card once, on first appearance; library pages
     leave it to the tab bar (down from the tab bar lands on the nearest card).
     `selectionResetRevision` (playback over, app active, Home reselected) goes back to

@@ -259,6 +259,7 @@ private struct TVFeaturedHero<Accessory: View, CardMenu: View>: View {
     /// decoded, so a cross-fade never goes through an empty frame.
     @State private var shownBackdropKey: String?
     @State private var backdrops: [String: UIImage] = [:]
+    @State private var failedBackdropKeys: Set<String> = []
     @State private var logos: [String: UIImage] = [:]
     @State private var failedLogoKeys: Set<String> = []
     @State private var rowPosition = ScrollPosition()
@@ -365,20 +366,33 @@ private struct TVFeaturedHero<Accessory: View, CardMenu: View>: View {
         let key = item.id.storageKey
         if backdrops[key] != nil {
             shownBackdropKey = key
-        } else if backdropURL(for: item) == nil {
+        } else if backdropURLs(for: item).isEmpty || failedBackdropKeys.contains(key) {
             // Nothing to wait for: fade to the plain page.
             shownBackdropKey = nil
         }
         // Otherwise keep the current artwork until this one has decoded.
     }
 
-    private func backdropURL(for item: PlexItem) -> URL? {
-        plexService.imageURL(
-            for: item.featuredBackgroundPath,
-            serverID: item.serverID,
-            width: Int(size.width.rounded(.up)),
-            height: Int(size.height.rounded(.up))
-        )
+    private func backdropURLs(for item: PlexItem) -> [URL] {
+        item.tvFeaturedBackdropPaths.compactMap { path in
+            plexService.imageURL(
+                for: path,
+                serverID: item.serverID,
+                width: Int(size.width.rounded(.up)),
+                height: Int(size.height.rounded(.up))
+            )
+        }
+    }
+
+    private func cardURLs(for item: PlexItem) -> [URL] {
+        item.tvFeaturedCardPaths.compactMap { path in
+            plexService.imageURL(
+                for: path,
+                serverID: item.serverID,
+                width: Int(cardWidth.rounded(.up)),
+                height: Int((cardWidth / cardAspectRatio).rounded(.up))
+            )
+        }
     }
 
     private func logoURL(for item: PlexItem) -> URL? {
@@ -401,14 +415,15 @@ private struct TVFeaturedHero<Accessory: View, CardMenu: View>: View {
     private func prefetch() async {
         let validKeys = Set(items.map(\.id.storageKey))
         backdrops = backdrops.filter { validKeys.contains($0.key) }
+        failedBackdropKeys = failedBackdropKeys.filter { validKeys.contains($0) }
         logos = logos.filter { validKeys.contains($0.key) }
         failedLogoKeys = failedLogoKeys.filter { validKeys.contains($0) }
 
         // The selected item first, so the hero paints as soon as possible.
         let ordered = items.filter { $0.id.storageKey == selectedKey }
             + items.filter { $0.id.storageKey != selectedKey }
-        let backdropRequests = ordered.compactMap { item in
-            backdropURL(for: item).map { (item.id.storageKey, $0) }
+        let backdropRequests = ordered.map { item in
+            (item.id.storageKey, backdropURLs(for: item))
         }
         let logoRequests = ordered.compactMap { item in
             logoURL(for: item).map { (item.id.storageKey, $0) }
@@ -416,10 +431,17 @@ private struct TVFeaturedHero<Accessory: View, CardMenu: View>: View {
         let plexService = plexService
 
         await withTaskGroup(of: (String, UIImage?, Bool).self) { group in
-            for (key, url) in backdropRequests where backdrops[key] == nil {
+            for (key, urls) in backdropRequests
+            where !urls.isEmpty && backdrops[key] == nil && !failedBackdropKeys.contains(key) {
                 group.addTask {
-                    let image = try? await DuskImageLoader.shared.image(for: url, using: plexService)
-                    return (key, await image?.byPreparingForDisplay() ?? image, true)
+                    // The first candidate that loads, e.g. the episode still
+                    // when the show has no background art on the server.
+                    for url in urls {
+                        if let image = try? await DuskImageLoader.shared.image(for: url, using: plexService) {
+                            return (key, await image.byPreparingForDisplay() ?? image, true)
+                        }
+                    }
+                    return (key, nil, true)
                 }
             }
             for (key, url) in logoRequests where logos[key] == nil {
@@ -432,8 +454,11 @@ private struct TVFeaturedHero<Accessory: View, CardMenu: View>: View {
             for await (key, image, isBackdrop) in group {
                 guard !Task.isCancelled, validKeys.contains(key) else { continue }
                 if isBackdrop {
-                    guard let image else { continue }
-                    backdrops[key] = image
+                    if let image {
+                        backdrops[key] = image
+                    } else {
+                        failedBackdropKeys.insert(key)
+                    }
                     if key == selectedItem?.id.storageKey {
                         updateShownBackdrop()
                     }
@@ -540,17 +565,14 @@ private struct TVFeaturedHero<Accessory: View, CardMenu: View>: View {
     private func card(for item: PlexItem) -> some View {
         let key = item.id.storageKey
         let shape = RoundedRectangle(cornerRadius: PosterArtwork.cornerRadius, style: .continuous)
-        let imageHeight = cardWidth / cardAspectRatio
+        let imageURLs = cardURLs(for: item)
 
         return Button {
             play(item)
         } label: {
             PosterArtwork(
-                imageURL: item.landscapeImageURL(
-                    plexService: plexService,
-                    width: Int(cardWidth.rounded(.up)),
-                    height: Int(imageHeight.rounded(.up))
-                ),
+                imageURL: imageURLs.first,
+                fallbackImageURL: imageURLs.dropFirst().first,
                 progress: item.posterProgress,
                 width: cardWidth,
                 imageAspectRatio: cardAspectRatio
@@ -568,6 +590,45 @@ private struct TVFeaturedHero<Accessory: View, CardMenu: View>: View {
         .zIndex(focusedKey.wrappedValue == key ? 1 : 0)
         .accessibilityLabel(item.continueWatchingDisplayTitle)
         .accessibilityHint("Plays")
+    }
+}
+
+private extension PlexItem {
+    /// The hero's full-screen artwork, best first. Only 16:9 art: an
+    /// episode shows its show's background rather than the episode still,
+    /// and a poster or a 5:1 banner blown up to the whole screen looks worse
+    /// than the plain page.
+    var tvFeaturedBackdropPaths: [String] {
+        let paths: [String?]
+        switch type {
+        case .episode:
+            // An episode's own `art` is usually the show's, inherited.
+            paths = [grandparentArt, art, thumb]
+        default:
+            paths = [art]
+        }
+        return Self.distinct(paths)
+    }
+
+    /// A card's artwork, best first: the show's 16:9 art for an episode or
+    /// season, the item's own for a movie. A card always shows something,
+    /// so a poster is the last resort.
+    var tvFeaturedCardPaths: [String] {
+        let paths: [String?]
+        switch type {
+        case .episode:
+            paths = [grandparentArt, art, thumb, grandparentThumb]
+        case .season:
+            paths = [art, thumb, parentThumb]
+        default:
+            paths = [art, thumb]
+        }
+        return Self.distinct(paths)
+    }
+
+    private static func distinct(_ paths: [String?]) -> [String] {
+        var seen: Set<String> = []
+        return paths.compactMap { $0 }.filter { seen.insert($0).inserted }
     }
 }
 
@@ -601,9 +662,11 @@ private struct TVFeaturedHeroFoldSnapping: ScrollTargetBehavior {
         if startsAboveFold {
             // Everything in the hero is on screen at rest, so a real scroll
             // from up here is focus leaving for the shelves: land the first
-            // shelf at the top. Small nudges (a focused card eased off the
-            // bottom edge) keep the hero where it is.
-            target.rect.origin.y = proposedY < foldY * 0.15 ? 0 : foldY
+            // shelf at the top. Nudges keep the hero where it is: a card the
+            // row scrolls into view also asks the page to move down a bit
+            // (~0.17 of the fold in the simulator), while a down-press to the
+            // first shelf asks for ~0.79.
+            target.rect.origin.y = proposedY < foldY * 0.5 ? 0 : foldY
         } else if proposedY < foldY {
             // Below the fold, stopping short of it would leave a sliver of
             // hero on screen. A target that shows a good part of the hero is
