@@ -159,6 +159,18 @@ struct LibraryTypeListView: View {
                 ServerOutageNote(offlineServerNames: viewModel.availability.offlineServerNames)
                     .padding(.horizontal, 4)
 
+                #if os(tvOS)
+                NavigationLink(value: AppNavigationRoute.libraryOrder) {
+                    Text("Library Order")
+                        .font(DuskFont.buttonLabel(ios: .subheadline.weight(.semibold)))
+                }
+                .controlSize(.small)
+                .buttonBorderShape(.capsule)
+                .buttonStyle(.glass)
+                // nil, never a colour: see LibraryRecommendationsView.
+                .tint(nil)
+                #endif
+
                 ForEach(libraries) { library in
                     NavigationLink(value: route(for: library)) {
                         LibraryRowContent(library: library, vm: viewModel)
@@ -176,8 +188,10 @@ struct LibraryTypeListView: View {
         .duskNavigationBarTitleDisplayModeLarge()
         #if os(iOS)
         .toolbar {
-            ToolbarItem(placement: .topBarTrailing) {
+            ToolbarItemGroup(placement: .topBarTrailing) {
                 SearchToolbarLink()
+
+                LibraryOrderToolbarLink()
             }
         }
         #endif

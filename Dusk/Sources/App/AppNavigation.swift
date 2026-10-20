@@ -21,6 +21,8 @@ enum AppNavigationRoute: Hashable {
     case person(PlexPersonReference, serverID: String?)
     case seerrMedia(type: SeerrMediaType, id: Int)
     case seerrSeason(tvID: Int, seasonNumber: Int)
+    /// Library Order (order + hidden libraries), reached from the library tabs.
+    case libraryOrder
     #if DEBUG
     /// Screenshot mode only (`ScreenshotMode`): Settings › Server Priority is
     /// otherwise reached through a plain NavigationLink.
@@ -122,6 +124,8 @@ struct AppNavigationDestinationView: View {
                 seasonNumber: seasonNumber,
                 service: seerrService
             )
+        case .libraryOrder:
+            LibraryOrderSettingsView()
         #if DEBUG
         case .screenshotServerPriority:
             ServerPrioritySettingsView()

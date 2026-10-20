@@ -18,7 +18,7 @@ enum SettingsSupport {
     static let playbackAdvancedFooterText = "Advanced Playback Controls adds skip back, skip forward and playback speed to the player. Dolby Atmos & Spatial Audio plays Atmos and surround Dolby tracks in MKV and similar files through Apple's player, which enables spatial audio on AirPods. HDR & Dolby Vision does the same for HDR10, HDR10+, HLG and Dolby Vision video on HDR screens. Dolby Vision 7 → 8.1 converts Dolby Vision profile 7 (UHD Blu-ray) video so they play as Dolby Vision instead of HDR10; turn it off if those titles misbehave. Your Plex server repackages the file on the fly without re-encoding it, so video quality stays the original's. Force AVPlayer and Force VLCKit bypass automatic engine selection. Enabling one disables the other. Force AVPlayer may fail on formats it cannot handle."
     #endif
     static let downloadsFooterText = "Preferred Version picks which Plex version is downloaded when a title has several. Download quality is chosen each time you start a download. Wi-Fi Only lets the system wait for a non-cellular network before starting new transfer tasks."
-    static let navigationFooterText = "Choose which library and Live TV destinations appear in the navigation bar and the order they use. Libraries Open To picks whether a library starts on its recommendations or on all of its titles. Library Order sets the order of your libraries everywhere in Dusk; it is saved to your Plex account, so other Plex apps use it too. Server Priority decides which of your servers Dusk uses, and which one plays a title that is on more than one."
+    static let navigationFooterText = "Choose which library and Live TV destinations appear in the navigation bar and the order they use. Libraries Open To picks whether a library starts on its recommendations or on all of its titles. Server Priority decides which of your servers Dusk uses, and which one plays a title that is on more than one."
     static let homeFooterText = "Personalized shelves add recommendations from Dusk to Home. Show Live TV adds currently airing channels without changing the Live TV tab."
     static let homeAdvancedFooterText = "Compact Continue Watching replaces the large artwork at the top of Home with a smaller Continue Watching row, like the one on library pages."
     static let appearanceFooterText = "System follows your device appearance. Light and Dark override it for the whole app."
@@ -77,15 +77,6 @@ enum SettingsSupport {
             return "All Visible"
         }
         return "\(visibleCount) Visible"
-    }
-
-    /// Reflects every section of the connected server, including the music and
-    /// photo libraries Dusk itself does not browse, because the order is shared
-    /// with the Plex account.
-    @MainActor
-    static func libraryOrderSummary(_ plexService: PlexService) -> String {
-        let count = plexService.libraryOrder.sections.count
-        return count == 0 ? "" : "\(count) Libraries"
     }
 
     /// Names the server on a single-server account — the count would be noise

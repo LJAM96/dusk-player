@@ -87,6 +87,10 @@ struct LibraryRecommendationsView: View {
             ToolbarItemGroup(placement: .topBarTrailing) {
                 SearchToolbarLink()
 
+                if isTabRoot {
+                    LibraryOrderToolbarLink()
+                }
+
                 browseLibraryButton
             }
         }
@@ -190,6 +194,13 @@ struct LibraryRecommendationsView: View {
         .duskTVOSPageBackground()
     }
 
+    /// The tab's own landing screen, as opposed to one library's
+    /// recommendations pushed from the library list; only the tab root offers
+    /// Library Order.
+    private var isTabRoot: Bool {
+        !browseTargets.isEmpty
+    }
+
     /// The libraries "Browse" offers. A screen opened for one library (from
     /// the library list) browses that library.
     private var resolvedBrowseTargets: [LibraryBrowseTarget] {
@@ -215,6 +226,14 @@ struct LibraryRecommendationsView: View {
             styledBrowseLink(
                 NavigationLink(value: libraryListDestination) {
                     browseLabel("Libraries")
+                }
+            )
+        }
+
+        if isTabRoot {
+            styledBrowseLink(
+                NavigationLink(value: AppNavigationRoute.libraryOrder) {
+                    browseLabel("Library Order")
                 }
             )
         }

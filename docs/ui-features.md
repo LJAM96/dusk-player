@@ -559,9 +559,13 @@ in Dusk. Read this with `docs/codebase-map.md`, `STYLE.md`, and `docs/data-and-p
 
 ### Library Order
 
-- `Settings › Navigation › Library Order` opens `LibraryOrderSettingsView` on every
-  platform. It edits the order of *your* libraries across every enabled server,
-  which is an
+- `LibraryOrderSettingsView` (route `.libraryOrder`) is reached from the library tabs,
+  not Settings: iOS has an `arrow.up.arrow.down` toolbar button on each tab's landing
+  screen and the library list; tvOS has a "Library Order" glass button in the browse
+  row (recommendations), the chip row (All landing) and atop the library list. It
+  edits the order of *your* libraries across every enabled server, and which of them
+  are hidden (`pinnedSources[].isHidden`; hidden ones drop out of `LibrariesViewModel`,
+  not Home). Both are an
   account-level Plex setting rather than a Dusk preference: the same order drives the
   Plex Web sidebar and the other Plex apps signed in as this user.
 - A row carries its server name only when another library of the same type has the

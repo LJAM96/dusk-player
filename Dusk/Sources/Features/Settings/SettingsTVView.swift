@@ -117,15 +117,6 @@ struct SettingsTVView: View {
                     tvRowDivider
 
                     TVSettingsNavigationRow(
-                        title: "Library Order",
-                        detail: SettingsSupport.libraryOrderSummary(plexService)
-                    ) {
-                        LibraryOrderSettingsView()
-                    }
-
-                    tvRowDivider
-
-                    TVSettingsNavigationRow(
                         title: "Server Priority",
                         detail: SettingsSupport.serverPrioritySummary(plexService)
                     ) {

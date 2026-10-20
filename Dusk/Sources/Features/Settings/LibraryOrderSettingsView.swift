@@ -285,3 +285,19 @@ private enum LibraryOrderPositionName {
     }
 }
 #endif
+
+#if os(iOS)
+/// Opens Library Order from the top bar of a library tab, styled like
+/// `SearchToolbarLink` beside it.
+struct LibraryOrderToolbarLink: View {
+    var body: some View {
+        NavigationLink(value: AppNavigationRoute.libraryOrder) {
+            Image(systemName: "arrow.up.arrow.down")
+                .symbolRenderingMode(.monochrome)
+                .foregroundStyle(Color.primary)
+        }
+        .tint(Color.primary)
+        .accessibilityLabel("Library Order")
+    }
+}
+#endif

@@ -161,20 +161,6 @@ struct SettingsIOSView: View {
                 .foregroundStyle(Color.duskTextPrimary)
 
                 NavigationLink {
-                    LibraryOrderSettingsView()
-                } label: {
-                    HStack {
-                        Text("Library Order")
-                            .foregroundStyle(Color.duskTextPrimary)
-
-                        Spacer()
-
-                        Text(SettingsSupport.libraryOrderSummary(plexService))
-                            .foregroundStyle(Color.duskTextSecondary)
-                    }
-                }
-
-                NavigationLink {
                     ServerPrioritySettingsView()
                 } label: {
                     HStack {

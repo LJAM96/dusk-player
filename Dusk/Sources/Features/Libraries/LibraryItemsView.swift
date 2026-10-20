@@ -63,6 +63,8 @@ struct LibraryItemsView: View {
                 ToolbarItemGroup(placement: .topBarTrailing) {
                     SearchToolbarLink()
 
+                    LibraryOrderToolbarLink()
+
                     NavigationLink(value: AppNavigationRoute.libraryRecommendations(viewModel.library)) {
                         Label("Recommended", systemImage: "sparkles")
                             .font(.subheadline.weight(.semibold))
@@ -137,6 +139,8 @@ struct LibraryItemsView: View {
                 // Last, so a focused (scaled) chip never sits under it.
                 if showsRecommendationsLink {
                     recommendationsLink
+
+                    libraryOrderLink
                 }
                 #endif
 
@@ -153,13 +157,29 @@ struct LibraryItemsView: View {
 
     #if os(tvOS)
     private var recommendationsLink: some View {
-        NavigationLink(value: AppNavigationRoute.libraryRecommendations(viewModel.library)) {
+        browseChipLink(
+            AppNavigationRoute.libraryRecommendations(viewModel.library),
+            title: "Recommended",
+            systemImage: "sparkles"
+        )
+    }
+
+    private var libraryOrderLink: some View {
+        browseChipLink(.libraryOrder, title: "Library Order", systemImage: "arrow.up.arrow.down")
+    }
+
+    private func browseChipLink(
+        _ route: AppNavigationRoute,
+        title: String,
+        systemImage: String
+    ) -> some View {
+        NavigationLink(value: route) {
             HStack(spacing: 10) {
-                Image(systemName: "sparkles")
+                Image(systemName: systemImage)
                     .font(DuskFont.glyphMedium(ios: .headline))
                     .foregroundStyle(Color.duskTextSecondary)
 
-                Text("Recommended")
+                Text(title)
                     .font(DuskFont.buttonLabel(ios: .subheadline.weight(.medium)))
                     .foregroundStyle(Color.duskTextPrimary)
                     .lineLimit(1)
