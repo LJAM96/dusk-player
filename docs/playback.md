@@ -1764,8 +1764,8 @@ so the whole live HUD is derived from one instant.
   stays mounted too**: nothing in its transport is focusable any more, so a HUD at
   zero opacity cannot capture the remote. Staying mounted is also load-bearing —
   it is what keeps `PlayerTVHUDController.actions` / `availablePanelTabs` populated
-  while the HUD is hidden, so a Down press can open the settings panel straight
-  from the video.
+  while the HUD is hidden, so the press right after a reveal can already reach the
+  action row or the settings panel.
 - On iPad the whole player cover — `PlayerView`'s stack, the loading art, the
   shared spinner, and the session — extends through the top status-bar safe
   area (`PlayerOverlayLayout.ignoredStatusBarSafeAreaEdges`), while the HUD
@@ -1906,12 +1906,14 @@ so the whole live HUD is derived from one instant.
   trailing pan updates, visibility races, and the debounced seek task. Physical
   Siri Remote gesture arbitration still needs an Apple TV.
 - Mode transitions:
-  - `hidden`: tap or Select or Up → `transport`; Left/Right → accumulate a seek
+  - `hidden`: tap or Select or Up or Down → `transport`, always with the bar
+    selected (as in AVKit; Down used to open the panel directly, which started
+    the HUD on the panel's Info tab); Left/Right → accumulate a seek
     (see below) with a centred badge, stays hidden; horizontal swipe → `scrubbing`;
-    Down → `panel`; Play/Pause → toggles and reveals `transport`;
+    Play/Pause → toggles and reveals `transport`;
     Menu → dismiss the player. While a Skip Intro chip or an Up Next poster is on
     screen, Select activates it and Down dismisses it (the chip has nothing to
-    dismiss, so Down falls through to the panel).
+    dismiss, so Down falls through to revealing the transport).
   - `transport`: Menu or tap → `hidden`; Up → action row, Down from the row →
     the bar, Down from the bar → `panel`; Left/Right on the bar → seek, on the
     row → move the selection; Select on the bar → play/pause, on the row → run

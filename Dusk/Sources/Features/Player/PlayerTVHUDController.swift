@@ -7,7 +7,8 @@ import SwiftUI
 /// current mode, so a button never means two things at once.
 enum PlayerTVHUDMode: Equatable {
     /// Nothing on screen. Left/right still seek, a tap or Select raises the
-    /// transport, a swipe starts a scrub, down opens the panel.
+    /// transport, a swipe starts a scrub. Down raises the transport too, with
+    /// the bar selected like AVKit's; the panel is one more Down from there.
     case hidden
     /// The play bar, the title block and the action row.
     case transport
@@ -368,7 +369,10 @@ final class PlayerTVHUDController {
             if isBottomTrailingControlVisible, onDismissBottomTrailingControl?() == true {
                 return
             }
-            openPanel()
+            // Reveals the play bar, never the panel: the panel takes SwiftUI
+            // focus on its first tab, so opening it straight from the video
+            // started the HUD on Info instead of on the bar.
+            apply(.transport)
         case .arrowDown(.left):
             beginSeekHold(direction: -1)
         case .arrowDown(.right):

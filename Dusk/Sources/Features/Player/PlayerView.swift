@@ -1008,7 +1008,7 @@ private struct PlayerSessionView: View {
     /// and the settings panel — the one part that does take focus — is only
     /// built while it is open. Staying mounted also means the controller's
     /// action list and panel tabs are known while the HUD is hidden, which is
-    /// what lets a Down press open the panel straight from the video.
+    /// what lets the press right after a reveal reach the row or the panel.
     @ViewBuilder
     private var controlsOverlay: some View {
         playerControls

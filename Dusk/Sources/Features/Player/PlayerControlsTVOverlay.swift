@@ -57,9 +57,10 @@ struct PlayerControlsTVOverlay: View {
             PlayerTVHUDLayout.animation(PlayerTVHUDLayout.panelTransition, reduceMotion: reduceMotion),
             value: controller.mode
         )
-        // The controller needs these while the HUD is hidden too (a Down press
-        // from the hidden state opens the panel), which is why the whole
-        // overlay stays mounted and only fades — see `PlayerSessionView`.
+        // The controller needs these while the HUD is hidden too (the first
+        // press after a reveal can already move onto the row or open the
+        // panel), which is why the whole overlay stays mounted and only
+        // fades — see `PlayerSessionView`.
         .onChange(of: actionItems, initial: true) { _, items in
             controller.actions = items
         }
