@@ -178,7 +178,10 @@ poster** on every platform. Action buttons use the **native Liquid Glass** style
 
 **Watched state is quiet everywhere.** A small checkmark in the card's subtitle
 colour (no filled badge), the neutral white-on-dark progress bar of
-`PosterArtwork` for partially watched items, nothing for unwatched. "Show More"
+`PosterArtwork` for partially watched items, nothing for unwatched. A partially
+watched **season** also gets its unwatched-episode count as the system
+`N.circle.fill` symbol in the checkmark's slot, at its size and colour
+(`UnwatchedCountBadge`), so it never adds clutter. "Show More"
 is a `.glass` button on tvOS and plain `primary` text on iOS.
 
 **Home cinematic hero button.**

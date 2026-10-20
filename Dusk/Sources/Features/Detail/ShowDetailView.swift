@@ -320,7 +320,8 @@ struct ShowDetailView: View {
                                 width: layout.posterWidth,
                                 availabilityBadge: viewModel.seasonAvailabilityBadge(season),
                                 isDimmed: viewModel.isSeasonUnavailableOffline(season),
-                                isWatched: season.isFullyWatched
+                                isWatched: season.isFullyWatched,
+                                unwatchedCount: season.unwatchedEpisodeCount
                             ) {
                                 seasonContextMenu(season)
                             }

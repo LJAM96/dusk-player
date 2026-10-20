@@ -150,6 +150,9 @@ struct PosterCardText: View {
     /// watched season). Deliberately quiet: same colour and size as the
     /// subtitle, so a fully watched row doesn't turn into a wall of badges.
     var isWatched: Bool = false
+    /// Episodes left in a partially watched season, drawn in the checkmark's
+    /// slot and at its size (`UnwatchedCountBadge`). Nil shows nothing.
+    var unwatchedCount: Int? = nil
 
     var body: some View {
         VStack(alignment: .leading, spacing: DuskPosterMetrics.cardTextSpacing) {
@@ -171,7 +174,7 @@ struct PosterCardText: View {
     @ViewBuilder
     private var subtitleRow: some View {
         let subtitle = subtitle?.nilIfEmpty
-        if subtitle != nil || isWatched {
+        if subtitle != nil || isWatched || unwatchedCount != nil {
             HStack(alignment: .firstTextBaseline, spacing: 8) {
                 if let subtitle {
                     Text(subtitle)
@@ -183,6 +186,9 @@ struct PosterCardText: View {
                         .imageScale(.small)
                         .fontWeight(.semibold)
                         .accessibilityLabel("Watched")
+                } else if let unwatchedCount {
+                    UnwatchedCountBadge(count: unwatchedCount)
+                        .fontWeight(.semibold)
                 }
             }
             .font(DuskPosterMetrics.subtitleFont)
@@ -211,6 +217,7 @@ struct PosterCard: View {
     var availabilityBadge: String? = nil
     var isDimmed: Bool = false
     var isWatched: Bool = false
+    var unwatchedCount: Int? = nil
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
@@ -229,10 +236,35 @@ struct PosterCard: View {
                 title: title,
                 subtitle: subtitle,
                 width: width,
-                isWatched: isWatched
+                isWatched: isWatched,
+                unwatchedCount: unwatchedCount
             )
         }
         .frame(width: width, alignment: .topLeading)
+    }
+}
+
+/// The unwatched-episode count of a partially watched season: the system's
+/// numbered circle symbol, so it takes the watched checkmark's font and colour
+/// from the caller and sits in exactly the same slot. Callers leave out the
+/// checkmark's `.imageScale(.small)`: a filled circle at that scale reads
+/// smaller than the open checkmark stroke and its digit gets illegible. The
+/// symbols stop at 50; longer seasons get the number in a matching capsule.
+struct UnwatchedCountBadge: View {
+    let count: Int
+
+    var body: some View {
+        Group {
+            if (0...50).contains(count) {
+                Image(systemName: "\(count).circle.fill")
+            } else {
+                Text(verbatim: "\(count)")
+                    .monospacedDigit()
+                    .padding(.horizontal, 6)
+                    .background(Capsule().fill(Color.primary.opacity(0.2)))
+            }
+        }
+        .accessibilityLabel(count == 1 ? "1 unwatched episode" : "\(count) unwatched episodes")
     }
 }
 

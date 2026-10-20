@@ -14,6 +14,8 @@ struct PosterNavigationCard<ContextMenuContent: View>: View {
     var availabilityBadge: String? = nil
     var isDimmed = false
     var isWatched = false
+    /// See `PosterCardText.unwatchedCount`.
+    var unwatchedCount: Int? = nil
     @ViewBuilder let contextMenuContent: () -> ContextMenuContent
     #if os(tvOS)
     @FocusState private var isFocused: Bool
@@ -52,7 +54,8 @@ struct PosterNavigationCard<ContextMenuContent: View>: View {
                 title: title,
                 subtitle: subtitle,
                 width: width,
-                isWatched: isWatched
+                isWatched: isWatched,
+                unwatchedCount: unwatchedCount
             )
         }
         .frame(width: width, alignment: .topLeading)
@@ -71,7 +74,8 @@ struct PosterNavigationCard<ContextMenuContent: View>: View {
                 showsPlayOverlay: showsPlayOverlay,
                 availabilityBadge: availabilityBadge,
                 isDimmed: isDimmed,
-                isWatched: isWatched
+                isWatched: isWatched,
+                unwatchedCount: unwatchedCount
             )
             .frame(maxWidth: .infinity, alignment: .leading)
         }

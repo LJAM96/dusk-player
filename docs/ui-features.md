@@ -111,7 +111,10 @@ in Dusk. Read this with `docs/codebase-map.md`, `STYLE.md`, and `docs/data-and-p
   card to add a small checkmark to the subtitle line, in the subtitle's own colour
   (never a colour — a fully watched row must not become a wall of badges);
   suppress the progress bar in that case (pass `progress: nil`) so completion
-  reads as the checkmark, not a full bar. Partial progress still renders the bar
+  reads as the checkmark, not a full bar. A partially watched season passes
+  `unwatchedCount` instead: `UnwatchedCountBadge` draws the count as the system
+  `N.circle.fill` symbol in the checkmark's slot, at its size and colour (iOS
+  season cards and tvOS season pills). Partial progress still renders the bar
   (`DuskPosterMetrics.posterProgressBarHeight`), white on a dark track like the
   TV app, everywhere.
 - Use `PlexItemPosterCarouselSection` for horizontal shelves and

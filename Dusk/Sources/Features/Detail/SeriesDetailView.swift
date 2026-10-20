@@ -615,7 +615,8 @@ private struct SeriesSeasonPills<SeasonMenu: View>: View {
                     title: season.title,
                     badge: nil,
                     isSelected: isSelected,
-                    isWatched: season.isFullyWatched
+                    isWatched: season.isFullyWatched,
+                    unwatchedCount: season.unwatchedEpisodeCount
                 )
             }
             .seriesSeasonPillButtonStyle()
@@ -628,7 +629,8 @@ private struct SeriesSeasonPills<SeasonMenu: View>: View {
                     title: season.name,
                     badge: seerrBadge(season),
                     isSelected: false,
-                    isWatched: false
+                    isWatched: false,
+                    unwatchedCount: nil
                 )
             }
             .seriesSeasonPillButtonStyle()
@@ -645,6 +647,9 @@ private struct SeriesSeasonPillLabel: View {
     let badge: String?
     let isSelected: Bool
     let isWatched: Bool
+    /// Episodes left in a partially watched season; shown in the checkmark's
+    /// slot at its size (see `UnwatchedCountBadge`).
+    let unwatchedCount: Int?
     @Environment(\.isFocused) private var isFocused
 
     var body: some View {
@@ -661,6 +666,11 @@ private struct SeriesSeasonPillLabel: View {
                     .fontWeight(.semibold)
                     .opacity(0.7)
                     .accessibilityLabel("Watched")
+            } else if let unwatchedCount {
+                UnwatchedCountBadge(count: unwatchedCount)
+                    .font(DuskFont.TV.glyphSmall)
+                    .fontWeight(.semibold)
+                    .opacity(0.7)
             }
 
             if let badge {

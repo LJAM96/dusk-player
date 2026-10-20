@@ -65,6 +65,13 @@ extension PlexSeason {
         return total > 0 && viewed > 0 && viewed < total
     }
 
+    /// Episodes still to watch in a partially watched season; nil for a season
+    /// that is unwatched or fully watched (those get no badge / a checkmark).
+    var unwatchedEpisodeCount: Int? {
+        guard isPartiallyWatched, let total = leafCount, let viewed = viewedLeafCount else { return nil }
+        return total - viewed
+    }
+
     /// Whether all episodes in this season have been watched.
     var isFullyWatched: Bool {
         guard let total = leafCount, let viewed = viewedLeafCount else { return false }
