@@ -27,6 +27,7 @@ final class UserPreferences {
         static let playerAspectFillPortrait = "playerAspectFillPortrait"
         static let playerAspectFillLandscape = "playerAspectFillLandscape"
         static let autoSkipIntroMode = "autoSkipIntroMode"
+        static let playerAdvancedControlsEnabled = "playerAdvancedControlsEnabled"
         static let autoSkipIntro = "autoSkipIntro"
         static let autoSkipCredits = "autoSkipCredits"
         static let videoEnhancementMode = "videoEnhancementMode"
@@ -138,6 +139,13 @@ final class UserPreferences {
     /// orientation remembers its own framing independently.
     var playerAspectFillPortrait: Bool {
         didSet { UserDefaults.standard.set(playerAspectFillPortrait, forKey: Keys.playerAspectFillPortrait) }
+    }
+
+    /// Skip back / skip forward buttons and the playback speed control in the
+    /// player overlay, on iOS and tvOS. Off keeps the default HUD; speed is
+    /// only reachable while this is on.
+    var playerAdvancedControlsEnabled: Bool {
+        didSet { UserDefaults.standard.set(playerAdvancedControlsEnabled, forKey: Keys.playerAdvancedControlsEnabled) }
     }
 
     /// Whether the player's zoom-to-fill control is on while the video area is
@@ -437,6 +445,7 @@ final class UserPreferences {
         if let raw = defaults.string(forKey: Keys.videoEnhancementMode),
            let mode = VideoEnhancementMode(rawValue: raw) {
             videoEnhancementMode = mode
+        let playerAdvancedControlsEnabled = defaults.bool(forKey: Keys.playerAdvancedControlsEnabled)
         } else {
             videoEnhancementMode = .defaultForPlatform
         }
@@ -510,6 +519,7 @@ final class UserPreferences {
         self.personalizedShelvesEnabled = defaults.object(forKey: Keys.personalizedShelvesEnabled) as? Bool ?? true
         self.compactHomeContinueWatching = defaults.bool(forKey: Keys.compactHomeContinueWatching)
         self.downloadMaxResolution = downloadMaxResolution
+        self.playerAdvancedControlsEnabled = playerAdvancedControlsEnabled
         self.downloadsWifiOnly = downloadsWifiOnly
         self.maximumActiveDownloads = maximumActiveDownloads
         self.downloadFreeSpaceReserve = downloadFreeSpaceReserve

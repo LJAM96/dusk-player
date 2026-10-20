@@ -155,10 +155,18 @@ extension PlayerViewModel {
         }
     }
 
-    /// Sets the session's playback speed. Platform-neutral; today only the
-    /// tvOS settings panel exposes it. A live session has no rate to change
-    /// and a transient 2× boost wins until it is released — the boost's own
-    /// `endSpeedBoost()` then restores whatever was chosen here.
+    /// Rates offered by the speed control (advanced playback controls).
+    static let playbackSpeedOptions: [Float] = [0.5, 0.75, 1.0, 1.25, 1.5, 1.75, 2.0]
+
+    static func playbackSpeedTitle(_ rate: Float) -> String {
+        rate == 1 ? "Normal" : String(format: "%g×", Double(rate))
+    }
+
+    /// Sets the session's playback speed, from the iOS speed menu or the tvOS
+    /// panel's Speed tab (both only with advanced playback controls on). A
+    /// live session has no rate to change and a transient 2× boost wins until
+    /// it is released — the boost's own `endSpeedBoost()` then restores
+    /// whatever was chosen here.
     func setPlaybackRate(_ rate: Float) {
         guard liveTVContext == nil else { return }
         guard playbackRate != rate else { return }

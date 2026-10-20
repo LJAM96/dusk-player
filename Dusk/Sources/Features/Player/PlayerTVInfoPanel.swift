@@ -19,8 +19,6 @@ struct PlayerTVInfoPanel: View {
 
     @FocusState private var focusedRow: String?
 
-    private static let speedOptions: [Float] = [0.5, 0.75, 1.0, 1.25, 1.5, 1.75, 2.0]
-
     var body: some View {
         VStack(spacing: 0) {
             tabStrip
@@ -361,19 +359,19 @@ struct PlayerTVInfoPanel: View {
 
     @ViewBuilder
     private var speedRows: some View {
-        ForEach(Self.speedOptions, id: \.self) { rate in
-            panelRow(
-                id: "speed.\(rate)",
-                title: Self.speedTitle(rate),
-                isSelected: abs(viewModel.playbackRate - rate) < 0.001
-            ) {
-                viewModel.setPlaybackRate(rate)
+        if context.speedControl == .available {
+            ForEach(PlayerViewModel.playbackSpeedOptions, id: \.self) { rate in
+                panelRow(
+                    id: "speed.\(rate)",
+                    title: PlayerViewModel.playbackSpeedTitle(rate),
+                    isSelected: abs(viewModel.playbackRate - rate) < 0.001
+                ) {
+                    viewModel.setPlaybackRate(rate)
+                }
             }
+        } else {
+            emptyRow(PlayerSpeedControlAvailability.unavailableMessage)
         }
-    }
-
-    private static func speedTitle(_ rate: Float) -> String {
-        rate == 1 ? "Normal" : String(format: "%g×", Double(rate))
     }
 
     // MARK: - Building blocks

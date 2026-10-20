@@ -3,6 +3,7 @@ import SwiftUI
 struct PlayerControlsOverlay: View {
     @Environment(PlaybackCoordinator.self) private var playback
     @Environment(PlexService.self) private var plexService
+    @Environment(UserPreferences.self) private var preferences
 
     let viewModel: PlayerViewModel
     #if os(tvOS)
@@ -17,22 +18,54 @@ struct PlayerControlsOverlay: View {
     let onDismiss: () -> Void
 
     var body: some View {
+        Group {
+            #if os(tvOS)
+            PlayerControlsTVOverlay(
+                viewModel: viewModel,
+                controller: hudController,
+                context: context,
+                scrubPreviewSource: scrubPreviewSource
+            )
+            #else
+            PlayerControlsIOSOverlay(
+                viewModel: viewModel,
+                context: context,
+                scrubPreviewSource: scrubPreviewSource,
+                controlsTopSafeAreaInset: controlsTopSafeAreaInset,
+                onDismiss: onDismiss
+            )
+            #endif
+        }
+        // An audio switch onto an Atmos track can keep the session (and the
+        // chosen rate); fall back to 1× rather than leave it unreachable.
+        .onChange(of: speedControl) { _, availability in
+            if availability == .unavailableWithDolbyAtmos {
+                viewModel.setPlaybackRate(1)
+            }
+        }
+    }
+
+    /// Advanced playback controls (Settings › Playback Advanced) add the skip
+    /// buttons and the speed control. Live TV has no skip target worth a
+    /// button and no rate to change.
+    private var showsAdvancedPlaybackControls: Bool {
+        preferences.playerAdvancedControlsEnabled && !viewModel.isLiveTV
+    }
+
+    /// Speed follows the hold-to-2× guards (no SharePlay group following
+    /// along). On tvOS an AVPlayer session with a Dolby Atmos track bitstreams
+    /// it to the receiver/TV over HDMI, which only plays at 1×, so the control
+    /// stays visible but explains itself instead of offering rates. VLCKit
+    /// always decodes to PCM, and iOS renders Atmos on device, so both keep it.
+    private var speedControl: PlayerSpeedControlAvailability {
+        guard showsAdvancedPlaybackControls, !playback.isSharePlayActive else { return .hidden }
         #if os(tvOS)
-        PlayerControlsTVOverlay(
-            viewModel: viewModel,
-            controller: hudController,
-            context: context,
-            scrubPreviewSource: scrubPreviewSource
-        )
-        #else
-        PlayerControlsIOSOverlay(
-            viewModel: viewModel,
-            context: context,
-            scrubPreviewSource: scrubPreviewSource,
-            controlsTopSafeAreaInset: controlsTopSafeAreaInset,
-            onDismiss: onDismiss
-        )
+        if let debugInfo, debugInfo.engine == .avPlayer,
+           playback.activeAudioStreamIsDolbyAtmos(in: debugInfo.part) {
+            return .unavailableWithDolbyAtmos
+        }
         #endif
+        return .available
     }
 
     private var context: PlayerControlsContext {
@@ -56,7 +89,9 @@ struct PlayerControlsOverlay: View {
             isSharePlayActive: playback.isSharePlayActive,
             isStartingSharePlay: playback.isSharePlayStarting,
             sharePlayParticipantCount: playback.sharePlayParticipantCount,
-            liveTVContext: viewModel.liveTVContext
+            liveTVContext: viewModel.liveTVContext,
+            showsSkipButtons: showsAdvancedPlaybackControls,
+            speedControl: speedControl
         )
     }
 
@@ -158,6 +193,19 @@ struct PlayerControlsContext {
     let isStartingSharePlay: Bool
     let sharePlayParticipantCount: Int
     let liveTVContext: PlexLivePlaybackContext?
+    /// Skip back / forward buttons (advanced playback controls).
+    let showsSkipButtons: Bool
+    let speedControl: PlayerSpeedControlAvailability
+}
+
+enum PlayerSpeedControlAvailability: Equatable {
+    /// Advanced playback controls are off, or the session cannot change rate.
+    case hidden
+    case available
+    /// Shown, but without rates: the Atmos bitstream only plays at 1×.
+    case unavailableWithDolbyAtmos
+
+    static let unavailableMessage = "Not available with Dolby Atmos"
 }
 
 struct PlayerMediaHeader {

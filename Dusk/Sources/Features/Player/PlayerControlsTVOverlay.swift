@@ -135,12 +135,18 @@ struct PlayerControlsTVOverlay: View {
         return min(max(index, 0), controller.actions.count - 1)
     }
 
-    /// Kept short on purpose. Quality, Channel, Chapters and Speed are one
+    /// Kept short on purpose. Quality, Channel and Chapters are one
     /// Down-press away in the panel's tab strip; crowding the row with nine
-    /// circles is exactly what the old gear menu felt like.
+    /// circles is exactly what the old gear menu felt like. Advanced playback
+    /// controls add skip back / forward at the leading end and a Speed
+    /// shortcut; Left/Right on the bar keep seeking either way.
     private var actionItems: [PlayerTVActionItem] {
         var items: [PlayerTVActionItem] = []
 
+        if context.showsSkipButtons {
+            items.append(.skipBackward(seconds: Int(controller.backwardSeekInterval)))
+            items.append(.skipForward(seconds: Int(controller.forwardSeekInterval)))
+        }
         if viewModel.isLiveTV, !viewModel.isAtLiveEdge {
             items.append(.goLive)
         }
@@ -152,6 +158,9 @@ struct PlayerControlsTVOverlay: View {
         }
         if !panelTabs.isEmpty {
             items.append(.panel(.info))
+        }
+        if context.speedControl != .hidden {
+            items.append(.panel(.speed))
         }
         // Last, so it sits at the trailing end of the row. Only present while
         // there is a next episode to play (and no SharePlay group to leave
@@ -191,17 +200,11 @@ struct PlayerControlsTVOverlay: View {
         if context.liveTVContext != nil {
             tabs.append(.channel)
         }
-        if hasSpeedControl {
+        if context.speedControl != .hidden {
             tabs.append(.speed)
         }
 
         return tabs
-    }
-
-    /// Mirrors the iOS press-and-hold speed boost's guards: no rate control on
-    /// a live stream, and never while a SharePlay group is following along.
-    private var hasSpeedControl: Bool {
-        !viewModel.isLiveTV && !context.isSharePlayActive
     }
 }
 #endif

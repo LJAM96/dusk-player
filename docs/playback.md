@@ -1889,8 +1889,9 @@ so the whole live HUD is derived from one instant.
     the bar, Down from the bar → `panel`; Left/Right on the bar → seek, on the
     row → move the selection; Select on the bar → play/pause, on the row → run
     the action. Auto-hide is armed here only.
-    The row is Go Live (live, behind the edge), Subtitles, Audio, Info, then
-    Next Episode when there is one; a selected action may float a tooltip
+    The row is Skip Back / Skip Forward (advanced playback controls), Go Live
+    (live, behind the edge), Subtitles, Audio, Info, Speed (advanced playback
+    controls), then Next Episode when there is one; a selected action may float a tooltip
     (`PlayerTVActionItem.tooltip`) above its button.
   - `scrubbing`: the swipe moves a preview target, Left/Right steps it; Select
     or Play/Pause commits a precise seek (resuming if the session was paused);
@@ -1936,11 +1937,37 @@ so the whole live HUD is derived from one instant.
 - Chapters are marker-backed only. Plex exposes no chapter list through the
   endpoints Dusk uses, so `PlayerViewModel.chapterMarkers` (intro + credits) drives
   both the bar's ticks and the Chapters tab, and the tab is hidden when it is empty.
-- Playback speed is `PlayerViewModel.playbackRate` / `setPlaybackRate(_:)`
-  (platform-neutral, tvOS-only UI). It is refused for Live TV, the Speed tab is
-  hidden while SharePlay is active, and the iOS press-and-hold 2x boost overrides
-  it transiently — `endSpeedBoost()` restores the chosen rate rather than 1x. The
-  rate is per session, because the engine is rebuilt with the session.
+- Playback speed is `PlayerViewModel.playbackRate` / `setPlaybackRate(_:)`,
+  offered only with advanced playback controls on (see below). It is refused
+  for Live TV, hidden while SharePlay is active, and the iOS press-and-hold 2x
+  boost overrides it transiently — `endSpeedBoost()` restores the chosen rate
+  rather than 1x. The rate is per session: every new engine gets a new
+  `playerPresentationID` (fresh `PlayerViewModel`) and both engines reset to 1x
+  in `load(source:)`.
+
+## Advanced Playback Controls
+- `playerAdvancedControlsEnabled` (Settings › Playback Advanced, "Advanced
+  Playback Controls", default off, iOS and tvOS). Off, the player is unchanged
+  and has no speed control anywhere. On, outside Live TV:
+  - iOS: skip back / forward circles beside Play (inside the Episode Buttons)
+    and a speed `Menu` beside the gear (`PlayerSpeedMenu`, gauge glyph at 1x,
+    the rate as text otherwise).
+  - tvOS: `PlayerTVActionItem.skipBackward` / `.skipForward` lead the action
+    row and a Speed shortcut (`.panel(.speed)`) follows Info; the panel gets
+    its Speed tab. A skip press feeds the same debounced seek accumulator as
+    Left/Right, so a burst of presses is one seek. Left/Right, Up/Down and the
+    hidden-state gestures are unchanged.
+- Skip intervals are the double-tap seek intervals
+  (`playerDoubleTapBackwardInterval` / `ForwardInterval`, default 15 s), the
+  same values the tvOS Left/Right clicks and the Now Playing skip commands use.
+- `PlayerControlsContext.speedControl` decides availability. On tvOS an
+  AVPlayer session whose active audio is Dolby Atmos is
+  `.unavailableWithDolbyAtmos`: Atmos goes to the receiver/TV as a bitstream
+  that only plays at 1x, so the control stays but shows "Not available with
+  Dolby Atmos" instead of rates, and the rate drops to 1x if a mid-session
+  audio switch lands on Atmos. VLCKit always decodes to PCM (passthrough is
+  forced off), and iOS renders Atmos on device, so both keep the rates. This
+  is a conservative call that has not been checked on hardware.
 
 ## Timeline, Scrobble, and Up Next
 - `PlaybackCoordinator.startTimelineReporting` sends progress every 10 seconds,
@@ -2139,8 +2166,9 @@ Plex clients do. There is no app setting: the server decides.
   writes the same `UserPreferences` value and calls
   `engine.applySubtitleFontSize(_:)`; there is no per-session override.
 - Active UI defaults: intro auto-skip mode, credits auto-skip, double-tap seek,
-  continuous play, and the iOS Episode Buttons (`playerEpisodeButtonsEnabled`,
-  default off; no tvOS toggle).
+  continuous play, the iOS Episode Buttons (`playerEpisodeButtonsEnabled`,
+  default off; no tvOS toggle) and advanced playback controls
+  (`playerAdvancedControlsEnabled`, default off, both platforms).
 - New installs default intro auto-skip to always except episode 1 of each
   season; existing stored intro-skip preferences are preserved.
 - `forceAVPlayer` and `forceVLCKit` are mutually exclusive in their setters.

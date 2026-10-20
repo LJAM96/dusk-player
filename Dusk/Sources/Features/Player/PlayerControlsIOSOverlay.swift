@@ -114,6 +114,9 @@ struct PlayerControlsIOSOverlay: View {
             if showsEpisodeButtons {
                 episodeButton(.previous)
             }
+            if context.showsSkipButtons {
+                skipButton(direction: -1)
+            }
             Button { viewModel.togglePlayPause() } label: {
                 Image(systemName: isPlaying ? "pause.fill" : "play.fill")
                     .font(.title3.weight(.semibold))
@@ -127,6 +130,9 @@ struct PlayerControlsIOSOverlay: View {
             .allowsHitTesting(!isSpinnerActive)
             .accessibilityHidden(isSpinnerActive)
             .animation(.easeInOut(duration: 0.15), value: isSpinnerActive)
+            if context.showsSkipButtons {
+                skipButton(direction: 1)
+            }
             if showsEpisodeButtons {
                 episodeButton(.next)
             }
@@ -162,6 +168,29 @@ struct PlayerControlsIOSOverlay: View {
         .accessibilityValue(episode.flatMap {
             MediaTextFormatter.seasonEpisodeLabel(season: $0.parentIndex, episode: $0.index)
         } ?? "")
+    }
+
+    /// Advanced playback controls. Same intervals and feedback as the
+    /// double-tap seek zones.
+    private func skipButton(direction: Int) -> some View {
+        let interval = direction < 0
+            ? preferences.playerDoubleTapBackwardInterval
+            : preferences.playerDoubleTapForwardInterval
+        let seconds = interval.rawValue
+
+        return Button {
+            viewModel.handleSeekJump(by: TimeInterval(direction) * interval.timeInterval)
+            viewModel.noteControlsInteraction()
+        } label: {
+            // Every `PlayerSeekInterval` (5…60 s) has a numbered symbol.
+            Image(systemName: direction < 0 ? "gobackward.\(seconds)" : "goforward.\(seconds)")
+                .font(.title3.weight(.semibold))
+                .foregroundStyle(.white)
+                .frame(width: 44, height: 44)
+                .background(.ultraThinMaterial, in: Circle())
+        }
+        .disabled(viewModel.playbackError != nil)
+        .accessibilityLabel(direction < 0 ? "Skip Back \(seconds) Seconds" : "Skip Forward \(seconds) Seconds")
     }
 
     /// Mirrors what makes `PlayerView`'s spinner visible. `playerLoadingState` is
@@ -201,11 +230,68 @@ struct PlayerControlsIOSOverlay: View {
 
                 Spacer()
 
+                if context.speedControl != .hidden {
+                    PlayerSpeedMenu(viewModel: viewModel, availability: context.speedControl)
+                }
+
                 PlayerTrackSettingsMenu(
                     viewModel: viewModel,
                     context: context
                 )
             }
+        }
+    }
+}
+
+/// Playback speed (advanced playback controls). Sits beside the settings gear
+/// with the same 36pt chrome; shows the chosen rate once it is not 1×.
+private struct PlayerSpeedMenu: View {
+    let viewModel: PlayerViewModel
+    let availability: PlayerSpeedControlAvailability
+
+    var body: some View {
+        Menu {
+            if availability == .available {
+                Picker("Playback Speed", selection: Binding(
+                    get: { viewModel.playbackRate },
+                    set: { viewModel.setPlaybackRate($0) }
+                )) {
+                    ForEach(PlayerViewModel.playbackSpeedOptions, id: \.self) { rate in
+                        Text(PlayerViewModel.playbackSpeedTitle(rate)).tag(rate)
+                    }
+                }
+                .pickerStyle(.inline)
+            } else {
+                Text(PlayerSpeedControlAvailability.unavailableMessage)
+            }
+        } label: {
+            label
+                .font(.body.weight(.semibold))
+                .foregroundStyle(.white)
+                .frame(minWidth: 36, minHeight: 36)
+                .padding(.horizontal, isNormalRate ? 0 : 6)
+                .background(.white.opacity(0.12), in: Capsule())
+                .accessibilityLabel("Playback Speed")
+                .accessibilityValue(PlayerViewModel.playbackSpeedTitle(viewModel.playbackRate))
+        }
+        // Same reason as the settings menu: a native `Menu` has no
+        // presentation callback, so the opening tap extends the HUD.
+        .simultaneousGesture(TapGesture().onEnded {
+            viewModel.noteSettingsMenuInteraction()
+        })
+    }
+
+    private var isNormalRate: Bool {
+        viewModel.playbackRate == 1
+    }
+
+    @ViewBuilder
+    private var label: some View {
+        if isNormalRate {
+            Image(systemName: "gauge.with.dots.needle.67percent")
+        } else {
+            Text(String(format: "%g×", Double(viewModel.playbackRate)))
+                .monospacedDigit()
         }
     }
 }

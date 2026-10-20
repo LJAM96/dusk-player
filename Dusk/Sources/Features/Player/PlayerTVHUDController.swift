@@ -67,6 +67,9 @@ enum PlayerTVPanelTab: String, CaseIterable, Identifiable, Hashable {
 enum PlayerTVActionItem: Equatable, Identifiable {
     case panel(PlayerTVPanelTab)
     case goLive
+    /// Advanced playback controls. Same intervals as Left/Right on the bar.
+    case skipBackward(seconds: Int)
+    case skipForward(seconds: Int)
     /// Plays the next episode. `label` is its `S2 · E8` marker, shown in the
     /// tooltip while the button is selected.
     case nextEpisode(label: String)
@@ -75,6 +78,8 @@ enum PlayerTVActionItem: Equatable, Identifiable {
         switch self {
         case let .panel(tab): return "panel.\(tab.rawValue)"
         case .goLive: return "goLive"
+        case .skipBackward: return "skipBackward"
+        case .skipForward: return "skipForward"
         case .nextEpisode: return "nextEpisode"
         }
     }
@@ -83,6 +88,9 @@ enum PlayerTVActionItem: Equatable, Identifiable {
         switch self {
         case let .panel(tab): return tab.systemImage
         case .goLive: return "forward.end.alt.fill"
+        // Every `PlayerSeekInterval` (5…60 s) has a numbered symbol.
+        case let .skipBackward(seconds): return "gobackward.\(seconds)"
+        case let .skipForward(seconds): return "goforward.\(seconds)"
         case .nextEpisode: return "forward.end.fill"
         }
     }
@@ -91,6 +99,8 @@ enum PlayerTVActionItem: Equatable, Identifiable {
         switch self {
         case let .panel(tab): return tab.title
         case .goLive: return "Go Live"
+        case let .skipBackward(seconds): return "Skip Back \(seconds) Seconds"
+        case let .skipForward(seconds): return "Skip Forward \(seconds) Seconds"
         case .nextEpisode: return "Next Episode"
         }
     }
@@ -99,7 +109,7 @@ enum PlayerTVActionItem: Equatable, Identifiable {
     var tooltip: String? {
         switch self {
         case let .nextEpisode(label): return "Next: \(label)"
-        case .panel, .goLive: return nil
+        case .panel, .goLive, .skipBackward, .skipForward: return nil
         }
     }
 }
@@ -482,6 +492,10 @@ final class PlayerTVHUDController {
         case .goLive:
             viewModel?.goLive()
             noteInteraction()
+        case .skipBackward:
+            skip(direction: -1)
+        case .skipForward:
+            skip(direction: 1)
         case .nextEpisode:
             onPlayNextEpisode?()
         }
@@ -515,7 +529,21 @@ final class PlayerTVHUDController {
     /// issued once the button comes up (plus a short grace period, so a burst
     /// of clicks is one seek too).
     private func beginSeekHold(direction: Int) {
-        guard let viewModel, viewModel.playbackError == nil else { return }
+        guard stepSeekPreview(direction: direction) else { return }
+        startSeekRepeat(direction: direction)
+    }
+
+    /// A skip button press is one click of the same accumulator, so a burst
+    /// of presses previews on the bar and lands as a single seek.
+    private func skip(direction: Int) {
+        guard stepSeekPreview(direction: direction) else { return }
+        endSeekHold()
+    }
+
+    /// Adds one interval to the pending seek preview, anchoring a new one at
+    /// the playhead. False when there is no playable session to seek.
+    private func stepSeekPreview(direction: Int) -> Bool {
+        guard let viewModel, viewModel.playbackError == nil else { return false }
 
         seekCommitTask?.cancel()
         seekCommitTask = nil
@@ -526,8 +554,8 @@ final class PlayerTVHUDController {
         }
 
         applySeekStep(interval(for: direction))
-        startSeekRepeat(direction: direction)
         noteInteraction()
+        return true
     }
 
     private func endSeekHold() {

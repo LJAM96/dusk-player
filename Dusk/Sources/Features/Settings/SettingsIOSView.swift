@@ -440,6 +440,9 @@ struct SettingsIOSView: View {
                             .foregroundStyle(Color.duskTextSecondary)
                     }
                 }
+                Toggle("Advanced Playback Controls", isOn: $preferences.playerAdvancedControlsEnabled)
+                    .foregroundStyle(Color.duskTextPrimary)
+
                 .duskSuppressTVOSButtonChrome()
             } header: {
                 Text("Appearance")
