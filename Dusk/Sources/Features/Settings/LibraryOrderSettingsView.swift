@@ -1,12 +1,14 @@
 import SwiftUI
 
-/// Reorders the connected server's libraries. The order is an account-level Plex
-/// setting, so it also drives the sidebar in Plex Web and the other Plex apps.
+/// Reorders and hides the connected servers' libraries. Order and visibility are
+/// an account-level Plex setting, so they also drive the sidebar in Plex Web and
+/// the other Plex apps.
 ///
 /// This view owns the view model and its load/error states for both platforms;
 /// the editors differ because the input models do. iOS/iPadOS use native list
-/// editing (`EditButton` + `onMove`). tvOS uses per-row position menus — the same
-/// pattern as Navigation Tabs. **Do not replace the tvOS menus with a
+/// editing (`EditButton` + `onMove`) with swipe actions to hide and show. tvOS
+/// uses visibility toggles and per-row position menus — the same pattern as
+/// Navigation Tabs. **Do not replace the tvOS menus with a
 /// focus-driven pick-up**: the previous Home layout editor did that and it was
 /// unusable on a real remote (directional commands only reach an `onMoveCommand`
 /// handler when the focus engine has no candidate, and the tab bar sits above
@@ -65,12 +67,18 @@ struct LibraryOrderSettingsView: View {
     private func iosEditor(_ viewModel: LibraryOrderSettingsViewModel) -> some View {
         List {
             Section {
-                ForEach(viewModel.libraries) { library in
+                ForEach(viewModel.visibleLibraries) { library in
                     Label(
                         viewModel.displayTitle(for: library),
                         systemImage: Self.iconName(for: library)
                     )
                     .foregroundStyle(Color.duskTextPrimary)
+                    .swipeActions(edge: .trailing) {
+                        hideButton(viewModel, library: library, hide: true)
+                    }
+                    .contextMenu {
+                        hideButton(viewModel, library: library, hide: true)
+                    }
                 }
                 .onMove { offsets, destination in
                     viewModel.move(fromOffsets: offsets, toOffset: destination)
@@ -87,10 +95,36 @@ struct LibraryOrderSettingsView: View {
                     }
                 }
             } footer: {
-                Text("Drag to set the order of your libraries. The order is saved to your Plex account, so other Plex apps use it too.")
+                Text("Tap Edit, then drag to set the order of your libraries. Swipe left on a library to hide it. Both are saved to your Plex account, so other Plex apps use them too.")
                     .foregroundStyle(Color.duskTextSecondary)
             }
             .listRowBackground(Color.duskSurface)
+
+            let hiddenLibraries = viewModel.hiddenLibraries
+            if !hiddenLibraries.isEmpty {
+                Section {
+                    ForEach(hiddenLibraries) { library in
+                        Label(
+                            viewModel.displayTitle(for: library),
+                            systemImage: Self.iconName(for: library)
+                        )
+                        .foregroundStyle(Color.duskTextSecondary)
+                        .swipeActions(edge: .trailing) {
+                            hideButton(viewModel, library: library, hide: false)
+                        }
+                        .contextMenu {
+                            hideButton(viewModel, library: library, hide: false)
+                        }
+                    }
+                } header: {
+                    Text("Hidden")
+                        .foregroundStyle(Color.duskTextSecondary)
+                } footer: {
+                    Text("Hidden libraries don't appear in Dusk. Swipe left on one to show it again.")
+                        .foregroundStyle(Color.duskTextSecondary)
+                }
+                .listRowBackground(Color.duskSurface)
+            }
 
             if let saveError = viewModel.saveError {
                 Section {
@@ -106,6 +140,20 @@ struct LibraryOrderSettingsView: View {
             EditButton()
         }
     }
+
+    private func hideButton(
+        _ viewModel: LibraryOrderSettingsViewModel,
+        library: PlexLibrary,
+        hide: Bool
+    ) -> some View {
+        Button {
+            withAnimation {
+                viewModel.setHidden(hide, for: library)
+            }
+        } label: {
+            Label(hide ? "Hide" : "Show", systemImage: hide ? "eye.slash" : "eye")
+        }
+    }
     #endif
 
     // MARK: - tvOS
@@ -115,24 +163,44 @@ struct LibraryOrderSettingsView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: TVSettingsMetrics.sectionSpacing) {
                 TVSettingsSection(
-                    title: "Order",
-                    footer: "Choose the position of each library. The order is saved to your Plex account, so other Plex apps use it too."
+                    title: "Visibility",
+                    footer: "Turn off a library to hide it in Dusk. Visibility is saved to your Plex account, so other Plex apps use it too."
                 ) {
                     // Keyed on the library's own id: `PlexLibrary`'s Hashable
                     // conformance only looks at `key`, which two servers can
-                    // both hand out.
+                    // both hand out. Iterates the full list, whose order a
+                    // toggle does not change, so the focused row stays put.
                     ForEach(Array(viewModel.libraries.enumerated()), id: \.element.id) { index, library in
                         if index > 0 {
                             tvRowDivider
                         }
 
-                        TVSettingsMenuRow(
+                        TVSettingsToggleRow(
                             title: viewModel.displayTitle(for: library),
-                            options: Array(viewModel.libraries.indices),
-                            selection: positionBinding(viewModel, for: library),
-                            selectedTitle: LibraryOrderPositionName.label(for: index)
-                        ) {
-                            LibraryOrderPositionName.label(for: $0)
+                            isOn: visibilityBinding(viewModel, for: library)
+                        )
+                    }
+                }
+
+                let visibleLibraries = viewModel.visibleLibraries
+                if !visibleLibraries.isEmpty {
+                    TVSettingsSection(
+                        title: "Order",
+                        footer: "Choose the position of each library. The order is saved to your Plex account, so other Plex apps use it too."
+                    ) {
+                        ForEach(Array(visibleLibraries.enumerated()), id: \.element.id) { index, library in
+                            if index > 0 {
+                                tvRowDivider
+                            }
+
+                            TVSettingsMenuRow(
+                                title: viewModel.displayTitle(for: library),
+                                options: Array(visibleLibraries.indices),
+                                selection: positionBinding(viewModel, for: library),
+                                selectedTitle: LibraryOrderPositionName.label(for: index)
+                            ) {
+                                LibraryOrderPositionName.label(for: $0)
+                            }
                         }
                     }
                 }
@@ -165,6 +233,16 @@ struct LibraryOrderSettingsView: View {
         Binding(
             get: { viewModel.position(of: library) },
             set: { viewModel.move(library, to: $0) }
+        )
+    }
+
+    private func visibilityBinding(
+        _ viewModel: LibraryOrderSettingsViewModel,
+        for library: PlexLibrary
+    ) -> Binding<Bool> {
+        Binding(
+            get: { !viewModel.isHidden(library) },
+            set: { viewModel.setHidden(!$0, for: library) }
         )
     }
     #endif

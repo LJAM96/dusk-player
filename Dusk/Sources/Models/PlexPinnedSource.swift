@@ -168,4 +168,22 @@ struct PlexPinnedSource: Sendable, Hashable, Identifiable {
             raw: updatedRaw
         )
     }
+
+    /// Returns the same entry with `isHidden` set, leaving every other raw
+    /// field untouched. Used on write when the user hides or shows a library.
+    func updatingHidden(_ newIsHidden: Bool) -> PlexPinnedSource {
+        guard isHidden != newIsHidden, raw.objectValue != nil else { return self }
+        var updatedRaw = raw
+        updatedRaw["isHidden"] = .bool(newIsHidden)
+        return PlexPinnedSource(
+            key: key,
+            sourceType: sourceType,
+            machineIdentifier: machineIdentifier,
+            providerIdentifier: providerIdentifier,
+            directoryID: directoryID,
+            title: title,
+            isHidden: newIsHidden,
+            raw: updatedRaw
+        )
+    }
 }

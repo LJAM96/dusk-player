@@ -3,7 +3,8 @@ import Foundation
 // not Foundation.
 import SwiftUI
 
-/// Editing state for the library order screen.
+/// Editing state for the library order screen: the order and which libraries
+/// are hidden.
 ///
 /// The list is the user's working copy: every move mutates it immediately so the
 /// UI stays responsive, and the write to Plex is debounced so walking a library
@@ -16,7 +17,7 @@ final class LibraryOrderSettingsViewModel {
     /// Shown when the sections or the account order could not be read at all.
     static let loadErrorMessage = "Couldn't load your library order from Plex."
     /// Shown when a debounced write failed; the list reverts to the stored order.
-    static let saveErrorMessage = "Couldn't save the library order to your Plex account. Your libraries keep their current order."
+    static let saveErrorMessage = "Couldn't save your libraries to your Plex account. They keep their current order and visibility."
 
     /// How long an edit sits before it is pushed to the Plex account.
     private static let writeDebounce: Duration = .seconds(1)
@@ -25,8 +26,13 @@ final class LibraryOrderSettingsViewModel {
 
     /// Working order. Every section of the connected server, unfiltered: music
     /// and photo libraries are not browsable in Dusk but they occupy a slot in
-    /// the account's sidebar order, so hiding them here would silently move them.
+    /// the account's sidebar order, so leaving them out would silently move them.
+    /// Hidden libraries stay in this list (hiding one does not move its row in
+    /// the tvOS visibility list); a move puts them after the visible ones,
+    /// which is where the account stores them anyway.
     private(set) var libraries: [PlexLibrary] = []
+    /// `PlexLibrary.id`s the user has hidden.
+    private(set) var hiddenIDs: Set<String> = []
     private(set) var isLoading = false
     private(set) var isSaving = false
     private(set) var error: String?
@@ -37,8 +43,8 @@ final class LibraryOrderSettingsViewModel {
     /// decoration: a single-server account never sees one.
     private(set) var serverLabels: [String: String] = [:]
 
-    /// The order waiting for the debounce to elapse, if any.
-    @ObservationIgnored private var pendingOrder: [PlexLibrary]?
+    /// The order and hidden set waiting for the debounce to elapse, if any.
+    @ObservationIgnored private var pendingWrite: (order: [PlexLibrary], hidden: Set<String>)?
     @ObservationIgnored private var debounceTask: Task<Void, Never>?
     /// Chained so two flushes cannot overlap on the wire.
     @ObservationIgnored private var writeTask: Task<Void, Never>?
@@ -56,7 +62,7 @@ final class LibraryOrderSettingsViewModel {
             // `force` because the settings screen is the one place that must show
             // the account's current order rather than whatever was cached at launch.
             _ = try await plexService.ensureLibraryOrderLoaded(force: true)
-            libraries = plexService.libraryOrder.orderedSections
+            resetToStoredState()
             serverLabels = makeServerLabels(for: libraries)
         } catch {
             self.error = Self.loadErrorMessage
@@ -75,36 +81,72 @@ final class LibraryOrderSettingsViewModel {
         ServerLabeling.serverLabels(for: libraries, pool: plexService.pool)
     }
 
-    // MARK: - Editing
-
-    /// iOS/iPadOS list editing.
-    func move(fromOffsets offsets: IndexSet, toOffset destination: Int) {
-        var updated = libraries
-        updated.move(fromOffsets: offsets, toOffset: destination)
-        apply(updated)
+    /// The libraries Dusk shows, in order. Moves and positions refer to this
+    /// list.
+    var visibleLibraries: [PlexLibrary] {
+        libraries.filter { !hiddenIDs.contains($0.id) }
     }
 
-    /// tvOS position menus: move one library to an absolute slot.
-    func move(_ library: PlexLibrary, to index: Int) {
-        guard let current = libraries.firstIndex(of: library) else { return }
+    var hiddenLibraries: [PlexLibrary] {
+        libraries.filter { hiddenIDs.contains($0.id) }
+    }
 
-        let target = min(max(index, 0), libraries.count - 1)
+    func isHidden(_ library: PlexLibrary) -> Bool {
+        hiddenIDs.contains(library.id)
+    }
+
+    /// Hidden libraries listed after the visible ones, mirroring how the
+    /// account stores them.
+    private func resetToStoredState() {
+        let hidden = plexService.libraryOrder.hiddenSectionIdentities
+        let ordered = plexService.libraryOrder.orderedSections
+        libraries = ordered.filter { !hidden.contains($0.id) } + ordered.filter { hidden.contains($0.id) }
+        hiddenIDs = hidden
+    }
+
+    // MARK: - Editing
+
+    /// iOS/iPadOS list editing, over `visibleLibraries`.
+    func move(fromOffsets offsets: IndexSet, toOffset destination: Int) {
+        var visible = visibleLibraries
+        visible.move(fromOffsets: offsets, toOffset: destination)
+        apply(visible + hiddenLibraries, hidden: hiddenIDs)
+    }
+
+    /// tvOS position menus: move one visible library to an absolute slot.
+    func move(_ library: PlexLibrary, to index: Int) {
+        var visible = visibleLibraries
+        guard let current = visible.firstIndex(of: library) else { return }
+
+        let target = min(max(index, 0), visible.count - 1)
         guard current != target else { return }
 
-        var updated = libraries
-        let moved = updated.remove(at: current)
-        updated.insert(moved, at: target)
-        apply(updated)
+        let moved = visible.remove(at: current)
+        visible.insert(moved, at: target)
+        apply(visible + hiddenLibraries, hidden: hiddenIDs)
     }
 
     func position(of library: PlexLibrary) -> Int {
-        libraries.firstIndex(of: library) ?? 0
+        visibleLibraries.firstIndex(of: library) ?? 0
     }
 
-    private func apply(_ updated: [PlexLibrary]) {
+    /// Hides or shows a library everywhere Dusk lists libraries. The flag lives
+    /// on the Plex account next to the order, so other Plex apps follow it too.
+    func setHidden(_ isHidden: Bool, for library: PlexLibrary) {
+        var hidden = hiddenIDs
+        if isHidden {
+            guard hidden.insert(library.id).inserted else { return }
+        } else {
+            guard hidden.remove(library.id) != nil else { return }
+        }
+        apply(libraries, hidden: hidden)
+    }
+
+    private func apply(_ updated: [PlexLibrary], hidden: Set<String>) {
         libraries = updated
+        hiddenIDs = hidden
         saveError = nil
-        pendingOrder = updated
+        pendingWrite = (updated, hidden)
 
         debounceTask?.cancel()
         debounceTask = Task { [weak self] in
@@ -126,26 +168,26 @@ final class LibraryOrderSettingsViewModel {
 
     private func startWrite() {
         debounceTask = nil
-        guard let order = pendingOrder else { return }
-        pendingOrder = nil
+        guard let pending = pendingWrite else { return }
+        pendingWrite = nil
 
         let previous = writeTask
         writeTask = Task { [weak self] in
             await previous?.value
-            await self?.write(order)
+            await self?.write(pending.order, hidden: pending.hidden)
         }
     }
 
-    private func write(_ order: [PlexLibrary]) async {
+    private func write(_ order: [PlexLibrary], hidden: Set<String>) async {
         isSaving = true
         do {
-            try await plexService.reorderLibraries(order)
+            try await plexService.reorderLibraries(order, hidden: hidden)
             saveError = nil
         } catch {
             saveError = Self.saveErrorMessage
-            // The account still holds the last order Plex accepted; showing the
-            // failed order would lie about what other Plex apps will do.
-            libraries = plexService.libraryOrder.orderedSections
+            // The account still holds the last state Plex accepted; showing the
+            // failed one would lie about what other Plex apps will do.
+            resetToStoredState()
         }
         isSaving = false
     }

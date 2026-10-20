@@ -15,11 +15,12 @@ final class LibrariesViewModel {
     /// Read-through of the shared library-order store so every browsable list
     /// follows the order stored on the Plex account. Music sections occupy
     /// slots in that order but are not browsable in Dusk, so they are filtered
-    /// out here (and only here — the settings editor lists them).
+    /// out here (and only here — the settings editor lists them), as are the
+    /// libraries hidden in Library Order.
     /// So are "Other Videos" and photo sections until they are known to hold
     /// something: an empty one would otherwise put a tab in front of everyone.
     var libraries: [PlexLibrary] {
-        plexService.libraryOrder.orderedSections.filter { library in
+        plexService.libraryOrder.visibleSections.filter { library in
             guard let type = library.libraryType else { return false }
             return !Self.countedTypes.contains(type) || libraryHasItems[library.id] == true
         }

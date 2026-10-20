@@ -27,9 +27,11 @@ enum LibraryOrderArrangement {
     /// - A pinned entry whose section no longer exists, or whose server is not
     ///   connected, is skipped — but it is still preserved on write.
     /// - Duplicate pins for one section: the first one wins.
-    /// - `isHidden` entries are *not* pinned to the front. Dusk does not hide
-    ///   libraries, so a hidden library falls through to the tail block instead
-    ///   of disappearing (see `writeOrder`, which keeps it hidden on write).
+    /// - `isHidden` entries are *not* pinned to the front: a hidden library falls
+    ///   through to the tail block. This is the full order, hidden libraries
+    ///   included — the settings editor and Home's hub grouping need every
+    ///   section. Screens that list libraries drop the ones in
+    ///   `hiddenIdentities`.
     /// - Cloud provider entries (`machineIdentifier == "myPlex"`) are ignored
     ///   here; they are preserved on write.
     static func effectiveOrder(
@@ -61,6 +63,25 @@ enum LibraryOrderArrangement {
         }
 
         return placed + libraries.filter { !used.contains($0.id) }
+    }
+
+    /// `PlexLibrary.id`s of the connected servers' sections the account has
+    /// hidden (`isHidden`), whether in Dusk or in another Plex client. Duplicate
+    /// pins follow `effectiveOrder`: the first entry for a section decides.
+    static func hiddenIdentities(
+        pinnedSources: [PlexPinnedSource],
+        machineIdentifiers: Set<String>
+    ) -> Set<String> {
+        var seen: Set<String> = []
+        var hidden: Set<String> = []
+        for source in pinnedSources
+        where machineIdentifiers.contains(source.machineIdentifier) && source.isPMSLibrary {
+            guard let identity = identity(for: source), seen.insert(identity).inserted else { continue }
+            if source.isHidden {
+                hidden.insert(identity)
+            }
+        }
+        return hidden
     }
 
     /// Splices the connected servers' freshly reordered entries back into the
@@ -106,16 +127,17 @@ enum LibraryOrderArrangement {
     /// guessed at: writing it under the wrong machine identifier would move a
     /// different server's library in every Plex client.
     ///
-    /// Hidden entries keep `isHidden` and are stable-moved to the end of the
-    /// block. That makes the write idempotent with `effectiveOrder`, which
-    /// already shows hidden libraries last: a library hidden in Plex Web still
-    /// appears in Dusk, and dragging it into the middle of the list snaps back
-    /// to the end. Documented wart — do not force-unhide, that would silently
-    /// undo a choice the user made in another Plex client.
+    /// `hidden` is the set of `PlexLibrary.id`s the user wants hidden; every
+    /// written entry gets `isHidden` from it. nil keeps each existing entry's
+    /// flag (new entries start visible) — never force-unhide without the user
+    /// asking, that would silently undo a choice made in another Plex client.
+    /// Hidden entries are stable-moved to the end of the block, which keeps the
+    /// write idempotent with `effectiveOrder`.
     static func writeOrder(
         userOrder: [PlexLibrary],
         existing: [PlexPinnedSource],
-        servers: [String: PlexServer]
+        servers: [String: PlexServer],
+        hidden: Set<String>? = nil
     ) -> [PlexPinnedSource] {
         var existingByIdentity: [String: PlexPinnedSource] = [:]
         for source in existing
@@ -130,11 +152,12 @@ enum LibraryOrderArrangement {
         for library in userOrder {
             guard let serverID = library.serverID, let server = servers[serverID] else { continue }
             guard seen.insert(library.id).inserted else { continue }
-            if let existingSource = existingByIdentity[library.id] {
-                mapped.append(existingSource.updatingTitle(library.title))
-            } else {
-                mapped.append(PlexPinnedSource.make(library: library, server: server))
+            var source = existingByIdentity[library.id]?.updatingTitle(library.title)
+                ?? PlexPinnedSource.make(library: library, server: server)
+            if let hidden {
+                source = source.updatingHidden(hidden.contains(library.id))
             }
+            mapped.append(source)
         }
 
         return mapped.filter { !$0.isHidden } + mapped.filter(\.isHidden)

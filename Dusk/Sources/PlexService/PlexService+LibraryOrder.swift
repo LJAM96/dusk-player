@@ -91,9 +91,10 @@ extension PlexService {
     ///
     /// `ordered` must be EVERY section of every connected server in the new
     /// order, including sections Dusk cannot browse (music, photos) — anything
-    /// left out would lose its pin. Writes are serialized; each one re-reads the
-    /// blob first and never writes from cache.
-    func reorderLibraries(_ ordered: [PlexLibrary]) async throws {
+    /// left out would lose its pin. `hidden` (library ids) sets each section's
+    /// `isHidden`; nil leaves the flags as the account has them. Writes are
+    /// serialized; each one re-reads the blob first and never writes from cache.
+    func reorderLibraries(_ ordered: [PlexLibrary], hidden: Set<String>? = nil) async throws {
         let previous = libraryOrder.writeTask
 
         let task = Task { @MainActor [weak self] () throws -> Void in
@@ -101,7 +102,7 @@ extension PlexService {
             // not skip the queue for the next one.
             _ = await previous?.result
             guard let self else { return }
-            try await self.performLibraryReorder(ordered)
+            try await self.performLibraryReorder(ordered, hidden: hidden)
         }
         libraryOrder.writeTask = task
 
@@ -250,7 +251,7 @@ extension PlexService {
 
     // MARK: - Write
 
-    private func performLibraryReorder(_ ordered: [PlexLibrary]) async throws {
+    private func performLibraryReorder(_ ordered: [PlexLibrary], hidden: Set<String>?) async throws {
         guard let token = activeAccountToken?.nilIfEmpty else {
             throw PlexServiceError.notAuthenticated
         }
@@ -280,7 +281,8 @@ extension PlexService {
         let reordered = LibraryOrderArrangement.writeOrder(
             userOrder: ordered,
             existing: existing,
-            servers: servers
+            servers: servers,
+            hidden: hidden
         )
         let merged = LibraryOrderArrangement.merged(
             existing: existing,

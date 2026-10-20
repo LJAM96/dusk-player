@@ -7,7 +7,8 @@ import Foundation
 /// `pinnedSources` list from plex.tv, and combines them into the effective
 /// order every screen in Dusk uses. `PlexService+LibraryOrder` owns all
 /// networking and is the only thing allowed to mutate the store; everything
-/// else reads `orderedSections` / `orderedSectionIdentities`.
+/// else reads `orderedSections` / `visibleSections` /
+/// `orderedSectionIdentities`.
 ///
 /// The cache is keyed by `"<connected serverIDs in priority order>|<profileID>"`:
 /// the pinned list is per Plex account *token* (Plex Home members each have
@@ -94,6 +95,22 @@ final class LibraryOrderStore {
             pinnedSources: pinnedSources,
             machineIdentifiers: machineIdentifiers
         )
+    }
+
+    /// Ids of the sections the account has hidden. See
+    /// `LibraryOrderArrangement.hiddenIdentities`.
+    var hiddenSectionIdentities: Set<String> {
+        LibraryOrderArrangement.hiddenIdentities(
+            pinnedSources: pinnedSources,
+            machineIdentifiers: machineIdentifiers
+        )
+    }
+
+    /// `orderedSections` without the hidden ones: what screens that list
+    /// libraries show.
+    var visibleSections: [PlexLibrary] {
+        let hidden = hiddenSectionIdentities
+        return orderedSections.filter { !hidden.contains($0.id) }
     }
 
     /// `PlexLibrary.id` (`"<serverID>|<key>"`) in effective order.
