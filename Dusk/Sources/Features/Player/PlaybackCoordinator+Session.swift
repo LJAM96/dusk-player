@@ -284,8 +284,8 @@ extension PlaybackCoordinator {
             let hasRememberedMatch = rememberedTracks?.hasMatch(in: part) == true
             let defaultSubtitleID = PlayerViewModel.preferredSubtitleStreamID(
                 inPart: part,
-                preferredLanguage: preferences.defaultSubtitleLanguage,
-                forcedOnly: preferences.subtitleForcedOnly
+                policy: SubtitleSelectionPolicy(preferences: preferences),
+                audioStream: rememberedAudio
             )
             let startupSubtitleID = rememberedTracks.map {
                 $0.subtitleStreamID(in: part, fallback: defaultSubtitleID)

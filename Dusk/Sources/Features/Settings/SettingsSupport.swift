@@ -1,7 +1,10 @@
 import SwiftUI
 
 enum SettingsSupport {
-    static let playbackDefaultsFooterText = "Choose preferred stream quality and default audio or subtitle languages. Forced Only limits automatic subtitle selection to forced tracks. Subtitle Size scales locally rendered subtitles and can also be changed from the player. AI Upscaling sharpens lower-resolution video when the source benefits from it, but can increase power usage."
+    static let playbackDefaultsFooterText = "Choose preferred stream quality. Audio & Subtitles sets the languages Dusk plays and when subtitles turn on. AI Upscaling sharpens lower-resolution video when the source benefits from it, but can increase power usage."
+    static let audioLanguageFooterText = "Dusk plays audio in this language when a title has it. Original keeps each title’s own audio."
+    static let subtitlesFooterText = "Auto turns subtitles on when the audio isn’t in your subtitle language, and otherwise shows only forced subtitles, which translate foreign dialogue and signs. Off shows only forced subtitles. Size can also be changed from the player."
+    static let subtitlesAdvancedFooterText = "Turn off Forced Subtitles to see subtitles only when Auto or Always calls for them, or when you pick a track. Until you change them here, these settings follow the language settings of your Plex account. A track you pick in the player is remembered for that show and wins over them."
 
     #if os(tvOS)
     static let playbackBehaviorFooterText = "Auto-Skip automatically skips intros and credits after a brief countdown. Intro skipping can skip every intro or skip every intro except episode 1 of each season. Continuous Play shows an Up Next screen after TV episodes finish and can auto-start the next one after the configured delay. Pause After counts the current episode too, then pauses autoplay until you confirm."
@@ -35,19 +38,29 @@ enum SettingsSupport {
     static let privacyPolicyURL = URL(string: "https://getdusk.app/privacy/")!
     static let termsOfUseURL = URL(string: "https://www.apple.com/legal/internet-services/itunes/dev/stdeula/")!
 
-    static var subtitleLanguageOptions: [String] {
-        var options = [""] + CommonLanguage.allCases.map(\.code)
-
-        if let systemLanguageCode = UserPreferences.systemPreferredSubtitleLanguageCode,
-           !options.contains(systemLanguageCode) {
-            options.insert(systemLanguageCode, at: 1)
+    /// Common languages plus the device language and the current choice
+    /// (which may come from the Plex account) when they are not common ones.
+    static func subtitleLanguageOptions(including current: String) -> [String] {
+        var options = CommonLanguage.allCases.map(\.code)
+        for code in [UserPreferences.systemPreferredSubtitleLanguageCode, current].compactMap({ $0 })
+        where !code.isEmpty && !options.contains(code) {
+            options.insert(code, at: 0)
         }
-
         return options
     }
 
-    static var audioLanguageOptions: [String] {
-        CommonLanguage.allCases.map(\.code)
+    /// "" (Original) first, then the subtitle languages.
+    static func audioLanguageOptions(including current: String) -> [String] {
+        [""] + subtitleLanguageOptions(including: current)
+    }
+
+    static func audioLanguageDisplayName(for code: String) -> String {
+        code.isEmpty ? "Original" : languageDisplayName(for: code)
+    }
+
+    @MainActor
+    static func audioSubtitlesSummary(_ preferences: UserPreferences) -> String {
+        "\(audioLanguageDisplayName(for: preferences.defaultAudioLanguage)) · Subtitles \(preferences.subtitleMode.displayName)"
     }
 
     static var passoutProtectionEpisodeOptions: [Int?] {
@@ -88,18 +101,6 @@ enum SettingsSupport {
 
         let enabled = servers.keys.filter { plexService.serverPriority.isEnabled($0) }.count
         return enabled == servers.count ? "\(servers.count) Servers" : "\(enabled) of \(servers.count)"
-    }
-
-    @MainActor
-    static func subtitleLanguageBinding(_ preferences: UserPreferences) -> Binding<String> {
-        Binding(
-            get: { preferences.defaultSubtitleLanguage ?? "" },
-            set: { preferences.defaultSubtitleLanguage = $0.isEmpty ? nil : $0 }
-        )
-    }
-
-    static func subtitleDisplayName(for code: String) -> String {
-        code.isEmpty ? "None" : languageDisplayName(for: code)
     }
 
     static func languageDisplayName(for code: String) -> String {

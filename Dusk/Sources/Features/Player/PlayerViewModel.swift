@@ -81,9 +81,10 @@ final class PlayerViewModel {
     @ObservationIgnored var liveEdgeClock = LiveEdgeClock()
     var hasLoadedSource = false
     var sourcePart: PlexMediaPart?
-    var preferredSubtitleLanguage: String?
     var preferredAudioLanguage: String?
-    var subtitleForcedOnly = false
+    var subtitlePolicy = SubtitleSelectionPolicy(
+        mode: .off, subtitleLanguage: nil, audioLanguage: nil, forcedSubtitlesEnabled: true
+    )
     var autoSkipIntroMode: AutoSkipIntroMode = .alwaysExceptFirstEpisode
     var isFirstEpisodeInSeason = false
     var autoSkipCountdownMarkerID: Int?
@@ -248,9 +249,8 @@ final class PlayerViewModel {
             && rendersServerSubtitleTrack
             && selectedSubtitleStreamID != nil
         self.explicitTrackSelection = usesServerTrackSelection ? nil : explicitTrackSelection
-        preferredSubtitleLanguage = Self.normalizedLanguageCode(preferences.defaultSubtitleLanguage)
         preferredAudioLanguage = Self.normalizedLanguageCode(preferences.defaultAudioLanguage)
-        subtitleForcedOnly = preferences.subtitleForcedOnly
+        subtitlePolicy = SubtitleSelectionPolicy(preferences: preferences)
         subtitleFontSize = preferences.subtitleFontSize
         autoSkipIntroMode = preferences.autoSkipIntroMode
         isFirstEpisodeInSeason = mediaDetails?.type == .episode && mediaDetails?.index == 1

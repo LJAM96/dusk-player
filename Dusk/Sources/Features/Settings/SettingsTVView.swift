@@ -19,7 +19,6 @@ struct SettingsTVView: View {
 
     private var settingsContent: some View {
         @Bindable var preferences = preferences
-        let subtitleLanguageBinding = SettingsSupport.subtitleLanguageBinding(preferences)
 
         return ScrollView {
             VStack(alignment: .leading, spacing: TVSettingsMetrics.sectionSpacing) {
@@ -159,34 +158,12 @@ struct SettingsTVView: View {
 
                     tvRowDivider
 
-                    TVSettingsMenuRow(
-                        title: "Subtitles",
-                        options: SettingsSupport.subtitleLanguageOptions,
-                        selection: subtitleLanguageBinding,
-                        selectedTitle: SettingsSupport.subtitleDisplayName(for: subtitleLanguageBinding.wrappedValue)
-                    ) { SettingsSupport.subtitleDisplayName(for: $0) }
-
-                    tvRowDivider
-
-                    TVSettingsToggleRow(title: "Forced Only", isOn: $preferences.subtitleForcedOnly)
-
-                    tvRowDivider
-
-                    TVSettingsMenuRow(
-                        title: "Subtitle Size",
-                        options: SubtitleFontSize.allCases,
-                        selection: $preferences.subtitleFontSize,
-                        selectedTitle: preferences.subtitleFontSize.displayName
-                    ) { $0.displayName }
-
-                    tvRowDivider
-
-                    TVSettingsMenuRow(
-                        title: "Audio",
-                        options: SettingsSupport.audioLanguageOptions,
-                        selection: $preferences.defaultAudioLanguage,
-                        selectedTitle: SettingsSupport.languageDisplayName(for: preferences.defaultAudioLanguage)
-                    ) { SettingsSupport.languageDisplayName(for: $0) }
+                    TVSettingsNavigationRow(
+                        title: "Audio & Subtitles",
+                        detail: SettingsSupport.audioSubtitlesSummary(preferences)
+                    ) {
+                        AudioSubtitleSettingsView()
+                    }
 
                     tvRowDivider
 

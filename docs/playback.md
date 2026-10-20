@@ -261,6 +261,33 @@ so the whole live HUD is derived from one instant.
   There is deliberately no `aac` channel limitation — capping it would fight
   Plex's decision engine rather than widening what Dusk accepts.
 
+## Automatic Track Languages
+
+- Audio: `defaultAudioLanguage` scopes the pre-start pick
+  (`preferredAudioStreamPosition` and friends) and the runtime
+  `preferredAudioTrack()`; "" (Original) keeps the part's selected/default
+  language and only re-ranks codecs inside it.
+- Subtitles: `SubtitleSelectionPolicy` is the one rule for every path — the
+  startup pick on Plex metadata (`PlayerViewModel.preferredSubtitleStreamID(inPart:policy:audioStream:)`,
+  feeding direct-play routing, remux and AirPlay) and the runtime pick on engine
+  tracks (`preferredSubtitleTrack()`, AVPlayer and VLCKit, embedded and sidecar).
+  Off = forced only; Auto = full subtitles when the audio is not in the subtitle
+  language (Plex's "shown with foreign audio"; the audio preference deliberately
+  does not count, so Japanese audio + English subtitles shows subtitles), forced
+  otherwise; Always = full subtitles. Full prefers non-forced, non-SDH in the
+  subtitle language, falling back to SDH, then forced. Forced looks in the
+  subtitle language, then the audio's language, then untagged forced tracks, and
+  never appears when Forced Subtitles is off. Untagged/`und` audio counts as
+  understood.
+- The audio Auto compares against: startup uses the remembered audio, else the
+  stream the audio preference opens on; at runtime subtitles can be picked before
+  audio (audio waits for steady playback), so `automaticSubtitleAudioLanguage()`
+  uses the pending audio pick first. A later manual audio change does not
+  re-run Auto.
+- A per-show remembered choice (below) is resolved first and always wins.
+- `SubtitleSelectionPolicyTests` covers the modes, fallbacks, startup audio,
+  legacy-setting migration and the Plex account profile decoding.
+
 ## Per-show Track Choices
 
 - Explicit audio/subtitle picker actions and downloaded-subtitle selection save

@@ -43,6 +43,13 @@ struct MainTabView: View {
                 await librariesViewModel?.loadLibraries()
                 await liveTVViewModel?.discover()
             }
+            // The shell remounts per Plex Home profile, so each profile's
+            // account languages become the Audio & Subtitles defaults.
+            .task {
+                if let accountDefaults = await plexService.fetchAccountLanguageDefaults() {
+                    preferences.applyPlexAccountLanguageDefaults(accountDefaults)
+                }
+            }
             // Teaches Siri the recently watched and added titles, again on
             // each return to the foreground (at most every 30 minutes). Waits
             // a moment so it never competes with Home's first paint.

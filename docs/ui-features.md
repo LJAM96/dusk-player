@@ -930,7 +930,23 @@ in Dusk. Read this with `docs/codebase-map.md`, `STYLE.md`, and `docs/data-and-p
   transcoding, and must not alter startup quality. Its per-platform default
   lives in `VideoEnhancementMode.defaultForPlatform` — Auto on Apple TV, Off on
   battery-powered devices.
-- `subtitleFontSize` (Playback Defaults › Subtitle Size, Extra Small/Small/
+- Playback Defaults › Audio & Subtitles (`AudioSubtitleSettingsView`, a pushed
+  page on both platforms) holds every track-language setting: Audio › Language
+  (`defaultAudioLanguage`, "" = Original), Subtitles › Show Subtitles
+  (`subtitleMode`: Off/Auto/Always), Language (`defaultSubtitleLanguage`, never
+  "None" any more) and Size, and Advanced › Forced Subtitles
+  (`forcedSubtitlesEnabled`). The rules live in `SubtitleSelectionPolicy`
+  (`playback.md` → Automatic Track Languages). The 1.8 page replaced the old
+  Subtitles/Forced Only/Subtitle Size/Audio rows;
+  `UserPreferences.storedSubtitleSettings` maps the legacy keys
+  (`subtitleForcedOnly` stays readable for that only).
+- Values the viewer never set in Dusk follow the Plex account's language
+  settings (`PlexService.fetchAccountLanguageDefaults`, `profile` of
+  `/api/v2/user`, fetched in `MainTabView` per profile). They are cached under
+  `plexAccount*` keys and applied through
+  `UserPreferences.applyPlexAccountLanguageDefaults`, which never writes the
+  viewer's own keys, so the account keeps steering until the viewer picks.
+- `subtitleFontSize` (Audio & Subtitles › Size, Extra Small/Small/
   Medium/Large, Medium = the previous fixed size) scales locally rendered
   subtitles on both engines. It is also editable from the in-player gear menu
   (a `PlayerSelectionSheet` on iOS/iPadOS, a nested `Menu` on tvOS); the player
@@ -941,7 +957,8 @@ in Dusk. Read this with `docs/codebase-map.md`, `STYLE.md`, and `docs/data-and-p
   VLCKit sessions can explain whether enhancement is active, waiting for a
   frame, disabled by preference, or unavailable for a stream/runtime reason.
 - `SettingsSupport` owns shared settings copy, URLs, language options, and bindings.
-  Subtitle and audio pickers share `CommonLanguage`; adding an ISO 639-1 case there
+  Subtitle and audio pickers share `CommonLanguage` (plus the device language and a
+  Plex-account language outside the list); adding an ISO 639-1 case there
   is enough for both platforms. Playback matching then canonicalizes Plex/VLCKit
   ISO 639-2 codes (`rum`/`ron` → `ro`) in `PlayerViewModel.normalizedLanguageCode`.
 - Both settings pages lead with a supporter row (thank-you state for supporters),

@@ -17,6 +17,11 @@ final class UserPreferences {
         static let subtitleForcedOnly = "subtitleForcedOnly"
         static let subtitleFontSize = "subtitleFontSize"
         static let defaultAudioLanguage = "defaultAudioLanguage"
+        static let subtitleMode = "subtitleMode"
+        static let forcedSubtitlesEnabled = "forcedSubtitlesEnabled"
+        static let accountAudioLanguage = "plexAccountAudioLanguage"
+        static let accountSubtitleLanguage = "plexAccountSubtitleLanguage"
+        static let accountSubtitleMode = "plexAccountSubtitleMode"
         static let continuousPlayEnabled = "continuousPlayEnabled"
         static let continuousPlayCountdown = "continuousPlayCountdown"
         static let continuousPlayPassoutProtectionEpisodeLimit = "continuousPlayPassoutProtectionEpisodeLimit"
@@ -62,14 +67,21 @@ final class UserPreferences {
         didSet { UserDefaults.standard.set(maxResolution.rawValue, forKey: Keys.maxResolution) }
     }
 
-    /// ISO 639-1 language code, or nil for "None" (no default subtitle).
-    var defaultSubtitleLanguage: String? {
-        didSet { UserDefaults.standard.set(defaultSubtitleLanguage ?? "", forKey: Keys.defaultSubtitleLanguage) }
+    /// ISO 639-1 code of the language automatic subtitle selection looks for.
+    var defaultSubtitleLanguage: String {
+        didSet { persistLanguageSetting(defaultSubtitleLanguage, forKey: Keys.defaultSubtitleLanguage) }
     }
 
-    /// When enabled, automatic subtitle selection only picks forced tracks.
-    var subtitleForcedOnly: Bool {
-        didSet { UserDefaults.standard.set(subtitleForcedOnly, forKey: Keys.subtitleForcedOnly) }
+    /// When subtitles turn on without the viewer picking a track
+    /// (`SubtitleSelectionPolicy`). A per-show remembered choice always wins.
+    var subtitleMode: SubtitleMode {
+        didSet { persistLanguageSetting(subtitleMode.rawValue, forKey: Keys.subtitleMode) }
+    }
+
+    /// Forced subtitles (foreign dialogue, signs) may start on their own.
+    /// Off means subtitles only ever appear in Auto/Always or when picked.
+    var forcedSubtitlesEnabled: Bool {
+        didSet { UserDefaults.standard.set(forcedSubtitlesEnabled, forKey: Keys.forcedSubtitlesEnabled) }
     }
 
     /// On-screen size of locally rendered subtitles. Applies to both engines
@@ -78,10 +90,15 @@ final class UserPreferences {
         didSet { UserDefaults.standard.set(subtitleFontSize.rawValue, forKey: Keys.subtitleFontSize) }
     }
 
-    /// ISO 639-1 language code for preferred audio track.
+    /// ISO 639-1 language code for preferred audio track, or "" to keep each
+    /// title's original audio.
     var defaultAudioLanguage: String {
-        didSet { UserDefaults.standard.set(defaultAudioLanguage, forKey: Keys.defaultAudioLanguage) }
+        didSet { persistLanguageSetting(defaultAudioLanguage, forKey: Keys.defaultAudioLanguage) }
     }
+
+    /// Set while Plex account defaults are copied in, so they stay defaults
+    /// (and keep following the account) instead of becoming Dusk choices.
+    @ObservationIgnored private var isApplyingAccountLanguageDefaults = false
 
     /// Automatically continue to the next episode when TV playback finishes.
     var continuousPlayEnabled: Bool {
@@ -402,8 +419,7 @@ final class UserPreferences {
             maxResolution = .auto
         }
 
-        let defaultSubtitleLanguage = Self.storedSubtitleLanguage(defaults: defaults)
-        let subtitleForcedOnly = defaults.object(forKey: Keys.subtitleForcedOnly) as? Bool ?? true
+        let subtitleSettings = Self.storedSubtitleSettings(defaults: defaults)
         let subtitleFontSize: SubtitleFontSize
         if let raw = defaults.string(forKey: Keys.subtitleFontSize),
            let value = SubtitleFontSize(rawValue: raw) {
@@ -411,7 +427,9 @@ final class UserPreferences {
         } else {
             subtitleFontSize = .default
         }
-        let defaultAudioLanguage = defaults.string(forKey: Keys.defaultAudioLanguage) ?? "en"
+        let defaultAudioLanguage = defaults.string(forKey: Keys.defaultAudioLanguage)
+            ?? defaults.string(forKey: Keys.accountAudioLanguage)
+            ?? "en"
         let continuousPlayEnabled = defaults.object(forKey: Keys.continuousPlayEnabled) as? Bool ?? true
         let continuousPlayCountdown = Self.storedContinuousPlayCountdown(
             forKey: Keys.continuousPlayCountdown,
@@ -489,8 +507,9 @@ final class UserPreferences {
         let hiddenLibraryTabs = Self.storedHiddenLibraryTabs(defaults: defaults)
 
         self.maxResolution = maxResolution
-        self.defaultSubtitleLanguage = defaultSubtitleLanguage
-        self.subtitleForcedOnly = subtitleForcedOnly
+        self.defaultSubtitleLanguage = subtitleSettings.language
+        self.subtitleMode = subtitleSettings.mode
+        self.forcedSubtitlesEnabled = subtitleSettings.forcedSubtitlesEnabled
         self.subtitleFontSize = subtitleFontSize
         self.defaultAudioLanguage = defaultAudioLanguage
         self.continuousPlayEnabled = continuousPlayEnabled
@@ -631,16 +650,77 @@ final class UserPreferences {
         return value > 0 ? value : nil
     }
 
-    private static func storedSubtitleLanguage(defaults: UserDefaults) -> String? {
-        guard defaults.object(forKey: Keys.defaultSubtitleLanguage) != nil else {
-            return systemPreferredSubtitleLanguageCode
+    private func persistLanguageSetting(_ value: String, forKey key: String) {
+        guard !isApplyingAccountLanguageDefaults else { return }
+        UserDefaults.standard.set(value, forKey: key)
+    }
+
+    /// Adopts the Plex account's language settings for every value the viewer
+    /// has not chosen in Dusk. They are remembered, so a relaunch before the
+    /// account answers starts from the same defaults, and they keep following
+    /// the account until the viewer picks something in Dusk.
+    func applyPlexAccountLanguageDefaults(_ accountDefaults: PlexAccountLanguageDefaults) {
+        let defaults = UserDefaults.standard
+        defaults.set(accountDefaults.audioLanguage, forKey: Keys.accountAudioLanguage)
+        defaults.set(accountDefaults.subtitleLanguage, forKey: Keys.accountSubtitleLanguage)
+        defaults.set(accountDefaults.subtitleMode?.rawValue, forKey: Keys.accountSubtitleMode)
+
+        isApplyingAccountLanguageDefaults = true
+        defer { isApplyingAccountLanguageDefaults = false }
+        let resolved = Self.storedSubtitleSettings(defaults: defaults)
+        if defaults.string(forKey: Keys.defaultAudioLanguage) == nil,
+           let audioLanguage = accountDefaults.audioLanguage,
+           audioLanguage != defaultAudioLanguage {
+            defaultAudioLanguage = audioLanguage
+        }
+        if resolved.language != defaultSubtitleLanguage {
+            defaultSubtitleLanguage = resolved.language
+        }
+        if resolved.mode != subtitleMode {
+            subtitleMode = resolved.mode
+        }
+    }
+
+    struct StoredSubtitleSettings: Equatable {
+        var language: String
+        var mode: SubtitleMode
+        var forcedSubtitlesEnabled: Bool
+    }
+
+    /// Resolves the subtitle settings in this order: the viewer's Dusk choice,
+    /// the pre-1.8 "Subtitles" + "Forced Only" pair it replaces, the Plex
+    /// account's defaults, then the device language with forced-only
+    /// subtitles (the old out-of-the-box behavior).
+    ///
+    /// Legacy mapping: a language with Forced Only off was "always show"; any
+    /// language with Forced Only on, or "None", showed forced subtitles only
+    /// (Off); "None" with Forced Only off showed nothing, which is Off with
+    /// forced subtitles disabled.
+    static func storedSubtitleSettings(defaults: UserDefaults) -> StoredSubtitleSettings {
+        let storedLanguage = defaults.string(forKey: Keys.defaultSubtitleLanguage)
+        let legacyNone = storedLanguage?.isEmpty == true
+        let legacyForcedOnly = defaults.object(forKey: Keys.subtitleForcedOnly) as? Bool
+
+        let language = storedLanguage.flatMap(normalizedLanguageCode(from:))
+            ?? defaults.string(forKey: Keys.accountSubtitleLanguage).flatMap(normalizedLanguageCode(from:))
+            ?? systemPreferredSubtitleLanguageCode
+            ?? "en"
+
+        let mode: SubtitleMode
+        if let raw = defaults.string(forKey: Keys.subtitleMode), let stored = SubtitleMode(rawValue: raw) {
+            mode = stored
+        } else if legacyForcedOnly == false, !legacyNone {
+            mode = .always
+        } else if legacyForcedOnly != nil || legacyNone {
+            mode = .off
+        } else {
+            mode = defaults.string(forKey: Keys.accountSubtitleMode).flatMap(SubtitleMode.init(rawValue:)) ?? .off
         }
 
-        guard let storedValue = defaults.string(forKey: Keys.defaultSubtitleLanguage) else {
-            return nil
-        }
+        let forcedSubtitlesEnabled = defaults.object(forKey: Keys.forcedSubtitlesEnabled) as? Bool
+            ?? !(legacyNone && legacyForcedOnly == false)
 
-        return storedValue.isEmpty ? nil : normalizedLanguageCode(from: storedValue)
+        return StoredSubtitleSettings(language: language, mode: mode, forcedSubtitlesEnabled: forcedSubtitlesEnabled)
     }
 
     nonisolated static var systemPreferredSubtitleLanguageCode: String? {
@@ -649,7 +729,7 @@ final class UserPreferences {
             .first
     }
 
-    nonisolated private static func normalizedLanguageCode(from identifier: String) -> String? {
+    nonisolated static func normalizedLanguageCode(from identifier: String) -> String? {
         let trimmedIdentifier = identifier.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmedIdentifier.isEmpty else { return nil }
 

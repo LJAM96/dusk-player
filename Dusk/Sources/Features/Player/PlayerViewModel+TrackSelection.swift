@@ -357,40 +357,23 @@ extension PlayerViewModel {
     }
 
     func preferredSubtitleTrack() -> SubtitleTrack? {
-        if subtitleForcedOnly {
-            let forcedTracks = automaticallySelectableSubtitleTracks.filter {
-                $0.isForced || Self.containsForcedMarker($0.displayTitle)
-            }
-            guard !forcedTracks.isEmpty else { return nil }
-
-            if let preferredSubtitleLanguage {
-                return rankedSubtitleTrack(
-                    from: forcedTracks,
-                    preferredLanguage: preferredSubtitleLanguage,
-                    preferForcedTracks: true
-                )
-            }
-
-            return forcedTracks.sorted(by: Self.subtitleOrdering(preferForcedTracks: true)).first
-        }
-
-        guard let preferredSubtitleLanguage else { return nil }
-        return rankedSubtitleTrack(
-            from: automaticallySelectableSubtitleTracks,
-            preferredLanguage: preferredSubtitleLanguage,
-            preferForcedTracks: false
+        subtitlePolicy.preferredTrack(
+            in: automaticallySelectableSubtitleTracks,
+            audioLanguage: automaticSubtitleAudioLanguage()
         )
     }
 
-    func rankedSubtitleTrack(
-        from tracks: [SubtitleTrack],
-        preferredLanguage: String,
-        preferForcedTracks: Bool
-    ) -> SubtitleTrack? {
-        tracks
-            .filter { Self.normalizedLanguageCode($0.languageCode) == preferredLanguage }
-            .sorted(by: Self.subtitleOrdering(preferForcedTracks: preferForcedTracks))
-            .first
+    /// The language Auto compares against: the audio automatic selection is
+    /// about to switch to when it has not run yet (subtitles may be picked
+    /// first, audio waits for steady playback), else the playing track, else
+    /// the part's default audio.
+    func automaticSubtitleAudioLanguage() -> String? {
+        let pendingTrack = hasAppliedAutomaticAudioSelection ? nil : (explicitAudioTrack() ?? preferredAudioTrack())
+        if let track = pendingTrack ?? selectedAudioTrack,
+           let language = Self.normalizedLanguageCode(track.languageCode) {
+            return language
+        }
+        return defaultAudioAnchorLanguageCode()
     }
 
     func resolvedSelectedAudioTrackID() -> Int? {
@@ -867,36 +850,25 @@ extension PlayerViewModel {
         return audioStreams.compactMap { $0.channels }.filter { $0 > 0 }.max()
     }
 
-    /// Initial subtitle stream for server-rendered playback. It mirrors Dusk's
-    /// local automatic subtitle rule closely enough to choose before the HLS
-    /// session exists; Plex burns the result so all AirPlay receivers agree.
+    /// Initial subtitle stream, chosen from Plex part metadata before any
+    /// engine exists (direct-play routing, remux and AirPlay requests). Same
+    /// policy as the runtime pick; `audioStream` is the audio the session
+    /// starts on, which Auto compares against.
     static func preferredSubtitleStreamID(
         inPart part: PlexMediaPart?,
-        preferredLanguage rawPreferredLanguage: String?,
-        forcedOnly: Bool
+        policy: SubtitleSelectionPolicy,
+        audioStream: PlexStream?
     ) -> Int? {
         guard let part else { return nil }
         let tracks = part.streams
             .filter { $0.streamType == .subtitle }
             .map(SubtitleTrack.init(stream:))
-        let preferredLanguage = normalizedLanguageCode(rawPreferredLanguage)
-
-        let candidates: [SubtitleTrack]
-        if forcedOnly {
-            candidates = tracks.filter { $0.isForced || containsForcedMarker($0.displayTitle) }
-        } else if preferredLanguage != nil {
-            candidates = tracks
-        } else {
-            return nil
-        }
-
-        let languageMatches = preferredLanguage.map { language in
-            candidates.filter { normalizedLanguageCode($0.languageCode) == language }
-        } ?? candidates
-        return languageMatches
-            .sorted(by: subtitleOrdering(preferForcedTracks: forcedOnly))
-            .first?
-            .id
+        let startupAudio = audioStream
+            ?? preferredLocalAudioStream(inPart: part, preferredLanguage: policy.audioLanguage)
+        return policy.preferredTrack(
+            in: tracks,
+            audioLanguage: startupAudio?.languageCode ?? startupAudio?.languageTag
+        )?.id
     }
 
     func scoreSubtitleMatch(track: SubtitleTrack, stream: PlexStream) -> Int {
@@ -927,7 +899,7 @@ extension PlayerViewModel {
         return score
     }
 
-    static func subtitleOrdering(preferForcedTracks: Bool) -> (SubtitleTrack, SubtitleTrack) -> Bool {
+    nonisolated static func subtitleOrdering(preferForcedTracks: Bool) -> (SubtitleTrack, SubtitleTrack) -> Bool {
         { lhs, rhs in
             let lhsForced = lhs.isForced || containsForcedMarker(lhs.displayTitle)
             let rhsForced = rhs.isForced || containsForcedMarker(rhs.displayTitle)
@@ -953,7 +925,7 @@ extension PlayerViewModel {
         }
     }
 
-    static func subtitleSortScore(
+    nonisolated static func subtitleSortScore(
         isForced: Bool,
         isHearingImpaired: Bool,
         preferForcedTracks: Bool
@@ -969,7 +941,7 @@ extension PlayerViewModel {
     /// matching canonicalizes both sides through Foundation. `no` and `nor`
     /// collapse to `nb`; that is only safe because this helper is used on every
     /// compared value.
-    static func normalizedLanguageCode(_ value: String?) -> String? {
+    nonisolated static func normalizedLanguageCode(_ value: String?) -> String? {
         guard let value = value?.trimmingCharacters(in: .whitespacesAndNewlines),
               !value.isEmpty else {
             return nil
@@ -990,7 +962,7 @@ extension PlayerViewModel {
         return raw
     }
 
-    static func normalizedTitle(_ value: String?) -> String? {
+    nonisolated static func normalizedTitle(_ value: String?) -> String? {
         guard let value = value?.lowercased(),
               !value.isEmpty else {
             return nil
@@ -1006,12 +978,12 @@ extension PlayerViewModel {
         return normalized.isEmpty ? nil : normalized
     }
 
-    static func containsForcedMarker(_ value: String) -> Bool {
+    nonisolated static func containsForcedMarker(_ value: String) -> Bool {
         let normalized = normalizedTitle(value) ?? ""
         return normalized.contains("forced")
     }
 
-    static func containsHearingImpairedMarker(_ value: String) -> Bool {
+    nonisolated static func containsHearingImpairedMarker(_ value: String) -> Bool {
         let normalized = normalizedTitle(value) ?? ""
         return normalized.contains("sdh")
             || normalized.contains("cc")

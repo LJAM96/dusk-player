@@ -201,7 +201,9 @@ struct VideoEnhancementSubtitleTests {
         defer { player.cleanup() }
         player.hasConfiguredAutomaticTrackSelection = true
         player.hasAppliedAutomaticAudioSelection = true
-        player.subtitleForcedOnly = true
+        player.subtitlePolicy = SubtitleSelectionPolicy(
+            mode: .off, subtitleLanguage: nil, audioLanguage: nil, forcedSubtitlesEnabled: true
+        )
         player.subtitleTracks = media.parts[0].streams.filter { $0.id == 3 }.map(SubtitleTrack.init(stream:))
         player.audioTracks = media.parts[0].streams.filter { $0.id == 11 }.map(AudioTrack.init(stream:))
         player.selectedAudioTrackID = 11

@@ -48,7 +48,6 @@ struct SettingsIOSView: View {
     @ViewBuilder
     private var settingsContent: some View {
         @Bindable var preferences = preferences
-        let subtitleLanguageBinding = SettingsSupport.subtitleLanguageBinding(preferences)
 
         List {
             Section {
@@ -231,29 +230,21 @@ struct SettingsIOSView: View {
                 }
                 .foregroundStyle(Color.duskTextPrimary)
 
-                Picker("Subtitles", selection: subtitleLanguageBinding) {
-                    ForEach(SettingsSupport.subtitleLanguageOptions, id: \.self) { languageCode in
-                        Text(SettingsSupport.subtitleDisplayName(for: languageCode)).tag(languageCode)
+                NavigationLink {
+                    AudioSubtitleSettingsView()
+                } label: {
+                    HStack {
+                        Text("Audio & Subtitles")
+                            .foregroundStyle(Color.duskTextPrimary)
+                            .layoutPriority(1)
+
+                        Spacer()
+
+                        Text(SettingsSupport.audioSubtitlesSummary(preferences))
+                            .foregroundStyle(Color.duskTextSecondary)
+                            .lineLimit(1)
                     }
                 }
-                .foregroundStyle(Color.duskTextPrimary)
-
-                Toggle("Forced Only", isOn: $preferences.subtitleForcedOnly)
-                    .foregroundStyle(Color.duskTextPrimary)
-
-                Picker("Subtitle Size", selection: $preferences.subtitleFontSize) {
-                    ForEach(SubtitleFontSize.allCases) { size in
-                        Text(size.displayName).tag(size)
-                    }
-                }
-                .foregroundStyle(Color.duskTextPrimary)
-
-                Picker("Audio", selection: $preferences.defaultAudioLanguage) {
-                    ForEach(CommonLanguage.allCases) { language in
-                        Text(language.displayName).tag(language.code)
-                    }
-                }
-                .foregroundStyle(Color.duskTextPrimary)
 
                 Picker("AI Upscaling", selection: $preferences.videoEnhancementMode) {
                     ForEach(VideoEnhancementMode.allCases) { mode in

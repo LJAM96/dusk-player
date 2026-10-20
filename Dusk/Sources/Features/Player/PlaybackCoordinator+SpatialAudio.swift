@@ -482,8 +482,8 @@ extension PlaybackCoordinator {
             enhancementMode: preferences.videoEnhancementMode,
             selectedSubtitleStreamID: keepsExplicitTracks ? activeSubtitleStreamID : PlayerViewModel.preferredSubtitleStreamID(
                 inPart: part,
-                preferredLanguage: preferences.defaultSubtitleLanguage,
-                forcedOnly: preferences.subtitleForcedOnly
+                policy: SubtitleSelectionPolicy(preferences: preferences),
+                audioStream: nil
             ),
             forceAVPlayer: preferences.forceAVPlayer,
             forceVLCKit: preferences.forceVLCKit
