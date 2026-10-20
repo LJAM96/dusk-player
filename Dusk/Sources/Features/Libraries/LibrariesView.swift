@@ -23,7 +23,7 @@ struct LibrariesView: View {
 
     var body: some View {
         NavigationStack(path: $path) {
-            LibrariesRootContent(libraryType: libraryType, viewModel: viewModel)
+            LibrariesRootContent(libraryType: libraryType, viewModel: viewModel, path: $path)
                 .duskAppNavigationDestinations()
         }
     }
@@ -34,7 +34,9 @@ struct LibrariesRootContent: View {
     @Environment(UserPreferences.self) private var preferences
     let libraryType: PlexLibraryType
     let viewModel: LibrariesViewModel
-    @State private var showsLibraryList = false
+    /// The enclosing stack's path, for the iOS Browse menu's pushes (see
+    /// `LibraryRecommendationsView.push`).
+    @Binding var path: NavigationPath
 
     var body: some View {
         rootContent
@@ -45,9 +47,6 @@ struct LibrariesRootContent: View {
             }
             .navigationDestination(for: LibraryTypeListDestination.self) { destination in
                 LibraryTypeListView(libraryType: destination.libraryType, viewModel: viewModel)
-            }
-            .navigationDestination(isPresented: $showsLibraryList) {
-                LibraryTypeListView(libraryType: libraryType, viewModel: viewModel)
             }
     }
 
@@ -106,7 +105,7 @@ struct LibrariesRootContent: View {
                 libraryListDestination: libraries.count > 1
                     ? LibraryTypeListDestination(libraryType: libraryType)
                     : nil,
-                showLibraryList: libraries.count > 1 ? { showsLibraryList = true } : nil
+                push: { path.append($0) }
             )
             .id(libraries.map(\.id).joined(separator: "|"))
         }

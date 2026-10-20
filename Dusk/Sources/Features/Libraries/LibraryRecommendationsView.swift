@@ -8,9 +8,6 @@ struct LibraryRecommendationsView: View {
     @Environment(PlexService.self) private var plexService
     @Environment(\.scenePhase) private var scenePhase
     @State private var viewModel: LibraryRecommendationsViewModel
-    #if os(iOS)
-    @State private var menuBrowseTarget: LibraryBrowseTarget?
-    #endif
 
     private let navigationTitle: String
     /// The libraries "Browse" opens straight into: one button (tvOS) or menu
@@ -18,9 +15,11 @@ struct LibraryRecommendationsView: View {
     private let browseTargets: [LibraryBrowseTarget]
     /// The list of this screen's libraries, for their own recommendations.
     private let libraryListDestination: LibraryTypeListDestination?
-    /// iOS: pushes that list from the Browse menu, which cannot hold a
-    /// `NavigationLink`. The list's owner does the push.
-    private let showLibraryList: (() -> Void)?
+    /// iOS: pushes a value onto the stack's path from the Browse menu, which
+    /// cannot hold a `NavigationLink`. Never a `navigationDestination(item:)`:
+    /// a screen pushed outside the path is dropped as soon as anything on it
+    /// appends to the path, so a poster tapped in the grid bounced back.
+    private let push: ((any Hashable) -> Void)?
 
     private let continueWatchingCardWidth: CGFloat = DuskPosterMetrics.continueWatchingWidth
     private let continueWatchingAspectRatio: CGFloat = 16.0 / 9.0
@@ -36,7 +35,7 @@ struct LibraryRecommendationsView: View {
             navigationTitle: navigationTitle,
             browseTargets: [],
             libraryListDestination: nil,
-            showLibraryList: nil
+            push: nil
         )
     }
 
@@ -46,9 +45,9 @@ struct LibraryRecommendationsView: View {
         navigationTitle: String,
         browseTargets: [LibraryBrowseTarget],
         libraryListDestination: LibraryTypeListDestination?,
-        showLibraryList: (() -> Void)?
+        push: ((any Hashable) -> Void)?
     ) {
-        self.showLibraryList = showLibraryList
+        self.push = push
         self.navigationTitle = navigationTitle
         self.browseTargets = browseTargets
         self.libraryListDestination = libraryListDestination
@@ -93,9 +92,6 @@ struct LibraryRecommendationsView: View {
 
                 browseLibraryButton
             }
-        }
-        .navigationDestination(item: $menuBrowseTarget) { target in
-            LibraryItemsView(library: target.library, plexService: plexService)
         }
         #endif
         .duskNavigationTitle(navigationTitle)
@@ -291,18 +287,20 @@ struct LibraryRecommendationsView: View {
     private var browseLibraryButton: some View {
         let targets = resolvedBrowseTargets
 
-        if targets.count > 1 {
+        if targets.count > 1, let push {
             Menu {
                 ForEach(targets, id: \.self) { target in
                     Button(target.title) {
-                        menuBrowseTarget = target
+                        push(AppNavigationRoute.library(target.library))
                     }
                 }
 
-                if let showLibraryList {
+                if let libraryListDestination {
                     Divider()
 
-                    Button("Libraries", systemImage: "list.bullet", action: showLibraryList)
+                    Button("Libraries", systemImage: "list.bullet") {
+                        push(libraryListDestination)
+                    }
                 }
             } label: {
                 browseLabel("Browse")

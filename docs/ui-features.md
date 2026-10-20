@@ -522,7 +522,10 @@ in Dusk. Read this with `docs/codebase-map.md`, `STYLE.md`, and `docs/data-and-p
     hero when there is one (one press up from its cards) and first in the page otherwise;
     on iOS a toolbar link with one library, or a Browse menu (each library's grid, then
     "Libraries") with several. "Libraries" opens `LibraryTypeListView` for
-    per-library recommendations.
+    per-library recommendations. The menu pushes by appending to the tab's
+    `NavigationPath`, never via `navigationDestination(item:/isPresented:)`: a
+    screen pushed outside the path is dropped when anything on it appends to the
+    path, so a poster tapped in the grid bounced straight back to the grid.
   - **All (A–Z)**: one library opens straight on its `LibraryItemsView` grid, with a
     "Recommended" link (iOS toolbar, tvOS last chip) back to its recommendations;
     several open on `LibraryTypeListView`, whose rows then open grids.

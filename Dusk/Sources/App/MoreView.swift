@@ -55,7 +55,7 @@ struct MoreView: View {
         case .content(.liveTV):
             LiveTVRootContent(viewModel: liveTVViewModel)
         case .content(let libraryType):
-            LibrariesRootContent(libraryType: libraryType, viewModel: librariesViewModel)
+            LibrariesRootContent(libraryType: libraryType, viewModel: librariesViewModel, path: $path)
         case .downloads:
             DownloadsRootContent(path: $path)
         case .settings:
