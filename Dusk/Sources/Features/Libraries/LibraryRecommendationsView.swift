@@ -98,37 +98,88 @@ struct LibraryRecommendationsView: View {
         .duskNavigationBarTitleDisplayModeLarge()
     }
 
-    @ViewBuilder
     private var contentView: some View {
-        #if os(tvOS)
-        let heroItems = featuredHeroItems
-
-        TVFeaturedHeroPage(
-            rowTitle: viewModel.continueWatchingTitle,
-            items: heroItems,
-            play: play,
-            header: {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 0) {
+                #if os(tvOS)
                 // Leading and first in the page, so it is where focus lands
                 // when moving down from the tab bar.
-                browseButtonRow
-                    .padding(.horizontal, DuskPosterMetrics.carouselHorizontalPadding)
-                    .padding(.top, DuskPosterMetrics.carouselHeaderSpacing)
-                    .padding(.bottom, DuskPosterMetrics.carouselHeaderSpacing)
-            },
-            // Top left of the hero, under the tab bar: still the first thing
-            // below it, and one press above the card row.
-            heroAccessory: { browseButtonRow },
-            cardMenu: { item in
-                continueWatchingContextMenu(for: item)
-            },
-            shelves: {
-                pageContent(showsContinueWatching: heroItems.isEmpty)
-                    .padding(.bottom, 88)
+                HStack(spacing: 20) {
+                    browseLibraryButtons
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.horizontal, DuskPosterMetrics.carouselHorizontalPadding)
+                .padding(.top, DuskPosterMetrics.carouselHeaderSpacing)
+                .padding(.bottom, DuskPosterMetrics.carouselHeaderSpacing)
+                #endif
+
+                if let error = viewModel.error,
+                   !viewModel.hasAnyContent {
+                    FeatureErrorView(message: error) {
+                        Task { await viewModel.load(maxRecentlyAddedItems: recentlyAddedInlineItemLimit) }
+                    }
+                    .padding(.top, 40)
+                } else if !viewModel.hasAnyContent {
+                    emptyView
+                        .padding(.top, 40)
+                } else {
+                    LazyVStack(alignment: .leading, spacing: DuskPosterMetrics.pageSectionSpacing) {
+                        ServerOutageNote()
+                            .padding(.horizontal, DuskPosterMetrics.libraryPageHorizontalPadding)
+
+                        if !viewModel.continueWatching.isEmpty {
+                            continueWatchingSection
+                        }
+
+                        ForEach(viewModel.prioritizedHubs) { hub in
+                            let items = viewModel.inlineItems(in: hub)
+
+                            if !items.isEmpty {
+                                hubSection(hub, items: items)
+                            }
+                        }
+
+                        if viewModel.isVideoLibrary {
+                            ForEach(viewModel.secondaryHubs) { hub in
+                                let items = viewModel.inlineItems(in: hub)
+
+                                if !items.isEmpty {
+                                    hubSection(hub, items: items)
+                                }
+                            }
+
+                            ForEach(viewModel.channelShelves) { row in
+                                if !row.shelf.items.isEmpty {
+                                    channelShelfSection(row)
+                                }
+                            }
+
+                            if !viewModel.rediscoverItems.isEmpty {
+                                rediscoverSection
+                            }
+                        } else {
+                            ForEach(viewModel.collectionShelves) { shelf in
+                                collectionShelfSection(shelf)
+                            }
+
+                            ForEach(viewModel.personalizedShelves) { shelf in
+                                if !shelf.items.isEmpty {
+                                    personalizedShelfSection(shelf)
+                                }
+                            }
+
+                            ForEach(viewModel.secondaryHubs) { hub in
+                                let items = viewModel.inlineItems(in: hub)
+
+                                if !items.isEmpty {
+                                    hubSection(hub, items: items)
+                                }
+                            }
+                        }
+                    }
+                    .padding(.bottom, 48)
+                }
             }
-        )
-        #else
-        ScrollView {
-            pageContent(showsContinueWatching: true)
         }
         .safeAreaInset(edge: .bottom) {
             Color.clear
@@ -137,107 +188,10 @@ struct LibraryRecommendationsView: View {
         .refreshable {
             await viewModel.load(maxRecentlyAddedItems: recentlyAddedInlineItemLimit)
         }
-        #endif
-    }
-
-    #if os(tvOS)
-    /// The featured hero of a Movies or TV Shows page: its Continue Watching.
-    /// Clips stay in the Videos page's own row (their frame grabs read poorly
-    /// full screen), and the row is capped like Home's, since every item's
-    /// artwork is decoded at full display size.
-    private var featuredHeroItems: [PlexItem] {
-        guard !viewModel.isVideoLibrary else { return [] }
-        return Array(viewModel.continueWatching.filter { !$0.isClip }.prefix(10))
-    }
-
-    private var browseButtonRow: some View {
-        HStack(spacing: 20) {
-            browseLibraryButtons
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-    }
-    #endif
-
-    @ViewBuilder
-    private func pageContent(showsContinueWatching: Bool) -> some View {
-        if let error = viewModel.error,
-           !viewModel.hasAnyContent {
-            FeatureErrorView(message: error) {
-                Task { await viewModel.load(maxRecentlyAddedItems: recentlyAddedInlineItemLimit) }
-            }
-            .padding(.top, 40)
-        } else if !viewModel.hasAnyContent {
-            emptyView
-                .padding(.top, 40)
-        } else {
-            shelfStack {
-                ServerOutageNote()
-                    .padding(.horizontal, DuskPosterMetrics.libraryPageHorizontalPadding)
-
-                if showsContinueWatching, !viewModel.continueWatching.isEmpty {
-                    continueWatchingSection
-                }
-
-                ForEach(viewModel.prioritizedHubs) { hub in
-                    let items = viewModel.inlineItems(in: hub)
-
-                    if !items.isEmpty {
-                        hubSection(hub, items: items)
-                    }
-                }
-
-                if viewModel.isVideoLibrary {
-                    ForEach(viewModel.secondaryHubs) { hub in
-                        let items = viewModel.inlineItems(in: hub)
-
-                        if !items.isEmpty {
-                            hubSection(hub, items: items)
-                        }
-                    }
-
-                    ForEach(viewModel.channelShelves) { row in
-                        if !row.shelf.items.isEmpty {
-                            channelShelfSection(row)
-                        }
-                    }
-
-                    if !viewModel.rediscoverItems.isEmpty {
-                        rediscoverSection
-                    }
-                } else {
-                    ForEach(viewModel.collectionShelves) { shelf in
-                        collectionShelfSection(shelf)
-                    }
-
-                    ForEach(viewModel.personalizedShelves) { shelf in
-                        if !shelf.items.isEmpty {
-                            personalizedShelfSection(shelf)
-                        }
-                    }
-
-                    ForEach(viewModel.secondaryHubs) { hub in
-                        let items = viewModel.inlineItems(in: hub)
-
-                        if !items.isEmpty {
-                            hubSection(hub, items: items)
-                        }
-                    }
-                }
-            }
-            .padding(.bottom, 48)
-        }
-    }
-
-    /// tvOS uses a plain `VStack`: with the featured hero the first shelf
-    /// starts right at the fold, and a lazy stack can have nothing there yet
-    /// when the user presses down from the card row.
-    @ViewBuilder
-    private func shelfStack(@ViewBuilder content: () -> some View) -> some View {
         #if os(tvOS)
-        VStack(alignment: .leading, spacing: DuskPosterMetrics.pageSectionSpacing, content: content)
-        #else
-        LazyVStack(alignment: .leading, spacing: DuskPosterMetrics.pageSectionSpacing, content: content)
+        .scrollClipDisabled()
         #endif
+        .duskTVOSPageBackground()
     }
 
     /// The tab's own landing screen, as opposed to one library's
@@ -360,22 +314,18 @@ struct LibraryRecommendationsView: View {
             },
             progress: { viewModel.progress(for: $0) }
         ) { item in
-            continueWatchingContextMenu(for: item)
+            PlexItemContextMenuContent(
+                item: item,
+                onMarkWatched: {
+                    Task { await viewModel.setWatched(true, for: item) }
+                },
+                onMarkUnwatched: {
+                    Task { await viewModel.setWatched(false, for: item) }
+                },
+                detailsRoute: AppNavigationRoute.destination(for: item),
+                detailsLabel: detailsLabel(for: item)
+            )
         }
-    }
-
-    private func continueWatchingContextMenu(for item: PlexItem) -> some View {
-        PlexItemContextMenuContent(
-            item: item,
-            onMarkWatched: {
-                Task { await viewModel.setWatched(true, for: item) }
-            },
-            onMarkUnwatched: {
-                Task { await viewModel.setWatched(false, for: item) }
-            },
-            detailsRoute: AppNavigationRoute.destination(for: item),
-            detailsLabel: detailsLabel(for: item)
-        )
     }
 
     @ViewBuilder
