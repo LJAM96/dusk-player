@@ -2078,6 +2078,11 @@ so the whole live HUD is derived from one instant.
     credits marker in `spentAutoSkipMarkerIDs`. Seeking back before the credits
     and reaching them again therefore raises a `manual` poster instead of
     restarting a countdown the viewer already saw or waved off.
+- No Plex credits marker: `PlayerViewModel.estimatedCreditsMarker` synthesizes
+  one (`isEstimated`) spanning `duration − clamp(4 %, 45 s, 2 min)` to the end
+  (~50 s on a 22 min sitcom, 2 min on an hour drama), so the poster still shows.
+  It never auto-skips or auto-advances on its own and never counts as "past
+  credits" for marking watched.
 - Poster interactions: tapping it plays the next episode now
   (`playUpNextPosterNow`); dragging it down dismisses the poster and cancels any
   pending auto-advance. On tvOS the card is **not** focusable (that would take

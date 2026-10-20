@@ -2,13 +2,13 @@ import Foundation
 import SwiftUI
 
 extension PlayerViewModel {
-    /// Fallback credits estimate tunables (see `estimatedCreditsMarker`). The cap
-    /// is the main guardrail — 3 minutes is about as early as the poster can
-    /// appear before it risks spoiling that the episode is nearly over. Bump
-    /// `estimatedCreditsMaxLeadMs` alone to give more runway.
-    static let estimatedCreditsLeadFraction = 0.10
-    static let estimatedCreditsMinLeadMs: Double = 90_000
-    static let estimatedCreditsMaxLeadMs: Double = 180_000
+    /// Fallback credits estimate tunables (see `estimatedCreditsMarker`). Sized
+    /// so a ~22 min sitcom episode gets the poster ~50 s before the end and an
+    /// hour-long drama ~2 min; earlier than that it lands mid-scene (customer
+    /// feedback: ~2 min on a sitcom felt far too early).
+    static let estimatedCreditsLeadFraction = 0.04
+    static let estimatedCreditsMinLeadMs: Double = 45_000
+    static let estimatedCreditsMaxLeadMs: Double = 120_000
 
     var displayPosition: TimeInterval {
         isScrubbing ? scrubPosition : currentTime
@@ -126,12 +126,6 @@ extension PlayerViewModel {
         return estimated
     }
 
-    /// Synthesized credits marker for items Plex has no marker for. Tuned
-    /// generous: the poster is a small corner affordance the user can ignore, so
-    /// appearing a little early costs nothing while appearing too late misses the
-    /// point. Spans `duration − clamp(10% of duration, 1.5 min, 3 min)` to the
-    /// end. Never added to `markers`, so it can't surface a "Skip" button (which
-    /// only intros do).
     /// Past the start of Plex's own credits marker. The estimated fallback
     /// does not count: it is a guess, and this decides whether skipping to
     /// another episode marks the current one watched.
@@ -140,6 +134,9 @@ extension PlayerViewModel {
         return !reachedCreditsMarker.isEstimated
     }
 
+    /// Synthesized credits marker for items Plex has no marker for. Spans
+    /// `duration − clamp(4% of duration, 45 s, 2 min)` to the end. Never added
+    /// to `markers`, so it can't surface a "Skip" button (which only intros do).
     private var estimatedCreditsMarker: PlexMarker? {
         guard duration > 0 else { return nil }
         let durationMs = duration * 1000
