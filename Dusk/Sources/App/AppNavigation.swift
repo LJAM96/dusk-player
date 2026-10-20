@@ -9,6 +9,9 @@ enum AppNavigationRoute: Hashable {
     case library(PlexLibrary)
     case libraryGenre(library: PlexLibrary, genre: LibraryGenreOption)
     case libraryCollection(library: PlexLibrary, collection: PlexLibraryCollection)
+    /// A movie or TV library's Plex collections. A collection itself opens
+    /// as `.media(type: .collection, id:)`.
+    case libraryCollections(PlexLibrary)
     case libraryRecommendations(PlexLibrary)
     case photoAlbum(PhotoAlbumRoute)
     case hub(PlexHub)
@@ -73,6 +76,8 @@ struct AppNavigationDestinationView: View {
             )
         case .libraryCollection(let library, let collection):
             LibraryCollectionItemsView(library: library, collection: collection)
+        case .libraryCollections(let library):
+            LibraryCollectionsView(library: library, plexService: plexService)
         case .libraryRecommendations(let library):
             LibraryRecommendationsView(
                 library: library,

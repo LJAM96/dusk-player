@@ -114,6 +114,12 @@ struct MovieDetailView: View {
                         )
                             .padding(.top, 40)
                     }
+                    DetailCollectionShelves(
+                        itemID: details.id,
+                        sectionID: details.librarySectionID,
+                        tags: details.collections,
+                        plexService: plexService
+                    )
                     mediaInfoSection()
                         .padding(.horizontal, horizontalPadding)
                         .padding(.top, 40)

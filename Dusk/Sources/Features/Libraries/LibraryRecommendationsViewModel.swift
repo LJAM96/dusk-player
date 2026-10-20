@@ -16,6 +16,16 @@ struct LibraryChannelRow: Identifiable, Sendable {
     var id: String { "\(library.id)|\(shelf.id)" }
 }
 
+/// A library's Plex collections as a row: the first few, with "Show All"
+/// opening the library's full Collections grid.
+struct LibraryCollectionShelf: Identifiable, Sendable {
+    let library: PlexLibrary
+    let items: [PlexItem]
+    let hasMore: Bool
+
+    var id: String { library.id }
+}
+
 /// The recommendations screen for one library **or for every library of one
 /// type**, across servers.
 ///
@@ -41,6 +51,7 @@ final class LibraryRecommendationsViewModel {
     private(set) var hubs: [PlexHub] = []
     private(set) var personalizedShelves: [LibraryPersonalizedShelf] = []
     private(set) var channelShelves: [LibraryChannelRow] = []
+    private(set) var collectionShelves: [LibraryCollectionShelf] = []
     private(set) var rediscoverItems: [PlexItem] = []
     private(set) var continueWatching: [PlexItem] = []
     private(set) var continueWatchingTitle = "Continue Watching"
@@ -81,6 +92,7 @@ final class LibraryRecommendationsViewModel {
         !hubs.isEmpty ||
         !personalizedShelves.isEmpty ||
         !channelShelves.isEmpty ||
+        !collectionShelves.isEmpty ||
         !rediscoverItems.isEmpty ||
         !continueWatching.isEmpty
     }
@@ -182,6 +194,17 @@ final class LibraryRecommendationsViewModel {
             publishFirstPaint()
         }
 
+        // Cheap, so it lands before the personalized shelves and does not
+        // wait on them.
+        let collectionShelves = await loadCollectionShelves()
+        guard !Task.isCancelled, generation == loadGeneration else { return }
+        if isInitialLoad || !collectionShelves.isEmpty {
+            apply(isInitialLoad: !hasLoadedOnce) {
+                self.collectionShelves = collectionShelves
+            }
+            publishFirstPaint()
+        }
+
         let recommendationResult = await loadPersonalizedShelves()
         let filteredPersonalizedShelves = filterPersonalizedShelves(
             recommendationResult.shelves,
@@ -199,6 +222,35 @@ final class LibraryRecommendationsViewModel {
         apply(isInitialLoad: !hasLoadedOnce) {
             self.personalizedShelves = filteredPersonalizedShelves
         }
+    }
+
+    /// How many collections a row shows before "Show All".
+    private static let collectionRowLimit = 20
+
+    /// One row per library that has collections and has not switched them
+    /// off. Plex's own section hubs carry no collections row (a promoted
+    /// collection arrives as an ordinary hub of its titles), so it is built
+    /// from the section's collection listing — one small, cheap query each.
+    private func loadCollectionShelves() async -> [LibraryCollectionShelf] {
+        let service = plexService
+        let limit = Self.collectionRowLimit
+        let results = await loadPerLibrary { library -> LibraryCollectionShelf? in
+            guard await service.collectionMode(sectionId: library.key, serverID: library.serverID) != .disabled,
+                  let page = try? await service.getCollections(
+                      sectionId: library.key,
+                      size: limit,
+                      serverID: library.serverID
+                  ),
+                  !page.items.isEmpty else { return nil }
+            return LibraryCollectionShelf(library: library, items: page.items, hasMore: page.hasMore)
+        }
+        return results.compactMap { $0 }
+    }
+
+    /// "Collections" alone with one library; a type tab covering several
+    /// names each row after its library.
+    func title(for shelf: LibraryCollectionShelf) -> String {
+        isMultiLibrary ? "\(shelf.library.title) Collections" : "Collections"
     }
 
     /// Video libraries skip the genre recommendation engine entirely (its
@@ -347,6 +399,7 @@ final class LibraryRecommendationsViewModel {
                 hubs: hubs,
                 personalizedShelves: personalizedShelves,
                 channelShelves: channelShelves,
+                collectionShelves: collectionShelves,
                 rediscoverItems: rediscoverItems,
                 continueWatching: continueWatching,
                 continueWatchingTitle: continueWatchingTitle
@@ -360,6 +413,7 @@ final class LibraryRecommendationsViewModel {
         hubs = snapshot.hubs
         personalizedShelves = snapshot.personalizedShelves
         channelShelves = snapshot.channelShelves
+        collectionShelves = snapshot.collectionShelves
         rediscoverItems = snapshot.rediscoverItems
         continueWatching = snapshot.continueWatching
         continueWatchingTitle = snapshot.continueWatchingTitle
@@ -646,6 +700,7 @@ struct LibraryRecommendationsSnapshot {
     let hubs: [PlexHub]
     let personalizedShelves: [LibraryPersonalizedShelf]
     let channelShelves: [LibraryChannelRow]
+    let collectionShelves: [LibraryCollectionShelf]
     let rediscoverItems: [PlexItem]
     let continueWatching: [PlexItem]
     let continueWatchingTitle: String

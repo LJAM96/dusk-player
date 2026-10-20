@@ -127,6 +127,15 @@ struct LibraryItemsView: View {
     private var browseControls: some View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 10) {
+                #if os(iOS)
+                // First on iPhone, where the row scrolls: it switches what the
+                // screen lists rather than filtering it. tvOS keeps links after
+                // the filters, where every chip is on screen anyway.
+                if viewModel.hasCollections {
+                    collectionsLink
+                }
+                #endif
+
                 if viewModel.availableGenres.count > 1 {
                     genreMenu
                 }
@@ -134,6 +143,12 @@ struct LibraryItemsView: View {
                 unwatchedToggle
 
                 sortMenu
+
+                #if os(tvOS)
+                if viewModel.hasCollections {
+                    collectionsLink
+                }
+                #endif
 
                 #if os(tvOS)
                 // Last, so a focused (scaled) chip never sits under it.
@@ -167,6 +182,15 @@ struct LibraryItemsView: View {
     private var libraryOrderLink: some View {
         browseChipLink(.libraryOrder, title: "Library Order", systemImage: "arrow.up.arrow.down")
     }
+    #endif
+
+    private var collectionsLink: some View {
+        browseChipLink(
+            .libraryCollections(viewModel.library),
+            title: "Collections",
+            systemImage: "square.stack"
+        )
+    }
 
     private func browseChipLink(
         _ route: AppNavigationRoute,
@@ -198,7 +222,6 @@ struct LibraryItemsView: View {
         }
         .duskSuppressTVOSButtonChrome()
     }
-    #endif
 
     private var genreMenu: some View {
         Menu {

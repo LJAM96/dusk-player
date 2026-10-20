@@ -156,7 +156,11 @@ Libraries:
   Libraries Open To is All (A–Z); `LibraryTypeListView` is the list of a type's
   libraries when there is more than one.
 - `LibraryItemsViewModel` owns paged item loading, sorting, genre filtering, and
-  optional collection scoping (`LibraryCollectionItemsView`).
+  optional collection scoping (`LibraryCollectionItemsView`, a video library's
+  channel filter). Plex collections of movie/TV libraries are
+  `LibraryCollectionsView`/`LibraryCollectionsViewModel` (paged grid) and
+  `Detail/CollectionDetailView` + model; `DetailCollectionShelves` is the "Part of"
+  row on movie/show detail pages; `Shared/PlexItemPager` pages plain listings.
 - Photo libraries live in `Features/Photos`: `PhotoBrowserViewModel` (paged
   albums/timeline queries over `PlexService+Photos`, `PlexPhotoItem`),
   `PhotoBrowserView` (grid, also the album route) and `PhotoViewerView` (full-screen

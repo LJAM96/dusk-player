@@ -63,9 +63,29 @@ extension PlexItem {
             return title.nilIfEmpty ?? MediaTextFormatter.seasonEpisodeLabel(season: index, episode: nil)
         case .episode:
             return MediaTextFormatter.seasonEpisodeLabel(season: parentIndex, episode: index) ?? grandparentTitle
+        case .collection:
+            return collectionCountLabel
         default:
             return year.map(String.init)
         }
+    }
+
+    /// `12 movies`, `3 shows`, `1 item`: a collection's size in the words of
+    /// what it holds.
+    var collectionCountLabel: String? {
+        guard type == .collection, let childCount else { return nil }
+        return Self.collectionCountLabel(childCount, subtype: subtype)
+    }
+
+    static func collectionCountLabel(_ count: Int, subtype: String?) -> String {
+        let noun: (String, String) = switch subtype {
+        case "movie": ("movie", "movies")
+        case "show": ("show", "shows")
+        case "episode": ("episode", "episodes")
+        case "clip": ("video", "videos")
+        default: ("item", "items")
+        }
+        return "\(count) \(count == 1 ? noun.0 : noun.1)"
     }
 
     /// Home's poster rows show a year under movies and shows, but a season or
@@ -78,6 +98,8 @@ extension PlexItem {
         case .episode:
             return MediaTextFormatter.compactSeasonEpisodeLabel(season: parentIndex, episode: index)
                 ?? standardPosterSubtitle
+        case .collection:
+            return collectionCountLabel
         default:
             return year.map(String.init)
         }

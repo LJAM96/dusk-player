@@ -61,6 +61,10 @@ struct PlexItem: Decodable, Sendable, Identifiable {
     let viewedLeafCount: Int?
     let childCount: Int?
 
+    /// Collections only: whether Plex fills it from a saved filter instead of
+    /// a hand-picked list. Sent as `"1"`/`"0"`.
+    let smart: Bool?
+
     // Metadata tags
     let genres: [PlexTag]?
     let directors: [PlexTag]?
@@ -81,7 +85,7 @@ struct PlexItem: Decodable, Sendable, Identifiable {
         case index, parentIndex
         case parentRatingKey, parentTitle, parentThumb
         case grandparentRatingKey, grandparentTitle, grandparentThumb, grandparentArt
-        case leafCount, viewedLeafCount, childCount
+        case leafCount, viewedLeafCount, childCount, smart
         case genres = "Genre"
         case directors = "Director"
         case writers = "Writer"
@@ -140,6 +144,7 @@ struct PlexItem: Decodable, Sendable, Identifiable {
         leafCount = try container.decodeIfPresent(Int.self, forKey: .leafCount)
         viewedLeafCount = try container.decodeIfPresent(Int.self, forKey: .viewedLeafCount)
         childCount = try container.decodeIfPresent(Int.self, forKey: .childCount)
+        smart = container.decodeLenientBoolIfPresent(forKey: .smart)
 
         genres = try container.decodeIfPresent([PlexTag].self, forKey: .genres)
         directors = try container.decodeIfPresent([PlexTag].self, forKey: .directors)
@@ -177,6 +182,13 @@ private extension KeyedDecodingContainer where Key == PlexItem.CodingKeys {
         let images = try decodeIfPresent([PlexImageResource].self, forKey: arrayKey) ?? []
         return images.first(where: { $0.type.caseInsensitiveCompare(type) == .orderedSame })?.url
     }
+
+    func decodeLenientBoolIfPresent(forKey key: Key) -> Bool? {
+        if let value = try? decodeIfPresent(Bool.self, forKey: key) { return value }
+        if let value = try? decodeIfPresent(Int.self, forKey: key) { return value != 0 }
+        if let value = try? decodeIfPresent(String.self, forKey: key) { return value == "1" || value == "true" }
+        return nil
+    }
 }
 
 // MARK: - Convenience
@@ -184,8 +196,13 @@ private extension KeyedDecodingContainer where Key == PlexItem.CodingKeys {
 extension PlexItem {
     /// Whether the item is a video clip (e.g. from an "Other Videos" library).
     /// Plex marks clips with `subtype == "clip"` even when `type` is `movie`.
+    /// A collection of clips is still a collection.
     var isClip: Bool {
-        subtype == "clip" || type == .clip
+        type == .clip || (subtype == "clip" && type != .collection)
+    }
+
+    var isSmartCollection: Bool {
+        type == .collection && smart == true
     }
 
     /// Whether the item has been partially watched.
@@ -241,6 +258,27 @@ extension PlexItem {
 /// A simple key-value tag used for genres, directors, writers, etc.
 struct PlexTag: Codable, Sendable, Hashable {
     let tag: String
+    /// The tag's id. For a `Collection` tag it is the collection's `index`,
+    /// which is how an item's collections are matched to collection items.
+    var id: Int? = nil
+
+    init(tag: String, id: Int? = nil) {
+        self.tag = tag
+        self.id = id
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case tag, id
+    }
+
+    /// The id is a bonus: a server that sends it in another shape must not
+    /// fail the whole item.
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        tag = try container.decode(String.self, forKey: .tag)
+        id = (try? container.decodeIfPresent(Int.self, forKey: .id))
+            ?? (try? container.decodeIfPresent(String.self, forKey: .id)).flatMap { $0.flatMap(Int.init) }
+    }
 }
 
 struct PlexGuid: Codable, Sendable, Hashable {

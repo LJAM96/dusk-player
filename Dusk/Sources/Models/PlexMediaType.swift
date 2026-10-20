@@ -11,6 +11,8 @@ enum PlexMediaType: String, Codable, Sendable, Hashable {
     case artist
     case album
     case track
+    /// A Plex collection (manual or smart). Its children are movies or shows.
+    case collection
 
     /// Returned when the Plex API sends a type we don't handle yet.
     case unknown

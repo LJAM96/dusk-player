@@ -284,7 +284,12 @@ hub or recommendation loading. `--photos 5000` adds a photo library (section 3:
 year/month and trip albums, loose root photos, ~5% clips) that answers the
 `type=` / `parent=` / `clusterZoomLevel=1` queries and serves generated plasma JPEGs
 from `/photo/:/transcode` (ImageMagick, cached in `build/mock-photo-images`); open it
-with `-DuskScreenshotScreen photos`. Clip playback cannot be exercised there (no media
+with `-DuskScreenshotScreen photos`. Movies and TV Shows carry eight Plex collections
+(manual ones tag their titles, smart ones do not; "Everything Electric" is big enough
+to page); `--collection-mode 0|1|2` sets the sections' Collections pref, and
+`-DuskScreenshotScreen collections` (plus `-DuskScreenshotItemType show`) opens a
+library's Collections grid, `detail` with `-DuskScreenshotItemType collection
+-DuskScreenshotItem 800000` a collection. Shows have no seasons there. Clip playback cannot be exercised there (no media
 files). Its costs are a model, not a real server: compare
 builds against each other, not against absolute numbers.
 

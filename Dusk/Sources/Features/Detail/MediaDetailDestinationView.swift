@@ -78,6 +78,8 @@ struct MediaDetailDestinationView: View {
                 serverID: id.serverID,
                 plexService: plexService
             )
+        case .collection:
+            CollectionDetailView(id: id, plexService: plexService)
         case .clip:
             // Clips normally route through `.video`; this catches legacy
             // `.media(type: .clip, ...)` paths so they never open MovieDetailView.

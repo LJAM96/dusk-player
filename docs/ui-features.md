@@ -588,6 +588,21 @@ in Dusk. Read this with `docs/codebase-map.md`, `STYLE.md`, and `docs/data-and-p
   not mutate current results. Preserve this pattern when adding filters.
 - Infinite scroll is triggered from `PlexItemPosterGrid.onItemAppear`; keep pagination
   logic in the view model.
+- **Plex collections** (movie/TV libraries, manual and smart): the grid shows a
+  **Collections** chip (first on iPhone where the chip row scrolls, after Sort on tvOS)
+  when the library has any and has not disabled them; it opens `LibraryCollectionsView`
+  (`.libraryCollections(library)`), a paged poster grid with "12 movies" subtitles.
+  The Recommended page adds a Collections row per library (first 20, "Show All" to that
+  grid) right after the Plex hubs and before the personalized shelves; it loads after
+  first paint and is part of the snapshot. A collection opens `CollectionDetailView`
+  (`.media(type: .collection, id:)`): backdrop hero (the collection's art, else its
+  first title's), "Collection · 12 movies · 1977–2019" (year span only once every
+  title is loaded; "Smart Collection" for smart ones), summary, then a paged grid via
+  `PlexItemPager`. Movie collections get Play (in-progress title, else first unwatched,
+  else first) and Shuffle (random unwatched title); there is no play queue, so each
+  starts one title. Show collections only browse. Movie, show (iOS) and series (tvOS)
+  detail pages end with `DetailCollectionShelves`: a "Part of <collection>" row per
+  tagged collection (max 3) whose "Show All" opens the collection. No settings.
 
 ### Photos
 

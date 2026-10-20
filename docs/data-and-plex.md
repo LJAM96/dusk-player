@@ -285,6 +285,30 @@ Library:
 - `getLibraryCollections(sectionId:)` -> `/library/sections/{sectionId}/collection`
   filter values, decoded as `[PlexLibraryCollection]` (key + title). Fetch a
   collection's items with `getLibraryItems(filters: ["collection": key])`.
+  This filter view is what video libraries use for their channel rows.
+
+Plex collections (`PlexService+Collections.swift`, movie and TV libraries):
+- A collection is a metadata item of `type: "collection"` (`PlexMediaType.collection`);
+  `subtype` says what it holds, `smart` ("1"/"0") whether a saved filter fills it,
+  `index` is the tag id. Before `.collection` existed these decoded as `.unknown`
+  and were dropped everywhere, which is why "collections" never showed up.
+- `getCollections(sectionId:start:size:)` -> `/library/sections/{id}/collections`,
+  `getCollectionItems(ratingKey:start:size:)` -> `/library/metadata/{rk}/children`
+  (the server resolves a smart collection's filter here, in the collection's sort),
+  `getCollection(ratingKey:)` -> `/library/metadata/{rk}`. The two listings return
+  `PlexItemPage` (items + `totalSize`) and page with `X-Plex-Container-Start/Size`.
+- An item's `Collection` tags carry `id` (= the collection's `index`) and `tag`
+  (title), never a rating key: `DetailCollectionShelvesModel` resolves them against
+  the section's collection listing (id first, title as fallback). Smart collections
+  never tag their titles, so they have no "Part of" row.
+- `collectionMode(sectionId:)` reads the section's `collectionMode` pref from
+  `/library/sections/{id}/prefs` (0 Disabled, 1 Hide items which are in collections,
+  2 Show both), cached per server+section for the launch; an unreadable pref (shared
+  users) counts as 2. Disabled hides every collection entry point. Hide-items sends
+  `includeCollections=1` on the unfiltered library grid so Plex folds a collection's
+  titles into the collection, as Plex Web does; a genre/Unwatched-filtered grid lists
+  the titles themselves. Per-collection display modes are not read.
+- Search still sends `includeCollections=0`.
 
 Hubs and search:
 - `getHubs()` -> `/hubs`.

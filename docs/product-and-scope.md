@@ -61,7 +61,7 @@ Current product pillars:
 - SharePlay watch-together sessions on iPhone, iPad, and Apple TV for Plex
   library video, with per-participant local streaming and synchronized transport.
 
-Future ideas such as Jellyfin, collections, playlists, DVR scheduling,
+Future ideas such as Jellyfin, playlists, DVR scheduling,
 native macOS work, or broader provider abstractions are not current architecture
 requirements. Do not shape today's code around them without an explicit task.
 

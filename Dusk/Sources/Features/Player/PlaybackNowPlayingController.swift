@@ -320,7 +320,7 @@ private extension PlaybackNowPlayingController {
             return details.studio
         case .show, .season:
             return details.year.map(String.init)
-        case .person, .clip, .artist, .album, .track, .unknown:
+        case .person, .clip, .artist, .album, .track, .collection, .unknown:
             return nil
         }
     }

@@ -93,6 +93,13 @@ struct ShowDetailView: View {
                     seasonsSection(width: geometry.size.width)
                         .padding(.top, 40)
 
+                    DetailCollectionShelves(
+                        itemID: details.id,
+                        sectionID: details.librarySectionID,
+                        tags: details.collections,
+                        plexService: plexService
+                    )
+
                     if let roles = details.roles, !roles.isEmpty {
                         DetailCastSection(
                             roles: roles,

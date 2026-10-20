@@ -17,6 +17,13 @@ mimics how a real PMS on a NAS behaves at that size:
 Every request is logged with its arrival time (relative to the first
 request), duration and path, so the client's critical path can be read off.
 
+Movies and TV Shows carry a few Plex collections (manual ones tag their
+titles with `Collection`, smart ones do not; one smart movie collection holds
+thousands of titles so collection paging can be measured). --collection-mode
+sets the sections' "Collections" pref (0 disabled, 1 hide items in
+collections, 2 show both); with 1, `/all?includeCollections=1` folds a manual
+collection's titles into the collection like PMS does.
+
 With --photos N it also serves a photo library (section 3): year albums with
 month sub-albums, a few trip albums, loose root photos and ~5% video clips,
 answering the type=14 / type=13,12 / parent= / clusterZoomLevel=1 queries the
@@ -92,6 +99,55 @@ class Library:
             for rk in rnd.sample(self.sections[sec_key]["rks"], 8):
                 self.items[rk]["viewOffset"] = 1800000
         self.genre_ids = {g: str(100 + i) for i, g in enumerate(GENRES)}
+        self.build_collections(rnd)
+
+    # -- collections ---------------------------------------------------------
+
+    def build_collections(self, rnd):
+        """Collection rating keys start at 800000; `index` is the tag id an
+        item's `Collection` tag carries."""
+        self.collections = {}
+        self.item_collections = {}
+        movies, shows = self.sections["1"]["rks"], self.sections["2"]["rks"]
+        specs = [
+            ("1", "The Night Saga", False, lambda: [rk for rk in movies if "Night" in self.items[rk]["title"]][:9]),
+            ("1", "Golden Classics", False, lambda: sorted(movies, key=lambda r: self.items[r]["year"])[:24]),
+            ("1", "Storm Trilogy", False, lambda: [rk for rk in movies if self.items[rk]["title"].startswith("Storm")][:3]),
+            ("1", "Weekend Picks", False, lambda: rnd.sample(movies, min(60, len(movies)))),
+            ("1", "Top Rated Thrillers", True,
+             lambda: [rk for rk in movies if "Thriller" in self.items[rk]["genres"] and self.items[rk]["rating"] >= 8.5]),
+            ("1", "Everything Electric", True, lambda: [rk for rk in movies if "Electric" in self.items[rk]["title"]]),
+            ("2", "Crime Nights", False, lambda: [rk for rk in shows if "Crime" in self.items[rk]["genres"]][:14]),
+            ("2", "Short Runs", True, lambda: [rk for rk in shows if self.items[rk]["leafCount"] <= 10][:40]),
+        ]
+        for i, (sec, title, smart, members) in enumerate(specs):
+            crk = str(800000 + i)
+            rks = members()
+            self.collections[crk] = {"rk": crk, "sec": sec, "title": title, "smart": smart, "index": 5000 + i,
+                                     "rks": rks, "addedAt": NOW - i * 86400}
+            if not smart:
+                for rk in rks:
+                    self.item_collections.setdefault(rk, []).append(crk)
+        for sec in self.sections.values():
+            sec["collections"] = [c for c in self.collections if self.collections[c]["sec"] == sec["key"]]
+
+    def collection_metadata(self, crk):
+        c = self.collections[crk]
+        kind = self.sections[c["sec"]]["type"]
+        first = c["rks"][0] if c["rks"] else crk
+        md = {"ratingKey": crk, "key": f"/library/collections/{crk}/children", "guid": f"collection://{crk}",
+              "type": "collection", "subtype": kind, "title": c["title"], "titleSort": c["title"],
+              "summary": f"{c['title']}: a synthetic {'smart ' if c['smart'] else ''}collection of "
+                         f"{len(c['rks'])} {kind}s.",
+              "index": c["index"], "childCount": len(c["rks"]), "smart": "1" if c["smart"] else "0",
+              "collectionMode": "-1", "collectionSort": "1" if c["smart"] else "0",
+              "librarySectionID": int(c["sec"]), "librarySectionTitle": self.sections[c["sec"]]["title"],
+              "thumb": f"/library/collections/{crk}/composite/{NOW}",
+              "art": f"/library/metadata/{first}/art/{NOW}",
+              "addedAt": c["addedAt"], "updatedAt": c["addedAt"]}
+        if c["smart"]:
+            md["content"] = f"/library/sections/{c['sec']}/all?type=1&title={c['title']}"
+        return md
 
     def metadata(self, rk, detail=False):
         it = self.items[rk]
@@ -123,6 +179,10 @@ class Library:
                             "Part": [{"id": int(rk), "key": f"/library/parts/{rk}/1/file.mp4",
                                       "duration": it["duration"], "file": f"/data/{rk}.mp4",
                                       "size": 4_000_000_000, "container": "mp4"}]}]
+        if self.item_collections.get(rk):
+            md["Collection"] = [{"id": self.collections[c]["index"], "tag": self.collections[c]["title"],
+                                 "filter": f"collection={self.collections[c]['index']}"}
+                                for c in self.item_collections[rk]]
         if detail:
             md["Genre"] = [{"tag": g, "id": int(self.genre_ids[g])} for g in it["genres"]]
             md["Guid"] = [{"id": f"tmdb://{rk}"}]
@@ -467,9 +527,33 @@ class Handler(BaseHTTPRequestHandler):
             self._json(container(Directory=[{"fastKey": f"/library/sections/{sec['key']}/all?genre={gid}",
                                              "key": gid, "title": g, "type": "genre"}
                                             for g, gid in sorted(lib.genre_ids.items())]))
-        elif re.fullmatch(r"/library/sections/(\w+)/(collection|collections)", path):
+        elif m := re.fullmatch(r"/library/sections/(\w+)/collections", path):
+            sec = lib.sections.get(m.group(1))
+            crks = sorted(sec["collections"] if sec else [], key=lambda c: lib.collections[c]["title"].lower())
+            self.paged(crks, q, lib.collection_metadata, scan_rows=len(crks))
+        elif re.fullmatch(r"/library/sections/(\w+)/collection", path):
             self.delay()
             self._json(container(Directory=[]))
+        elif m := re.fullmatch(r"/library/sections/(\w+)/prefs", path):
+            self.delay()
+            self._json(container(Setting=[
+                {"id": "collectionMode", "label": "Collections", "type": "int", "default": 2,
+                 "value": self.args.collection_mode, "enumValues":
+                     "0:Disabled|1:Hide items which are in collections|2:Show collections and their items"},
+                {"id": "enableCinemaTrailers", "type": "bool", "default": True, "value": True}]))
+        elif (m := re.fullmatch(r"/library/(?:metadata|collections)/(\d+)(/children)?", path)) \
+                and m.group(1) in lib.collections:
+            c = lib.collections[m.group(1)]
+            if m.group(2):
+                rks = sorted(c["rks"], key=lambda r: lib.items[r]["title"].lower()) if c["smart"] \
+                    else sorted(c["rks"], key=lambda r: lib.items[r]["year"])
+                self.paged(rks, q, lib.metadata, scan_rows=len(lib.sections[c["sec"]]["rks"]) if c["smart"] else 0)
+            else:
+                self.delay()
+                self._json(container(Metadata=[lib.collection_metadata(m.group(1))]))
+        elif re.fullmatch(r"/library/collections/\d+/composite/\d+", path):
+            time.sleep(self.args.rtt / 1000)
+            self._send(PNG, "image/png")
         elif m := re.fullmatch(r"/hubs/sections/(\w+)", path):
             self.section_hubs(lib.sections.get(m.group(1)), q)
         elif m := re.fullmatch(r"/hubs/sections/(\w+)/(\w+)", path):
@@ -556,13 +640,37 @@ class Handler(BaseHTTPRequestHandler):
             self._json(container(), 404)
             return
         rks = self.filtered(sec, q)
+        if q.get("includeCollections") == "1" and str(self.args.collection_mode) == "1":
+            rks = self.fold_collections(rks)
         start = int(q.get("X-Plex-Container-Start", 0) or 0)
         size = q.get("X-Plex-Container-Size")
         size = int(size) if size else len(rks)
         page = rks[start:start + size]
         self.delay(scan_rows=len(sec["rks"]), items=len(page))
-        self._json(container(Metadata=[self.lib.metadata(rk) for rk in page], totalSize=len(rks), offset=start,
+        meta = [self.lib.collection_metadata(rk) if rk in self.lib.collections else self.lib.metadata(rk) for rk in page]
+        self._json(container(Metadata=meta, totalSize=len(rks), offset=start,
                              librarySectionID=int(sec["key"]), librarySectionTitle=sec["title"]))
+
+    def fold_collections(self, rks):
+        """A manual collection's titles collapse into the collection, which
+        takes the place of its first title in the sort."""
+        out, seen = [], set()
+        for rk in rks:
+            crks = self.lib.item_collections.get(rk)
+            if not crks:
+                out.append(rk)
+            elif crks[0] not in seen:
+                seen.add(crks[0])
+                out.append(crks[0])
+        return out
+
+    def paged(self, rks, q, render, scan_rows=0):
+        start = int(q.get("X-Plex-Container-Start", 0) or 0)
+        size = q.get("X-Plex-Container-Size")
+        size = int(size) if size else len(rks)
+        page = rks[start:start + size]
+        self.delay(scan_rows=scan_rows, items=len(page))
+        self._json(container(Metadata=[render(rk) for rk in page], totalSize=len(rks), offset=start))
 
     def photo_all(self, q):
         rks = self.photos.query(q)
@@ -626,6 +734,8 @@ def main():
     p.add_argument("--scan-us", type=float, default=25, help="µs per section row scanned by a DB query")
     p.add_argument("--item-us", type=float, default=300, help="µs per returned item")
     p.add_argument("--db-workers", type=int, default=2)
+    p.add_argument("--collection-mode", type=int, default=2, choices=(0, 1, 2),
+                   help="sections' Collections pref: 0 disabled, 1 hide items in collections, 2 show both")
     p.add_argument("--photos", type=int, default=0, help="photos (and clips) in a photo library; 0 = none")
     p.add_argument("--image-cache", default=os.path.join(os.path.dirname(os.path.abspath(__file__)),
                                                           "..", "build", "mock-photo-images"))

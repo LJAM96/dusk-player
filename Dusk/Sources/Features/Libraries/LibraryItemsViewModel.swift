@@ -114,6 +114,9 @@ final class LibraryItemsViewModel {
     /// Remembered per library, so it also applies to the library's genre and
     /// collection grids.
     private(set) var showsUnwatchedOnly: Bool
+    /// Whether the library has collections to browse (and has not switched
+    /// them off), which is what puts the Collections chip on the screen.
+    private(set) var hasCollections = false
 
     /// The first page is small so it lands fast; later pages are larger
     /// because on a big library every page costs the server a section-wide
@@ -126,6 +129,11 @@ final class LibraryItemsViewModel {
     private let localScanPageSize = 200
     private let maxLocalScanPagesPerLoad = 10
     private var hasLoadedBrowseOptions = false
+    private var hasLoadedCollectionInfo = false
+    /// The library's Collections setting, read before the first page: with
+    /// "Hide items which are in collections" Plex folds a collection's titles
+    /// into the collection itself, but only when asked to.
+    private var collectionMode: PlexLibraryCollectionMode?
     /// The genre filter values the server offered. A selected genre that is
     /// one of them is filtered by Plex; anything else is matched locally.
     private var serverGenreValues: Set<String> = []
@@ -158,6 +166,12 @@ final class LibraryItemsViewModel {
         library.libraryType == .video
     }
 
+    /// Movie and TV libraries have Plex collections; a video library's
+    /// collections are its channels, already browsed through their own rows.
+    private var supportsCollections: Bool {
+        collection == nil && (library.libraryType == .movie || library.libraryType == .show)
+    }
+
     var availableSortOptions: [LibrarySortOption] {
         LibrarySortOption.options(for: library.libraryType)
     }
@@ -175,7 +189,7 @@ final class LibraryItemsViewModel {
     }
 
     var showsBrowseControls: Bool {
-        !items.isEmpty || selectedGenre != .all || showsUnwatchedOnly || availableGenres.count > 1
+        !items.isEmpty || selectedGenre != .all || showsUnwatchedOnly || availableGenres.count > 1 || hasCollections
     }
 
     var emptyStateSystemImage: String {
@@ -227,6 +241,7 @@ final class LibraryItemsViewModel {
         let generation = beginNewQuery()
         isLoading = true
         error = nil
+        await loadCollectionInfoIfNeeded()
 
         do {
             let page = try await fetchItems(start: 0, query: currentQuery)
@@ -350,12 +365,38 @@ final class LibraryItemsViewModel {
     /// The query's filters Plex applies; the genre is left out when it is
     /// matched locally instead.
     private func serverFilters(for query: LibraryItemsQuery, includingGenre: Bool) -> [String: String] {
-        LibraryUnwatchedFilter.serverFilters(
+        var filters = LibraryUnwatchedFilter.serverFilters(
             libraryType: library.libraryType,
             collectionKey: collection?.key,
             unwatchedOnly: query.unwatchedOnly,
             genreValue: includingGenre ? query.genreValue : nil
         )
+        // Only the plain browse folds titles into their collections, like
+        // Plex Web: a filtered grid lists the matching titles themselves.
+        if collectionMode == .hideItems, query.genreValue == nil, !query.unwatchedOnly {
+            filters["includeCollections"] = "1"
+        }
+        return filters
+    }
+
+    /// Reads the Collections setting and whether there is anything to browse.
+    /// Both reads are cheap and the setting is cached per section, so this
+    /// only costs the first open of a library a round trip.
+    private func loadCollectionInfoIfNeeded() async {
+        guard supportsCollections, !hasLoadedCollectionInfo else { return }
+
+        async let mode = plexService.collectionMode(sectionId: library.key, serverID: serverID)
+        async let firstCollection = try? plexService.getCollections(
+            sectionId: library.key,
+            size: 1,
+            serverID: serverID
+        )
+        let resolvedMode = await mode
+        collectionMode = resolvedMode
+        let page = await firstCollection
+        hasCollections = resolvedMode != .disabled && page?.items.isEmpty == false
+        // A read cut short by a cancelled task is retried on the next load.
+        hasLoadedCollectionInfo = !Task.isCancelled
     }
 
     private func fetchServerFilteredItems(start: Int, query: LibraryItemsQuery) async throws -> LibraryItemsPage {

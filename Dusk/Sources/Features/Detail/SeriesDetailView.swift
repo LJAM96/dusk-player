@@ -152,6 +152,16 @@ struct SeriesDetailView: View {
                             .focusSection()
                     }
 
+                    // The show's collections, not the season's: Plex tags the show.
+                    if let show = viewModel.show?.details {
+                        DetailCollectionShelves(
+                            itemID: show.id,
+                            sectionID: show.librarySectionID,
+                            tags: show.collections,
+                            plexService: plexService
+                        )
+                    }
+
                     episodeCastSection(season)
                         .padding(.top, 8)
                         .padding(.bottom, 56)

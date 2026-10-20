@@ -76,7 +76,7 @@ enum ScreenshotMode {
     }
 
     enum Screen: String {
-        case home, movies, shows, photos, library, detail, search, player, downloads, settings, serverPriority, supporter, icons
+        case home, movies, shows, photos, library, collections, detail, search, player, downloads, settings, serverPriority, supporter, icons
     }
 
     static var screen: Screen? {
@@ -176,6 +176,13 @@ enum ScreenshotMode {
             destination.tab = .library(type)
             if let library = libraries.first(where: { $0.libraryType == type }) {
                 destination.routes = [.library(library)]
+            }
+        case .collections:
+            // `-DuskScreenshotItemType show` for the TV library's.
+            let type = itemType == .show ? PlexLibraryType.show : .movie
+            destination.tab = .library(type)
+            if let library = libraries.first(where: { $0.libraryType == type }) {
+                destination.routes = [.libraryCollections(library)]
             }
         case .detail:
             if let item {

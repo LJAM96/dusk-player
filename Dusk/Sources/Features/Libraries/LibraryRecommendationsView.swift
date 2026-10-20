@@ -205,6 +205,10 @@ struct LibraryRecommendationsView: View {
                         rediscoverSection
                     }
                 } else {
+                    ForEach(viewModel.collectionShelves) { shelf in
+                        collectionShelfSection(shelf)
+                    }
+
                     ForEach(viewModel.personalizedShelves) { shelf in
                         if !shelf.items.isEmpty {
                             personalizedShelfSection(shelf)
@@ -457,6 +461,21 @@ struct LibraryRecommendationsView: View {
                 }
             )
         }
+    }
+
+    /// Collection posters open the collection; "Show All" the library's
+    /// Collections grid.
+    private func collectionShelfSection(_ shelf: LibraryCollectionShelf) -> some View {
+        PlexItemPosterCarouselSection(
+            title: viewModel.title(for: shelf),
+            items: shelf.items,
+            horizontalPadding: DuskPosterMetrics.libraryPageHorizontalPadding,
+            showAllRoute: shelf.hasMore ? AppNavigationRoute.libraryCollections(shelf.library) : nil,
+            subtitle: { $0.collectionCountLabel },
+            posterURL: { item, width, height in
+                viewModel.posterURL(for: item, width: width, height: height)
+            }
+        )
     }
 
     private var rediscoverSection: some View {
