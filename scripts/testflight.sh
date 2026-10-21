@@ -36,6 +36,8 @@ PROJECT_SUBDIR=""          # directory with project.yml / the .xcodeproj, relati
 SCHEMES="ios:Dusk tvos:Dusk-tvOS"  # space separated <platform>:<scheme>, platform ios or tvos
 EXTERNAL_GROUPS="External" # optional comma separated external TestFlight groups: a VALID build is added to them and
                            # submitted for Beta App Review (internal groups with "all builds" get it automatically)
+                           # (external=PENDING_OTHER_BUILD_IN_REVIEW: an older build of the same version is still in
+                           # beta review, Apple allows one per version; submit this one once that review is done)
 # optional shell line run in the project dir before building ($REPO = checkout). VLCKit is not in git:
 # reuse the checkout's copy, then the Xcode Cloud post-clone step verifies it (or downloads the pinned
 # version) and makes sure the Metal toolchain is installed. Release builds must carry Dusk's VLCKit
@@ -165,6 +167,8 @@ def external(app_id, build_id, names):
     r = call("POST", "/v1/betaAppReviewSubmissions",
              {"data": {"type": "betaAppReviewSubmissions", "relationships": {"build": {"data": {"type": "builds", "id": build_id}}}}})
     if "error" in r:  # already submitted / approved is fine, report the current state instead
+        if "same train" in r["error"]:  # an older build of this version is still in Beta App Review: submit later
+            print("PENDING_OTHER_BUILD_IN_REVIEW"); return
         d = api(f"/v1/builds/{build_id}/betaAppReviewSubmission").get("data")
         print(d["attributes"]["betaReviewState"] if d else "error:submit:" + r["error"].replace(" ", "_")[:120]); return
     print(r["data"]["attributes"]["betaReviewState"])
