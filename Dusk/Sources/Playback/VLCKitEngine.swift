@@ -315,10 +315,12 @@ final class VLCKitEngine: NSObject, PlaybackEngine {
     private var currentSource: PlaybackSource?
     /// The user's subtitle size preference, pushed in by the coordinator.
     private var subtitleFontSize: SubtitleFontSize = .default
-    /// The size the currently open media was started with. VLCKit 3.x's text
-    /// renderer only reads its font size when an input attaches, so a mismatch
-    /// here means the session has to be reopened before the new size shows up.
-    private var loadedSubtitleFontSize: SubtitleFontSize?
+    /// The text style (system caption style + Dusk's size step) the currently
+    /// open media was started with. VLCKit 3.x's text renderer only reads its
+    /// options when an input attaches, so a mismatch here means the session
+    /// has to be reopened before the new style shows up.
+    private var loadedSubtitleStyle: VLCTextRendererStyle?
+    @ObservationIgnored nonisolated(unsafe) private var captionStyleObserver: NSObjectProtocol?
     /// Audio track POSITION (index among the media's audio elementary streams,
     /// what `:audio-track` takes) that was playing when an in-place reopen was
     /// started. Reopening rebuilds the input, so without this the media would
@@ -429,6 +431,16 @@ final class VLCKitEngine: NSObject, PlaybackEngine {
         renderingHost.attach(to: player, engine: self)
         configureAudioOutputPolicy()
         registerAudioSessionObserversIfNeeded()
+        captionStyleObserver = NotificationCenter.default.addObserver(
+            forName: SystemCaptionStyle.didChangeNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                guard let self, state == .playing else { return }
+                _ = reloadForSubtitleStylingIfNeeded()
+            }
+        }
 
         let audit = Self.vendoredVLCKitAudit
         if audit.isExpectedBuild {
@@ -441,6 +453,9 @@ final class VLCKitEngine: NSObject, PlaybackEngine {
     deinit {
         for observer in audioSessionObservers {
             NotificationCenter.default.removeObserver(observer)
+        }
+        if let captionStyleObserver {
+            NotificationCenter.default.removeObserver(captionStyleObserver)
         }
         loadValidationTask?.cancel()
         seekVerificationTask?.cancel()
@@ -560,8 +575,8 @@ final class VLCKitEngine: NSObject, PlaybackEngine {
             delegatingPlaybackCoordinator.coordinateRateChange(to: 1, options: [])
             return
         }
-        // A size change made while paused is applied by the reload here, which
-        // resumes playback by itself.
+        // A size or system caption style change made while paused is applied
+        // by the reload here, which resumes playback by itself.
         if reloadForSubtitleStylingIfNeeded() { return }
         playLocally()
     }
@@ -704,7 +719,7 @@ final class VLCKitEngine: NSObject, PlaybackEngine {
         playbackDiagnostics = []
         currentAttemptContext = nil
         currentSource = nil
-        loadedSubtitleFontSize = nil
+        loadedSubtitleStyle = nil
         requestedSubtitleIndex = nil
         resetExternalSubtitleAttachments()
         reopenAudioTrackPosition = nil
@@ -1575,38 +1590,51 @@ final class VLCKitEngine: NSObject, PlaybackEngine {
     /// Returns `true` when it reopened the media (which also resumes playback).
     @discardableResult
     private func reloadForSubtitleStylingIfNeeded() -> Bool {
-        guard let loadedSubtitleFontSize, loadedSubtitleFontSize != subtitleFontSize else { return false }
+        guard let loadedSubtitleStyle, loadedSubtitleStyle != currentSubtitleStyle else { return false }
         guard currentSource != nil, state == .playing || state == .paused else { return false }
         // Nothing is being drawn, so there is nothing to restyle; the next
         // media load picks the new size up anyway.
         guard selectedSubtitleTrackID != nil else { return false }
         vlcKitEngineLogger.notice(
-            "VLCKit reopening media in place to apply subtitle size \(self.subtitleFontSize.rawValue, privacy: .public)"
+            "VLCKit reopening media in place to apply subtitle style (size \(self.subtitleFontSize.rawValue, privacy: .public))"
         )
         recoverFromStall()
         return true
     }
 
-    private func applySubtitleStyling(to media: VLCMedia) {
-        // Per-media `:sub-text-scale` never reaches the renderer: the vout and
-        // its text renderer hang off the media player object, not the input,
-        // so they do not inherit input-item options. VLCKit 3.x's player-level
-        // text renderer setter is not in the public headers (VLC for iOS calls
-        // it the same way); the renderer reads it when the next input attaches.
-        loadedSubtitleFontSize = subtitleFontSize
-        let relativeFontSize = PlaybackSubtitleStyle.vlcRelativeFontSize(for: subtitleFontSize)
+    private var currentSubtitleStyle: VLCTextRendererStyle {
+        VLCTextRendererStyle(caption: .current(), size: subtitleFontSize)
+    }
+
+    private func applySubtitleStyling() {
+        // Per-media `:freetype-…` options never reach the renderer: the vout
+        // and its text renderer hang off the media player object, not the
+        // input, so they do not inherit input-item options. The system caption
+        // style is set as player-level variables instead (see
+        // DuskVLCTextRenderer); the renderer reads them when the next input
+        // attaches. Size goes through VLCKit 3.x's own private setter, the way
+        // VLC for iOS calls it.
+        let style = currentSubtitleStyle
+        loadedSubtitleStyle = style
         let setter = Selector(("setTextRendererFontSize:"))
         if mediaPlayer.responds(to: setter) {
-            mediaPlayer.perform(setter, with: NSNumber(value: relativeFontSize))
+            mediaPlayer.perform(setter, with: NSNumber(value: style.relativeFontSize))
         } else {
             vlcKitEngineLogger.error("VLCKit has no setTextRendererFontSize:, subtitle size not applied")
         }
-        media.addOption(":freetype-color=#FFFFFF")
-        media.addOption(":freetype-background-color=#000000")
-        media.addOption(":freetype-background-opacity=110")
-        media.addOption(":freetype-shadow-color=#000000")
-        media.addOption(":freetype-shadow-opacity=80")
-        media.addOption(":freetype-shadow-distance=1")
+        var applied = DuskVLCTextRenderer.setString(style.font, forOption: "freetype-font", on: mediaPlayer)
+        for (option, value) in style.integers {
+            applied = DuskVLCTextRenderer.setInteger(Int64(value), forOption: option, on: mediaPlayer) && applied
+        }
+        for (option, value) in style.floats {
+            applied = DuskVLCTextRenderer.setFloat(value, forOption: option, on: mediaPlayer) && applied
+        }
+        if !applied {
+            vlcKitEngineLogger.error("VLCKit rejected part of the system subtitle style")
+        }
+        vlcKitEngineLogger.notice(
+            "VLCKit subtitle style font=\(style.font, privacy: .public) size=\(style.relativeFontSize, privacy: .public) \(style.integers.sorted { $0.key < $1.key }.map { "\($0.key.dropFirst(9))=\($0.value)" }.joined(separator: " "), privacy: .public)"
+        )
     }
 
     private func applyNetworkBufferingOptions(to media: VLCMedia, locality: PlaybackSourceLocality) {
@@ -1765,7 +1793,7 @@ final class VLCKitEngine: NSObject, PlaybackEngine {
 
         let media = VLCMedia(url: source.url)
 
-        applySubtitleStyling(to: media)
+        applySubtitleStyling()
         applyNetworkBufferingOptions(to: media, locality: source.locality)
         // An in-place reopen restores what was playing; a fresh load uses the
         // automatic preselect computed from Plex metadata.

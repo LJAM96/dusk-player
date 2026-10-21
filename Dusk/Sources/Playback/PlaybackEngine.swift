@@ -330,15 +330,17 @@ enum PlaybackSubtitleStyle {
         }
     }
 
-    static func avPlayerRelativeFontSize(for size: SubtitleFontSize) -> Int {
-        Int((Float(baseAVPlayerRelativeFontSize) * size.scale).rounded())
+    /// `systemScale` is the Accessibility caption text size
+    /// (`SystemCaptionStyle.relativeSize`); Dusk's step multiplies onto it.
+    static func avPlayerRelativeFontSize(for size: SubtitleFontSize, systemScale: Double = 1) -> Int {
+        Int((Float(baseAVPlayerRelativeFontSize) * size.scale * Float(systemScale)).rounded())
     }
 
     /// libvlc's `freetype-rel-fontsize`: the font height is the video height
     /// divided by this value, so a smaller number draws larger text. 16 is
     /// libvlc's default and maps to 100%.
-    static func vlcRelativeFontSize(for size: SubtitleFontSize) -> Int {
-        let scale = Float(avPlayerRelativeFontSize(for: size)) / 100
+    static func vlcRelativeFontSize(for size: SubtitleFontSize, systemScale: Double = 1) -> Int {
+        let scale = Float(avPlayerRelativeFontSize(for: size, systemScale: systemScale)) / 100
         return max(1, Int((16 / scale).rounded()))
     }
 

@@ -98,6 +98,7 @@ final class AVPlayerEngine: NSObject, PlaybackEngine {
     @ObservationIgnored nonisolated(unsafe) private var playbackEndedObserver: NSObjectProtocol?
     @ObservationIgnored nonisolated(unsafe) private var playbackStalledObserver: NSObjectProtocol?
     @ObservationIgnored nonisolated(unsafe) private var subtitleSelectionObserver: NSObjectProtocol?
+    @ObservationIgnored nonisolated(unsafe) private var captionStyleObserver: NSObjectProtocol?
     #if os(iOS)
     @ObservationIgnored nonisolated(unsafe) private var externalPlaybackObserver: NSKeyValueObservation?
     #endif
@@ -149,6 +150,18 @@ final class AVPlayerEngine: NSObject, PlaybackEngine {
         }
         #endif
         setupKVOObservers()
+        // The renderer restyles live; only the folded-in system text size has
+        // to be refreshed here.
+        captionStyleObserver = NotificationCenter.default.addObserver(
+            forName: SystemCaptionStyle.didChangeNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                player.currentItem?.textStyleRules = subtitleTextStyleRules
+            }
+        }
         #if os(iOS)
         refreshPictureInPictureController()
         #endif
@@ -180,6 +193,9 @@ final class AVPlayerEngine: NSObject, PlaybackEngine {
         }
         if let subtitleSelectionObserver {
             NotificationCenter.default.removeObserver(subtitleSelectionObserver)
+        }
+        if let captionStyleObserver {
+            NotificationCenter.default.removeObserver(captionStyleObserver)
         }
     }
 
@@ -992,13 +1008,17 @@ final class AVPlayerEngine: NSObject, PlaybackEngine {
         player.currentItem?.textStyleRules = subtitleTextStyleRules
     }
 
+    /// Size only: colours, background, edge and font come from the system
+    /// caption style (`SystemCaptionStyle`), which AVPlayer's renderer applies
+    /// by itself for every attribute these rules leave alone. A size rule
+    /// replaces the system's text size, so that is folded back in here.
     private var subtitleTextStyleRules: [AVTextStyleRule] {
         let attributes: [String: Any] = [
-            kCMTextMarkupAttribute_ForegroundColorARGB as String: [1.0, 1.0, 1.0, 1.0],
-            kCMTextMarkupAttribute_CharacterBackgroundColorARGB as String: [0.68, 0.0, 0.0, 0.0],
-            kCMTextMarkupAttribute_CharacterEdgeStyle as String: kCMTextMarkupCharacterEdgeStyle_DropShadow,
             kCMTextMarkupAttribute_RelativeFontSize as String:
-                PlaybackSubtitleStyle.avPlayerRelativeFontSize(for: subtitleFontSize),
+                PlaybackSubtitleStyle.avPlayerRelativeFontSize(
+                    for: subtitleFontSize,
+                    systemScale: SystemCaptionStyle.current().relativeSize
+                ),
         ]
 
         guard let rule = AVTextStyleRule(textMarkupAttributes: attributes) else {

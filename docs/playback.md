@@ -1073,10 +1073,11 @@ so the whole live HUD is derived from one instant.
   fetches original sidecars instead.
 - There is no Dusk text overlay. Both vendored VLC frameworks include FreeType's
   CoreText family/fallback selectors, FriBidi and HarfBuzz; libass auto-selects
-  the Apple font provider and honors embedded fonts. Keep the existing
-  Helvetica Neue default and automatic paragraph direction. AVPlayer renders
-  tx3g/WebVTT and Plex remux captions natively; its text style rules set only
-  size, colors, and shadow, leaving font fallback and direction to Apple.
+  the Apple font provider and honors embedded fonts. Helvetica Neue stays the
+  libvlc family for the system caption face, with automatic paragraph
+  direction. AVPlayer renders tx3g/WebVTT and Plex remux captions natively; its
+  text style rules set only size, leaving style, font fallback and direction
+  to Apple (see "System caption style" below).
   AirPlay/burned captions are rendered by Plex. No Latin typography changes or
   bundled replacement font are needed for encoding correction.
 - `scripts/generate-subtitle-fixtures.py <directory>` creates mixed-script
@@ -1467,7 +1468,33 @@ so the whole live HUD is derived from one instant.
   support-mode swap. It only does so when the change would be visible: with a
   subtitle selected and playing. Paused sessions defer the reopen to the next
   `play()`, and with subtitles off the new size simply rides along on the next
-  media load (`loadedSubtitleFontSize` tracks what the open media was built with).
+  media load (`loadedSubtitleStyle` tracks what the open media was built with).
+- System caption style (issue #18, no opt-out): subtitles always follow
+  Settings › Accessibility › Subtitles & Captioning › Style, read through
+  MediaAccessibility in `SystemCaptionStyle` (user domain: foreground,
+  character background or else the window, edge style, text size, font).
+  Dusk's Subtitle Size step multiplies onto the system text size.
+  - AVPlayer: `textStyleRules` carry only `RelativeFontSize` (Dusk step ×
+    system size, because a size rule replaces the system's). AVFoundation
+    applies everything else and restyles live; the engine re-sets the rule on
+    `SystemCaptionStyle.didChangeNotification`. Never put colours, edge or
+    background back into the rules: they override the user's style.
+  - VLCKit: `VLCTextRendererStyle` translates the style into libvlc
+    `freetype-*` values (colour/opacity, background, outline thickness 4 for
+    Outline, shadow angle/distance for drop shadow/raised/depressed).
+    VLCKit's own setters only cover font/size/colour/bold, so
+    `DuskVLCTextRenderer` (ObjC) creates inheritable variables on the libvlc
+    player object through libvlccore's exported `var_Create`/`var_SetChecked`.
+    A style change reuses the size-change reopen. Hidden system families
+    (`.AppleSystemUIFont…`) map to Helvetica Neue / Menlo (monospaced,
+    Classic) / Georgia (serif). Never pass an empty `freetype-font`: libvlc's
+    live style update strdup()s it and crashes.
+  - Not restylable: bitmap subtitles (PGS/VobSub), libass-styled ASS/SSA, and
+    Plex-burned subtitles.
+  - Sim verification: the simulator Settings app does not persist a style
+    pick; switch profiles from a UI-test bundle through MediaAccessibility's
+    private `MACaptionAppearanceSetActiveProfileID` (IDs from
+    `MACaptionAppearanceCopyProfileIDs`, e.g. `MACaptionProfile-Classic`).
 - Any in-place reopen rebuilds the input, so the audio choice would otherwise
   fall back to the automatic `:audio-track` preselect. `recoverFromStall`
   captures the playing audio ES position first (`currentAudioTrackPosition`,
@@ -2235,8 +2262,9 @@ Plex clients do. There is no app setting: the server decides.
   `PlayerViewModel+TrackSelection`, and
   `refreshSubtitleStreamsAfterDownload`/`switchToVLCKitForExternalSubtitle` in
   `PlaybackCoordinator+Session.swift`.
-- Subtitle size: `SubtitleFontSize` + `PlaybackSubtitleStyle` in
-  `Playback/PlaybackEngine.swift`, `applySubtitleFontSize` in both engines,
+- Subtitle size and style: `SubtitleFontSize` + `PlaybackSubtitleStyle` in
+  `Playback/PlaybackEngine.swift`, `Playback/SystemCaptionStyle.swift`,
+  `Playback/DuskVLCTextRenderer.*`, `applySubtitleFontSize` in both engines,
   `UserPreferences.subtitleFontSize`, both settings views, and
   `PlayerViewModel.selectSubtitleFontSize` with the pickers in
   `PlayerControlsSharedViews`/`PlayerView`.

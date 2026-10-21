@@ -3,7 +3,7 @@ import SwiftUI
 enum SettingsSupport {
     static let playbackDefaultsFooterText = "Choose preferred stream quality. Audio & Subtitles sets the languages Dusk plays and when subtitles turn on. AI Upscaling sharpens lower-resolution video when the source benefits from it, but can increase power usage."
     static let audioLanguageFooterText = "Dusk plays audio in this language when a title has it. Original keeps each title’s own audio."
-    static let subtitlesFooterText = "Auto turns subtitles on when the audio isn’t in your subtitle language, and otherwise shows only forced subtitles, which translate foreign dialogue and signs. Off shows only forced subtitles. Size can also be changed from the player."
+    static let subtitlesFooterText = "Auto turns subtitles on when the audio isn’t in your subtitle language, and otherwise shows only forced subtitles, which translate foreign dialogue and signs. Off shows only forced subtitles. Subtitles use the style set in Accessibility › Subtitles & Captioning in the system Settings; Size scales it and can also be changed from the player."
     static let subtitlesAdvancedFooterText = "Turn off Forced Subtitles to see subtitles only when Auto or Always calls for them, or when you pick a track. Until you change them here, these settings follow the language settings of your Plex account. A track you pick in the player is remembered for that show and wins over them."
 
     #if os(tvOS)
