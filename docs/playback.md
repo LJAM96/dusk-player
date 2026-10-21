@@ -1630,7 +1630,8 @@ so the whole live HUD is derived from one instant.
     plain text cues would lose native positioning/styling and bitmap support.
   - `VideoEnhancementSubtitleTests` covers metadata-only tracks, the preference,
     engine-specific selection eligibility, HDR/fps reason precedence, tvOS SDR
-    routing with HDR/DV/HLG/unknown-range exclusions, and handoff continuity.
+    routing with HDR/DV/HLG/unknown-range exclusions, 10-bit H.264 (Hi10P)
+    staying on VLCKit without that handoff, and handoff continuity.
 - AVPlayer attaches an `AVPlayerItemVideoOutput` and, from a display link,
   pulls the time-current pixel buffer (`itemTime(forHostTime:)` +
   `hasNewPixelBuffer`) into `VideoEnhancementRenderer.submit`. This path paces
@@ -2290,6 +2291,8 @@ Plex clients do. There is no app setting: the server decides.
   `Playback/DolbyVision7/`, RPU conversion in `Native/DuskDovi` (Rust,
   libdovi) behind `DoviBridge.swift` (tests:
   `DuskTests/DolbyVision7*Tests.swift`, `DuskTests/DoviBridgeTests.swift`).
+  The proxy tests that accept loopback connections skip on the iOS Simulator,
+  where the simulator resets them, and run on device.
 - Session orchestration: `PlaybackCoordinator+Session.swift`; timeline:
   `PlaybackCoordinator+Timeline.swift`; Up Next: `PlaybackCoordinator+UpNext.swift`.
 - Cinema pre-rolls: `PlexService+PlayQueue.swift`, `PlaybackCoordinator+Prerolls.swift`,

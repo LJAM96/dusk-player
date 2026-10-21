@@ -31,7 +31,10 @@ struct DoviBridgeTests {
         #expect(throws: DolbyVision7ConversionError.rpuParse) {
             try DoviBridge.convertRPUNAL(Data([0x7C, 0x01, 0x19, 0x08, 0x09, 0x00, 0x01]))
         }
-        #expect(throws: DolbyVision7ConversionError.invalidArgument) {
+        // Swift 6.4 gives empty `Data` a non-nil base address and length 0.
+        // The C API returns `.invalidArgument` only for a null pointer; a
+        // buffer shorter than a NAL header is a parse error.
+        #expect(throws: DolbyVision7ConversionError.rpuParse) {
             try DoviBridge.convertRPUNAL(Data())
         }
     }

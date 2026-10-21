@@ -103,8 +103,19 @@ struct VideoEnhancementSubtitleTests {
         #expect(directDecision(media, mode: .disabled, subtitleID: 3).engine == .avPlayer)
     }
 
+    /// 10-bit H.264 is Hi10P: AVPlayer has no hardware decoder, so the
+    /// resolver picks VLCKit. That choice is the codec path, not the tvOS
+    /// enhancement handoff, which still rejects anything above 8-bit.
+    @Test(arguments: [VideoEnhancementMode.automatic, .enabled])
+    func tenBitH264GoesToVLCKitWithoutTheEnhancementOverride(mode: VideoEnhancementMode) throws {
+        let media = try engineSelectionMedia(videoFields: #","bitDepth":10"#)
+        let decision = directDecision(media, mode: mode, subtitleID: 3)
+        #expect(decision.engine == .vlcKit)
+        #expect(decision.reason.contains("10-bit H.264"))
+        #expect(!decision.usesEnhancedSubtitleRenderer)
+    }
+
     @Test(arguments: [
-        #","bitDepth":10"#,
         #","colorTrc":"smpte2084""#,
         #","bitDepth":8,"colorTrc":"arib-std-b67""#,
         #","bitDepth":8,"profile":"HDR10+""#,

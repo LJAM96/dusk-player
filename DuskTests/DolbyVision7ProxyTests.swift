@@ -184,11 +184,18 @@ private final class StubUpstreamProtocol: URLProtocol, @unchecked Sendable {
 /// init and fragment rewriting are the real `DolbyVision7PlaylistRewriter`,
 /// `DolbyVision7InitRewriter` and `FMP4FragmentRewriter`; only the server and
 /// the per-sample RPU conversion are faked.
+///
+/// Tests that accept connections on that listener are skipped on the
+/// simulator. The listener reaches `.ready`, then the simulator resets every
+/// inbound connection (`SO_NECP_LISTENUUID` fails, URLSession reports
+/// NSURLError -1005) and `openConnectionCount` stays 0. Preflight tests only
+/// talk to the fake upstream and still run here. Device runs keep the rest.
 @Suite("Dolby Vision 7 proxy", .serialized)
 struct DolbyVision7ProxyTests {
     private static let masterURL = URL(string: "http://plex.test:32400/video/:/transcode/universal/start.m3u8?X-Plex-Token=secret")!
 
-    @Test func servesConvertedPlaylistsInitAndSegments() async throws {
+    @Test(.requiresDeviceLoopbackListener)
+    func servesConvertedPlaylistsInitAndSegments() async throws {
         let upstream = ProxyFakeUpstream()
         let proxy = try makeProxy(upstream: upstream, rpusPerSample: 1)
         let masterURL = try await proxy.start()
@@ -233,7 +240,8 @@ struct DolbyVision7ProxyTests {
         #expect(upstream.byteLimits(ofPathSuffix: "00000.m4s").allSatisfy { $0 == DolbyVision7HLSProxy.maximumMediaSegmentBytes })
     }
 
-    @Test func refusesWrongTokenAndForeignOrigin() async throws {
+    @Test(.requiresDeviceLoopbackListener)
+    func refusesWrongTokenAndForeignOrigin() async throws {
         let proxy = try makeProxy(upstream: ProxyFakeUpstream(), rpusPerSample: 1)
         let masterURL = try await proxy.start()
         defer { proxy.stop() }
@@ -247,7 +255,8 @@ struct DolbyVision7ProxyTests {
         #expect(try await get(relay).status == 403)
     }
 
-    @Test func segmentWithoutRPUsIsFatal() async throws {
+    @Test(.requiresDeviceLoopbackListener)
+    func segmentWithoutRPUsIsFatal() async throws {
         let recorder = ProxyFatalErrorRecorder()
         let proxy = try makeProxy(upstream: ProxyFakeUpstream(), rpusPerSample: 0)
         proxy.onFatalError = { recorder.record($0) }
@@ -266,7 +275,8 @@ struct DolbyVision7ProxyTests {
 
     /// Too large for the proxy to buffer: the unconverted remux, which
     /// AVPlayer streams from the server itself, takes over.
-    @Test func oversizedVideoSegmentIsFatal() async throws {
+    @Test(.requiresDeviceLoopbackListener)
+    func oversizedVideoSegmentIsFatal() async throws {
         let recorder = ProxyFatalErrorRecorder()
         let upstream = ProxyFakeUpstream(failures: ["00000.m4s": .tooLarge(limit: DolbyVision7HLSProxy.maximumMediaSegmentBytes)])
         let proxy = try makeProxy(upstream: upstream, rpusPerSample: 1)
@@ -280,7 +290,8 @@ struct DolbyVision7ProxyTests {
 
     /// A subtitle playlist is not video: a refused redirect only fails its
     /// own request.
-    @Test func offOriginRedirectOfARenditionIsNotFatal() async throws {
+    @Test(.requiresDeviceLoopbackListener)
+    func offOriginRedirectOfARenditionIsNotFatal() async throws {
         let recorder = ProxyFatalErrorRecorder()
         let upstream = ProxyFakeUpstream(
             masterPlaylist: ProxyFakeUpstream.masterPlaylistWithSubtitles,
@@ -302,7 +313,8 @@ struct DolbyVision7ProxyTests {
 
     /// A seek hangs up on a segment mid-conversion: the conversion stops,
     /// and its result (here: no RPUs, fatal if checked) is never judged.
-    @Test func abandonedSegmentIsCancelledAndNotFatal() async throws {
+    @Test(.requiresDeviceLoopbackListener)
+    func abandonedSegmentIsCancelledAndNotFatal() async throws {
         let recorder = ProxyFatalErrorRecorder()
         let sampleRewriter = ProxyBlockingSampleRewriter()
         let proxy = try makeProxy(upstream: ProxyFakeUpstream(), sampleRewriter: sampleRewriter)
@@ -319,7 +331,8 @@ struct DolbyVision7ProxyTests {
         #expect(recorder.errors.isEmpty)
     }
 
-    @Test func connectionWithoutARequestHeadTimesOut() async throws {
+    @Test(.requiresDeviceLoopbackListener)
+    func connectionWithoutARequestHeadTimesOut() async throws {
         let proxy = try makeProxy(upstream: ProxyFakeUpstream(), rpusPerSample: 1, requestHeadTimeout: 0.5)
         let masterURL = try await proxy.start()
         defer { proxy.stop() }
@@ -330,7 +343,8 @@ struct DolbyVision7ProxyTests {
         #expect(await waitUntil { proxy.openConnectionCount == 0 })
     }
 
-    @Test func connectionsWithoutARequestHeadAreCappedAndTheOldestEvicted() async throws {
+    @Test(.requiresDeviceLoopbackListener)
+    func connectionsWithoutARequestHeadAreCappedAndTheOldestEvicted() async throws {
         let proxy = try makeProxy(upstream: ProxyFakeUpstream(), rpusPerSample: 1)
         let masterURL = try await proxy.start()
         defer { proxy.stop() }
@@ -373,7 +387,8 @@ struct DolbyVision7ProxyTests {
         }
     }
 
-    @Test func subtitleRenditionStaysOnTheServer() async throws {
+    @Test(.requiresDeviceLoopbackListener)
+    func subtitleRenditionStaysOnTheServer() async throws {
         let proxy = try makeProxy(
             upstream: ProxyFakeUpstream(masterPlaylist: ProxyFakeUpstream.masterPlaylistWithSubtitles),
             rpusPerSample: 1
@@ -394,7 +409,8 @@ struct DolbyVision7ProxyTests {
             == "http://plex.test:32400/video/:/transcode/universal/session/abc/subs/sub0.vtt")
     }
 
-    @Test func concurrentFirstInitRequestsShareOneFetch() async throws {
+    @Test(.requiresDeviceLoopbackListener)
+    func concurrentFirstInitRequestsShareOneFetch() async throws {
         let upstream = ProxyFakeUpstream(mediaPlaylist: ProxyFakeUpstream.twoMapMediaPlaylist, slowPathComponent: "header2")
         let proxy = try makeProxy(upstream: upstream, rpusPerSample: 1)
         let masterURL = try await proxy.start()
@@ -813,4 +829,25 @@ private func proxyDolbyVision7Media(codec: String = "hevc", profile: Int, compat
     }
     """
     return try JSONDecoder().decode(PlexMedia.self, from: Data(json.utf8))
+}
+
+/// True when this test bundle is running in the iOS or tvOS Simulator.
+/// Inbound `NWListener` connections there are reset before the proxy accepts
+/// them (`SO_NECP_LISTENUUID` fails, URLSession reports NSURLError -1005).
+private var loopbackListenerIsResetBySimulator: Bool {
+    #if targetEnvironment(simulator)
+    true
+    #else
+    false
+    #endif
+}
+
+private extension Trait where Self == ConditionTrait {
+    /// Skip message, same role as `XCTSkip`: the test stays enabled on device.
+    static var requiresDeviceLoopbackListener: Self {
+        .disabled(
+            if: loopbackListenerIsResetBySimulator,
+            "Skipped on the iOS Simulator: NWListener loopback connections are reset (SO_NECP_LISTENUUID failed, NSURLError -1005). This test runs on device."
+        )
+    }
 }

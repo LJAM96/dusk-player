@@ -158,7 +158,9 @@ struct DolbyVision7PlaylistTests {
         #expect(target.convertedFromProfile == 7)
         #expect(target.supplementalCodecString == "dvh1.08.06/db1p")
         #expect(target.displayName == "Dolby Vision 8.1 (from profile 7)")
-        #expect(target.lumaPictureSize == 3840 * 2160)
+        // `lumaPictureSize` is `Double?`. Comparing it with the `Int`
+        // `3840 * 2160` is false under Swift Testing even when both are 8294400.
+        #expect(target.lumaPictureSize == Double?(Double(3840 * 2160)))
         #expect(target.bitrateKbps == 20_000)
     }
 
