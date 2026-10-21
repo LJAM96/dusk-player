@@ -12,7 +12,7 @@
 # Platforms run in parallel, each in its own DerivedData, so their App Store Connect processing
 # waits overlap. Progress lines are prefixed `[testflight <platform>]`; the result lines come at
 # the end, one per platform, OKs first, so the last line of output is always one of:
-#   TESTFLIGHT OK platform=<p> build=<n> state=VALID id=<build id> commit=<sha>
+#   TESTFLIGHT OK platform=<p> build=<n> state=VALID id=<build id> commit=<sha> [external=<beta review state|error>]
 #   TESTFLIGHT FAIL platform=<p> code=<n> reason=<text> log=<dir>
 # Exit codes: 0 ok · 1 unexpected · 2 usage · 3 signing (profile missing / expired / invalid,
 # capability mismatch) · 4 archive (compile) · 5 export/upload · 6 processing INVALID ·
@@ -34,6 +34,8 @@ set -uo pipefail
 # --- per-repo config ---------------------------------------------------------------------
 PROJECT_SUBDIR=""          # directory with project.yml / the .xcodeproj, relative to the repo root
 SCHEMES="ios:Dusk tvos:Dusk-tvOS"  # space separated <platform>:<scheme>, platform ios or tvos
+EXTERNAL_GROUPS="External" # optional comma separated external TestFlight groups: a VALID build is added to them and
+                           # submitted for Beta App Review (internal groups with "all builds" get it automatically)
 # optional shell line run in the project dir before building ($REPO = checkout). VLCKit is not in git:
 # reuse the checkout's copy, then the Xcode Cloud post-clone step verifies it (or downloads the pinned
 # version) and makes sure the Metal toolchain is installed. Release builds must carry Dusk's VLCKit
@@ -141,6 +143,32 @@ def api(path):
             time.sleep(5)
     print(f"ASC API {path.split('?')[0]}: {last}"); sys.exit(10)
 
+def call(method, path, body):
+    req = urllib.request.Request("https://api.appstoreconnect.apple.com" + path, method=method, data=json.dumps(body).encode(),
+                                 headers={"Authorization": "Bearer " + jwt(), "Content-Type": "application/json"})
+    try:
+        with urllib.request.urlopen(req, timeout=60) as r: return json.loads(r.read() or b"{}")
+    except urllib.error.HTTPError as e:
+        try: err = json.load(e)["errors"][0]; msg = err.get("detail") or err.get("title")
+        except Exception: msg = str(e)
+        return {"error": f"{e.code} {msg}"}
+
+def external(app_id, build_id, names):
+    groups = {g["attributes"]["name"]: g["id"] for g in api(f"/v1/apps/{app_id}/betaGroups?limit=200")["data"]
+              if not g["attributes"]["isInternalGroup"]}
+    missing = [n for n in names.split(",") if n.strip() and n.strip() not in groups]
+    if missing: print("error:no-group-" + "+".join(m.strip().replace(" ", "_") for m in missing)); return
+    for n in names.split(","):
+        if not n.strip(): continue
+        r = call("POST", f"/v1/betaGroups/{groups[n.strip()]}/relationships/builds", {"data": [{"type": "builds", "id": build_id}]})
+        if "error" in r: print("error:add-group:" + r["error"].replace(" ", "_")[:120]); return
+    r = call("POST", "/v1/betaAppReviewSubmissions",
+             {"data": {"type": "betaAppReviewSubmissions", "relationships": {"build": {"data": {"type": "builds", "id": build_id}}}}})
+    if "error" in r:  # already submitted / approved is fine, report the current state instead
+        d = api(f"/v1/builds/{build_id}/betaAppReviewSubmission").get("data")
+        print(d["attributes"]["betaReviewState"] if d else "error:submit:" + r["error"].replace(" ", "_")[:120]); return
+    print(r["data"]["attributes"]["betaReviewState"])
+
 def out(code, msg): print(msg); sys.exit(code)
 
 def expand(s, env):
@@ -209,6 +237,7 @@ def latest(app_id, platform):
 if __name__ == "__main__":
     if sys.argv[1] == "plan": plan(*sys.argv[2:5])
     elif sys.argv[1] == "latest": latest(*sys.argv[2:4])
+    elif sys.argv[1] == "external": external(*sys.argv[2:5])
 PY
 TF="python3 -I $WORK/tf.py"
 
@@ -262,7 +291,13 @@ build_one() {  # <platform> <scheme>, run as a background job with RESULT set
     read -r id num state <<<"$($TF latest "$app_id" "$PLAT")"
     if [ "$id" != "$prev" ] && [ "$id" != "-" ]; then
       case "$state" in
-        VALID) ok "build=$num state=VALID id=$id commit=${SHA:0:7}"; return ;;
+        VALID)
+          local ext=""
+          if [ -n "$EXTERNAL_GROUPS" ]; then
+            say "build $num VALID, adding to external groups ($EXTERNAL_GROUPS) + Beta App Review ..."
+            ext=" external=$($TF external "$app_id" "$id" "$EXTERNAL_GROUPS" 2>&1 | tail -1 | tr ' ' '_')"
+          fi
+          ok "build=$num state=VALID id=$id commit=${SHA:0:7}$ext"; return ;;
         INVALID|FAILED) fail 6 "build $num is $state (App Store Connect mails the details)" ;;
       esac
     fi
