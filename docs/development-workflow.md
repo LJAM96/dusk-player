@@ -289,7 +289,11 @@ with `-DuskScreenshotScreen photos`. Movies and TV Shows carry eight Plex collec
 to page); `--collection-mode 0|1|2` sets the sections' Collections pref, and
 `-DuskScreenshotScreen collections` (plus `-DuskScreenshotItemType show`) opens a
 library's Collections grid, `detail` with `-DuskScreenshotItemType collection
--DuskScreenshotItem 800000` a collection. Shows have no seasons there. Clip playback cannot be exercised there (no media
+-DuskScreenshotItem 800000` a collection. Movies whose rating key is divisible by 4
+have 2-5 local extras (`/library/metadata/{rk}/extras`, extra keys from 700000), and
+the first show (rk 1001 + `--movies`, 61001 by default) is the only one with seasons: 2 x 4
+episodes from rk 750001, with extras on the show, Season 1 (750001) and S1E1 (750002).
+The other shows have no seasons. Clip playback cannot be exercised there (no media
 files). Its costs are a model, not a real server: compare
 builds against each other, not against absolute numbers.
 

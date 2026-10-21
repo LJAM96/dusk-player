@@ -840,6 +840,14 @@ in Dusk. Read this with `docs/codebase-map.md`, `STYLE.md`, and `docs/data-and-p
   actions, expandable summaries, season/episode grids, and cast shelves should move
   vertically to the next visible row instead of letting the focus engine skip to a
   lower but more horizontally aligned item.
+- `DetailExtrasShelf` is the 16:9 "Extras" row (local trailers, featurettes, deleted
+  scenes, …; card subtitle "Trailer · 2 min"). It loads `getExtras` itself, renders
+  nothing when the title has none (or the server is unreachable), and selecting a card
+  plays the clip directly. Placement: movie and iOS episode pages above Cast, iOS show
+  under Seasons, iOS season under Episodes; tvOS `SeriesDetailView` shows
+  "<Season> Extras" and the show's "Extras" under the season summary, and "Episode
+  Extras" for the focused episode above Episode Cast (400 ms load delay so zapping the
+  episode row does not fetch every card).
 - Detail screens use hidden inline navigation bars over hero artwork. Keep
   `.toolbarColorScheme(.dark, for: .navigationBar)` and hidden toolbar backgrounds unless
   the screen is no longer hero-led.

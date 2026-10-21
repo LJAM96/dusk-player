@@ -104,6 +104,13 @@ struct SeasonDetailView: View {
                             .padding(.horizontal, horizontalPadding)
                             .padding(.top, 40)
                             .padding(.bottom, 56)
+
+                        DetailExtrasShelf(
+                            itemID: details.id,
+                            ownerTitle: viewModel.showTitle ?? details.title,
+                            topPadding: 0,
+                            bottomPadding: 56
+                        )
                     }
                     .padding(.top, -geometry.safeAreaInsets.top)
                     .frame(width: geometry.size.width, alignment: .topLeading)

@@ -93,6 +93,8 @@ struct ShowDetailView: View {
                     seasonsSection(width: geometry.size.width)
                         .padding(.top, 40)
 
+                    DetailExtrasShelf(itemID: details.id, ownerTitle: details.title)
+
                     DetailCollectionShelves(
                         itemID: details.id,
                         sectionID: details.librarySectionID,

@@ -156,7 +156,8 @@ Libraries:
   channel filter). Plex collections of movie/TV libraries are
   `LibraryCollectionsView`/`LibraryCollectionsViewModel` (paged grid) and
   `Detail/CollectionDetailView` + model; `DetailCollectionShelves` is the "Part of"
-  row on movie/show detail pages; `Shared/PlexItemPager` pages plain listings.
+  row on movie/show detail pages, `DetailExtrasShelf` the "Extras" row on movie/show/
+  season/episode pages; `Shared/PlexItemPager` pages plain listings.
 - Photo libraries live in `Features/Photos`: `PhotoBrowserViewModel` (paged
   albums/timeline queries over `PlexService+Photos`, `PlexPhotoItem`),
   `PhotoBrowserView` (grid, also the album route) and `PhotoViewerView` (full-screen

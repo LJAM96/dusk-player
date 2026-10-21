@@ -310,6 +310,22 @@ Plex collections (`PlexService+Collections.swift`, movie and TV libraries):
   the titles themselves. Per-collection display modes are not read.
 - Search still sends `includeCollections=0`.
 
+Extras (`PlexService+Extras.swift`, `Models/PlexExtra.swift`):
+- `getExtras(ratingKey:)` -> `/library/metadata/{rk}/extras` for a movie, show,
+  season, or episode. Rows are `type: "clip"` items with a numeric `extraType`
+  (1 trailer, 2 deleted scene, 3 interview, 4 music video, 5 behind the scenes,
+  6 scene/sample, 7 live music video, 8 lyric video, 9 concert, 10 featurette,
+  11 short, 12 other) and the same kind as a camelCase `subtype`; `PlexExtraType`
+  takes the number (int or string) and falls back to the subtype. The payload is
+  decoded twice (`PlexItem` + `PlexExtraFields`) and paired by rating key, so
+  `PlexItem` carries no extra-only fields; non-clip rows are dropped.
+- Each extra has its own rating key and plays like any clip (`PlaybackCoordinator.play`),
+  so pre-rolls (movies only), Up Next and adjacent-episode controls never apply. Its
+  content key is instance-only (guid-less clips never merge across servers), so an
+  extra always plays from the server whose page listed it.
+- Not confirmed against a real PMS: whether `/extras` pages or also lists Plex's
+  online (non-local) trailers; whatever the server returns is shown.
+
 Hubs and search:
 - `getHubs()` -> `/hubs`.
 - `PlexHub.librarySectionID` decodes int-or-string; `resolvedLibrarySectionID`

@@ -90,6 +90,12 @@ struct EpisodeDetailView: View {
                             .padding(.top, 24)
                     }
 
+                    DetailExtrasShelf(
+                        itemID: details.id,
+                        ownerTitle: details.grandparentTitle ?? details.title,
+                        topPadding: 24
+                    )
+
                     if let roles = details.roles, !roles.isEmpty {
                         DetailCastSection(
                             roles: roles,

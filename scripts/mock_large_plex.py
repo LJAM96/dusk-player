@@ -30,6 +30,12 @@ answering the type=14 / type=13,12 / parent= / clusterZoomLevel=1 queries the
 app sends. Images come from /photo/:/transcode as generated plasma JPEGs
 (ImageMagick, cached under --image-cache) so grids look like photos.
 
+Local extras (/library/metadata/{rk}/extras): every movie whose rating key is
+divisible by 4 has 2-5 (trailer, featurette, deleted scene, ...), and the
+first TV show gets a real season/episode tree (2 seasons x 4 episodes) with
+extras on the show, season 1 and episode S1E1. Extra rating keys start at
+700000 and resolve through /library/metadata/{rk} like any clip.
+
 Usage (see docs/development-workflow.md -> "Large-library reproduction"):
   python3 scripts/mock_large_plex.py [--movies 60000] [--scan-us 25] [--photos 5000]
 then launch a Debug build in DEBUG screenshot mode:
@@ -100,6 +106,97 @@ class Library:
                 self.items[rk]["viewOffset"] = 1800000
         self.genre_ids = {g: str(100 + i) for i, g in enumerate(GENRES)}
         self.build_collections(rnd)
+        self.build_series_tree()
+        self.build_extras(rnd)
+
+    # -- extras ----------------------------------------------------------------
+
+    EXTRA_KINDS = [(1, "trailer", "Trailer"), (10, "featurette", "Featurette"),
+                   (2, "deletedScene", "Deleted Scene"), (5, "behindTheScenes", "Making Of"),
+                   (3, "interview", "Cast Interview"), (11, "short", "Short Film")]
+
+    def build_series_tree(self):
+        """Seasons and episodes for the first show only; the rest stay leafless."""
+        self.tree = {}
+        self.tree_children = {}
+        shows = self.sections["2"]["rks"]
+        if not shows:
+            return
+        show = shows[0]
+        self.items[show]["leafCount"], self.items[show]["viewedLeafCount"] = 8, 0
+        rk = 750000
+        for season in (1, 2):
+            rk += 1
+            srk = str(rk)
+            self.tree[srk] = {"kind": "season", "index": season, "parent": show,
+                              "title": f"Season {season}"}
+            self.tree_children.setdefault(show, []).append(srk)
+            for episode in range(1, 5):
+                rk += 1
+                erk = str(rk)
+                self.tree[erk] = {"kind": "episode", "index": episode, "parent": srk, "show": show,
+                                  "season": season, "title": f"Episode {episode}"}
+                self.tree_children.setdefault(srk, []).append(erk)
+
+    def build_extras(self, rnd):
+        self.extras = {}
+        self.extra_items = {}
+        rk = 700000
+        owners = [m for m in self.sections["1"]["rks"] if int(m) % 4 == 0]
+        if self.sections["2"]["rks"]:
+            show = self.sections["2"]["rks"][0]
+            seasons = self.tree_children.get(show, [])
+            owners += [show] + seasons[:1] + self.tree_children.get(seasons[0], [])[:1] if seasons else [show]
+        for owner in owners:
+            kinds = self.EXTRA_KINDS[:rnd.randint(2, 5)]
+            for code, subtype, title in kinds:
+                rk += 1
+                self.extra_items[str(rk)] = {"owner": owner, "extraType": code, "subtype": subtype,
+                                             "title": title, "duration": rnd.randint(60, 1500) * 1000}
+                self.extras.setdefault(owner, []).append(str(rk))
+
+    def extra_metadata(self, rk):
+        x = self.extra_items[rk]
+        return {"ratingKey": rk, "key": f"/library/metadata/{rk}", "guid": f"local://{rk}",
+                "type": "clip", "subtype": x["subtype"], "extraType": x["extraType"],
+                "title": x["title"], "duration": x["duration"], "index": 1,
+                "thumb": f"/library/metadata/{rk}/thumb/{NOW}", "art": f"/library/metadata/{rk}/art/{NOW}",
+                "addedAt": NOW, "updatedAt": NOW,
+                "Media": [{"id": int(rk), "duration": x["duration"], "videoCodec": "h264", "audioCodec": "aac",
+                           "audioChannels": 2, "container": "mp4", "width": 1920, "height": 1080,
+                           "videoResolution": "1080",
+                           "Part": [{"id": int(rk), "key": f"/library/parts/{rk}/1/file.mp4",
+                                     "duration": x["duration"], "file": f"/data/extras/{rk}-{x['subtype']}.mp4",
+                                     "size": 50_000_000, "container": "mp4"}]}]}
+
+    def tree_metadata(self, rk):
+        t = self.tree[rk]
+        if t["kind"] == "season":
+            show = self.items[t["parent"]]
+            return {"ratingKey": rk, "key": f"/library/metadata/{rk}/children", "type": "season",
+                    "title": t["title"], "index": t["index"], "parentRatingKey": t["parent"],
+                    "parentKey": f"/library/metadata/{t['parent']}", "parentTitle": show["title"],
+                    "parentThumb": f"/library/metadata/{t['parent']}/thumb/{NOW}",
+                    "thumb": f"/library/metadata/{t['parent']}/thumb/{NOW}",
+                    "art": f"/library/metadata/{t['parent']}/art/{NOW}", "librarySectionID": 2,
+                    "summary": "A synthetic season.", "leafCount": 4, "viewedLeafCount": 0, "addedAt": NOW}
+        show_rk = t["show"]
+        show = self.items[show_rk]
+        duration = 42 * 60000
+        return {"ratingKey": rk, "key": f"/library/metadata/{rk}", "type": "episode", "title": t["title"],
+                "index": t["index"], "parentIndex": t["season"], "parentRatingKey": t["parent"],
+                "parentTitle": f"Season {t['season']}", "grandparentRatingKey": show_rk,
+                "grandparentTitle": show["title"], "grandparentKey": f"/library/metadata/{show_rk}",
+                "grandparentThumb": f"/library/metadata/{show_rk}/thumb/{NOW}",
+                "grandparentArt": f"/library/metadata/{show_rk}/art/{NOW}",
+                "thumb": f"/library/metadata/{rk}/thumb/{NOW}", "librarySectionID": 2,
+                "summary": "A synthetic episode. " * 4, "duration": duration, "addedAt": NOW,
+                "originallyAvailableAt": f"{show['year']}-0{t['season']}-0{t['index']}",
+                "Media": [{"id": int(rk), "duration": duration, "videoCodec": "h264", "audioCodec": "aac",
+                           "audioChannels": 2, "container": "mp4", "width": 1920, "height": 1080,
+                           "videoResolution": "1080",
+                           "Part": [{"id": int(rk), "key": f"/library/parts/{rk}/1/file.mp4", "duration": duration,
+                                     "file": f"/data/{rk}.mp4", "size": 1_000_000_000, "container": "mp4"}]}]}
 
     # -- collections ---------------------------------------------------------
 
@@ -171,7 +268,7 @@ class Library:
         if kind == "show":
             md["leafCount"] = it["leafCount"]
             md["viewedLeafCount"] = it["viewedLeafCount"]
-            md["childCount"] = 1
+            md["childCount"] = len(self.tree_children.get(rk, [])) or 1
         else:
             md["Media"] = [{"id": int(rk), "duration": it["duration"], "bitrate": 9000, "width": 1920,
                             "height": 1080, "videoCodec": "h264", "audioCodec": "aac", "audioChannels": 2,
@@ -468,7 +565,10 @@ class Handler(BaseHTTPRequestHandler):
             source = q.get("url", path)
             m = re.search(r"/library/(?:metadata|parts)/(\d+)", source)
             jpeg = None
-            if m and self.photos and m.group(1) in self.photos.items:
+            # With --photos the image bank also gives extras and the episode
+            # tree real-looking stills instead of grey squares.
+            if m and self.photos and (m.group(1) in self.photos.items or m.group(1) in lib.extra_items
+                                      or m.group(1) in lib.tree):
                 large = int(q.get("width", 0) or 0) > 800 or "/library/parts/" in source
                 jpeg = self.images.image(m.group(1), large)
             if jpeg:
@@ -579,6 +679,23 @@ class Handler(BaseHTTPRequestHandler):
         elif re.fullmatch(r"/hubs/home/\w+", path) or path == "/hubs/search" or path.startswith("/hubs/"):
             self.delay()
             self._json(container(Hub=[]))
+        elif m := re.fullmatch(r"/library/metadata/(\d+)/extras", path):
+            self.delay()
+            self._json(container(Metadata=[lib.extra_metadata(x) for x in lib.extras.get(m.group(1), [])]))
+        elif (m := re.fullmatch(r"/library/metadata/(\d+)(/children|/allLeaves)?", path)) \
+                and (m.group(1) in lib.tree or m.group(1) in lib.extra_items
+                     or (m.group(2) and m.group(1) in lib.tree_children)):
+            self.delay()
+            rk, sub = m.group(1), m.group(2)
+            if rk in lib.extra_items:
+                self._json(container(Metadata=[lib.extra_metadata(rk)]))
+            elif sub == "/allLeaves":
+                leaves = [e for s in lib.tree_children.get(rk, []) for e in lib.tree_children.get(s, [])]
+                self._json(container(Metadata=[lib.tree_metadata(e) for e in leaves]))
+            elif sub:
+                self._json(container(Metadata=[lib.tree_metadata(c) for c in lib.tree_children.get(rk, [])]))
+            else:
+                self._json(container(Metadata=[lib.tree_metadata(rk)]))
         elif m := re.fullmatch(r"/library/metadata/(\d+)", path):
             self.delay()
             rk = m.group(1)

@@ -106,6 +106,7 @@ struct MovieDetailView: View {
                             .padding(.horizontal, horizontalPadding)
                             .padding(.top, 24)
                     }
+                    DetailExtrasShelf(itemID: details.id, ownerTitle: details.title)
                     if let roles = details.roles, !roles.isEmpty {
                         DetailCastSection(
                             roles: roles,

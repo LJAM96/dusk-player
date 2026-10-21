@@ -152,6 +152,17 @@ struct SeriesDetailView: View {
                             .focusSection()
                     }
 
+                    DetailExtrasShelf(
+                        itemID: details.id,
+                        title: "\(details.title) Extras",
+                        ownerTitle: season.showTitle ?? details.title
+                    )
+
+                    DetailExtrasShelf(
+                        itemID: viewModel.show?.details?.id,
+                        ownerTitle: viewModel.show?.details?.title
+                    )
+
                     // The show's collections, not the season's: Plex tags the show.
                     if let show = viewModel.show?.details {
                         DetailCollectionShelves(
@@ -161,6 +172,15 @@ struct SeriesDetailView: View {
                             plexService: plexService
                         )
                     }
+
+                    // Follows the focused episode like the cast below it; the
+                    // delay keeps zapping the row from fetching every card.
+                    DetailExtrasShelf(
+                        itemID: focusedEpisode(in: season)?.id,
+                        title: "Episode Extras",
+                        ownerTitle: viewModel.show?.details?.title,
+                        loadDelay: .milliseconds(400)
+                    )
 
                     episodeCastSection(season)
                         .padding(.top, 8)
