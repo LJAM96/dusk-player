@@ -18,6 +18,8 @@ struct PlayerControlsIOSOverlay: View {
                 VStack {
                     topBar
                     Spacer()
+                    centerControls
+                    Spacer()
                     bottomBar
                 }
                 .padding(.horizontal, PlayerOverlayLayout.controlsHorizontalPadding)
@@ -105,11 +107,22 @@ struct PlayerControlsIOSOverlay: View {
         .accessibilityLabel(viewModel.aspectFillEnabled ? "Fit video to screen" : "Zoom video to fill screen")
     }
 
-    private var transportControls: some View {
+    /// Episode and skip buttons together are five circles, wider than an
+    /// iPhone held upright at the usual spacing, so the row tightens until it
+    /// fits instead of clipping.
+    private var centerControls: some View {
+        ViewThatFits(in: .horizontal) {
+            centerControlsRow(spacing: 44)
+            centerControlsRow(spacing: 24)
+            centerControlsRow(spacing: 8)
+        }
+    }
+
+    private func centerControlsRow(spacing: CGFloat) -> some View {
         let isPlaying = viewModel.state == .playing
         let isSpinnerActive = isLoadingPresentationActive
 
-        return HStack(spacing: 20) {
+        return HStack(spacing: spacing) {
             Spacer(minLength: 0)
             if showsEpisodeButtons {
                 episodeButton(.previous)
@@ -117,12 +130,24 @@ struct PlayerControlsIOSOverlay: View {
             if context.showsSkipButtons {
                 skipButton(direction: -1)
             }
+            // The center slot belongs to `PlayerView`'s shared spinner whenever
+            // that spinner is up: startup (including the VLCKit audio warmup,
+            // masked as .loading), delayed mid-play buffering, and the automatic
+            // direct-play → server-stream recovery. Stacking the button under it
+            // reads as a double control, and during startup it would render
+            // "play" while video is already moving, then flip the moment the
+            // warmup completes.
+            //
+            // The button stays mounted at zero opacity rather than being removed:
+            // a removal transition here is re-decided on every render pass, and
+            // sync republishes `currentTime` 4x/sec, so it would pop instead of
+            // fade (same trap as the HUD itself, see `PlayerSessionView`).
             Button { viewModel.togglePlayPause() } label: {
                 Image(systemName: isPlaying ? "pause.fill" : "play.fill")
-                    .font(.title3.weight(.semibold))
+                    .font(.system(size: 44))
                     .contentTransition(.symbolEffect(.replace, options: .speed(2)))
                     .foregroundStyle(.white)
-                    .frame(width: 44, height: 44)
+                    .frame(width: 72, height: 72)
                     .background(.ultraThinMaterial, in: Circle())
             }
             .accessibilityLabel(isPlaying ? "Pause" : "Play")
@@ -156,9 +181,9 @@ struct PlayerControlsIOSOverlay: View {
             playback.playAdjacentEpisode(direction, isPastCredits: viewModel.isPastCreditsMarker)
         } label: {
             Image(systemName: direction == .next ? "forward.end.fill" : "backward.end.fill")
-                .font(.title3.weight(.semibold))
+                .font(.title2.weight(.semibold))
                 .foregroundStyle(.white)
-                .frame(width: 44, height: 44)
+                .frame(width: 56, height: 56)
                 .background(.ultraThinMaterial, in: Circle())
         }
         .disabled(!isEnabled)
@@ -170,8 +195,8 @@ struct PlayerControlsIOSOverlay: View {
         } ?? "")
     }
 
-    /// Advanced playback controls. Same intervals and feedback as the
-    /// double-tap seek zones.
+    /// Advanced playback controls, sized like the episode buttons beside Play.
+    /// Same intervals and feedback as the double-tap seek zones.
     private func skipButton(direction: Int) -> some View {
         let interval = direction < 0
             ? preferences.playerDoubleTapBackwardInterval
@@ -184,9 +209,9 @@ struct PlayerControlsIOSOverlay: View {
         } label: {
             // Every `PlayerSeekInterval` (5…60 s) has a numbered symbol.
             Image(systemName: direction < 0 ? "gobackward.\(seconds)" : "goforward.\(seconds)")
-                .font(.title3.weight(.semibold))
+                .font(.title2.weight(.semibold))
                 .foregroundStyle(.white)
-                .frame(width: 44, height: 44)
+                .frame(width: 56, height: 56)
                 .background(.ultraThinMaterial, in: Circle())
         }
         .disabled(viewModel.playbackError != nil)
@@ -213,12 +238,6 @@ struct PlayerControlsIOSOverlay: View {
 
     private var bottomBar: some View {
         VStack(spacing: 4) {
-            transportControls
-                // The scrub thumbnail occupies this space above the track.
-                .opacity(viewModel.isScrubbing ? 0 : 1)
-                .allowsHitTesting(!viewModel.isScrubbing)
-                .accessibilityHidden(viewModel.isScrubbing)
-
             PlayerSeekBar(
                 viewModel: viewModel,
                 isInteractive: true,

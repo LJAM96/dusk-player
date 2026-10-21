@@ -686,9 +686,9 @@ so the whole live HUD is derived from one instant.
   cannot grow the bar it sits in or take a touch target wider than the circle.
 - `PlayerAirPlayRemoteBackground` is the phone's screen while video is on the
   receiver: a clamped, clipped, blurred wash of the item's backdrop, the poster
-  in the upper half, and a "Playing on <route>" pill in the lower half. Both
-  halves are equally flexible; the compact transport stays above the scrubber
-  at the bottom. Short layouts
+  in the half above the HUD's centered play/pause button, and a "Playing on
+  <route>" pill in the half below it. Both halves are equally flexible, so the
+  split stays on the transport button in any orientation; short layouts
   (iPhone landscape) drop the poster and title and keep the pill. **Any
   full-bleed artwork added here must keep the
   `.frame(maxWidth:.infinity, maxHeight:.infinity).clipped()` clamp**: a
@@ -1782,12 +1782,19 @@ so the whole live HUD is derived from one instant.
   coordinator can still read final time/duration before finalization.
 - iOS uses touch overlays, a gear menu for playback info, quality, and track
   selection, sheets for quality/audio/subtitle choices, and double-tap seek
-  zones when enabled. Play/pause and the optional episode buttons are compact
-  controls above the scrubber, leaving the center of the picture clear for the
-  shared loading spinner. Play/pause stays mounted at zero opacity while the
-  loading presentation is active so startup and buffering cannot shift the HUD
-  or offer a misleading transport action. The compact transport row fades out
-  during scrubbing to leave room for the thumbnail above the track.
+  zones when enabled. The HUD's center row holds the 72pt play/pause button,
+  flanked by the optional skip and episode circles (56pt); with all five on, the
+  row tightens its spacing (`ViewThatFits`) to fit an upright iPhone. The center
+  play/pause button is replaced by the shared spinner for as long as that
+  spinner is up (`PlaybackCoordinator.playerLoadingState.isVisible`): startup
+  (engine `.idle`/`.loading`, which includes the VLCKit audio warmup, also
+  covered same-frame by `PlayerViewModel.isAwaitingPlaybackStart`), mid-play
+  buffering, and automatic direct-play recovery. So the two never stack in the
+  center slot, and startup never flashes a play icon that immediately flips to
+  pause. The button stays mounted at zero opacity instead of being removed, for
+  the same reason the HUD does (see the fade note above) and so the HUD's layout
+  does not change when buffering starts. There is no transient play/pause badge
+  on pause/resume; the HUD itself stays up while paused.
 - The iOS/iPadOS controls expose a round zoom button at the top-right that
   toggles `PlayerViewModel.aspectFillEnabled` and calls
   `PlaybackEngine.setVideoFillEnabled(_:)`. Fill zooms the picture to cover the
