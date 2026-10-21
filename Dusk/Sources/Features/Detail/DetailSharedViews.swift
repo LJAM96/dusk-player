@@ -187,6 +187,8 @@ struct DetailHeroSection<Supertitle: View, Subtitle: View, Actions: View>: View 
     @Environment(\.horizontalSizeClass) private var sizeClass
 
     let backdropURL: URL?
+    /// The backdrop is an unwatched episode's own still; see `spoilerBlur`.
+    var blursBackdrop = false
     let titleArtworkURL: URL?
     let title: String
     var descriptionText: String? = nil
@@ -206,6 +208,7 @@ struct DetailHeroSection<Supertitle: View, Subtitle: View, Actions: View>: View 
 
     init(
         backdropURL: URL?,
+        blursBackdrop: Bool = false,
         titleArtworkURL: URL? = nil,
         title: String,
         descriptionText: String? = nil,
@@ -221,6 +224,7 @@ struct DetailHeroSection<Supertitle: View, Subtitle: View, Actions: View>: View 
         @ViewBuilder actions: () -> Actions
     ) {
         self.backdropURL = backdropURL
+        self.blursBackdrop = blursBackdrop
         self.titleArtworkURL = titleArtworkURL
         self.title = title
         self.descriptionText = descriptionText
@@ -279,7 +283,8 @@ struct DetailHeroSection<Supertitle: View, Subtitle: View, Actions: View>: View 
                 DetailHeroBackdrop(
                     imageURL: backdropURL,
                     height: heroHeight,
-                    keepsPreviousImageWhileLoading: keepsPreviousBackdropWhileLoading
+                    keepsPreviousImageWhileLoading: keepsPreviousBackdropWhileLoading,
+                    blursImage: blursBackdrop
                 )
 
                 DuskHeroBackdropOverlay(style: .soft)
@@ -469,6 +474,7 @@ struct DetailHeroSection<Supertitle: View, Subtitle: View, Actions: View>: View 
 extension DetailHeroSection where Supertitle == EmptyView {
     init(
         backdropURL: URL?,
+        blursBackdrop: Bool = false,
         titleArtworkURL: URL? = nil,
         title: String,
         descriptionText: String? = nil,
@@ -483,6 +489,7 @@ extension DetailHeroSection where Supertitle == EmptyView {
         @ViewBuilder actions: () -> Actions
     ) {
         self.backdropURL = backdropURL
+        self.blursBackdrop = blursBackdrop
         self.titleArtworkURL = titleArtworkURL
         self.title = title
         self.descriptionText = descriptionText

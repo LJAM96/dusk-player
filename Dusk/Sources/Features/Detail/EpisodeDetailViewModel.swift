@@ -120,6 +120,12 @@ final class EpisodeDetailViewModel {
             : "Showing saved episode metadata. This episode is not downloaded on this device."
     }
 
+    /// Whether `backdropURL` is this episode's own still while it is
+    /// unwatched; its `art` is the show's backdrop.
+    var backdropIsUnwatchedEpisodeStill: Bool {
+        details?.thumb != nil && !isWatched
+    }
+
     func backdropURL(width: Int, height: Int) -> URL? {
         let path = details?.thumb ?? details?.art
         return downloadManager?.localArtworkURL(for: path)

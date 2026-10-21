@@ -264,7 +264,8 @@ struct HomeContinueWatchingShelf: View {
                 posterURL: { item, width, height in
                     viewModel.landscapeImageURL(for: item, width: width, height: height)
                 },
-                progress: { viewModel.progress(for: $0) }
+                progress: { viewModel.progress(for: $0) },
+                isUnwatchedEpisodeImage: { $0.landscapeImageIsUnwatchedEpisodeStill }
             ) { item in
                 HomeItemContextMenu(
                     item: item,

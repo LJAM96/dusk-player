@@ -1,4 +1,5 @@
 #if os(tvOS)
+import CoreImage
 import CryptoKit
 import Foundation
 import OSLog
@@ -86,8 +87,12 @@ final class TopShelfPublisher {
             }
 
             do {
-                let data = try await plexService.imageData(for: entry.imageURL)
+                var data = try await plexService.imageData(for: entry.imageURL)
                 guard !Task.isCancelled else { return }
+                if entry.blursImage {
+                    guard let blurred = spoilerBlurred(data) else { continue }
+                    data = blurred
+                }
                 try data.write(to: fileURL, options: .atomic)
                 cached.insert(entry.imageFileName)
             } catch {
@@ -115,6 +120,21 @@ final class TopShelfPublisher {
         TVTopShelfContentProvider.topShelfContentDidChange()
     }
 
+    /// Blur Unwatched Episodes for a tile: the shelf draws plain files, so
+    /// the blur is baked into the JPEG. Same strength as the in-app blur
+    /// (`spoilerBlur`, 12 % of the short side). nil drops the tile rather
+    /// than show the still sharp.
+    private static func spoilerBlurred(_ data: Data) -> Data? {
+        guard let image = CIImage(data: data) else { return nil }
+        let radius = min(image.extent.width, image.extent.height) * 0.12
+        let blurred = image
+            .clampedToExtent()
+            .applyingGaussianBlur(sigma: radius / 2)
+            .cropped(to: image.extent)
+        guard let colorSpace = CGColorSpace(name: CGColorSpace.sRGB) else { return nil }
+        return CIContext().jpegRepresentation(of: blurred, colorSpace: colorSpace)
+    }
+
     /// One Continue Watching section, exactly as Home shows it: started items
     /// and next episodes mixed, in `ContinueWatchingMerge`'s order.
     private static func makeSnapshot(_ entries: [Entry]) -> TopShelfSnapshot {
@@ -130,6 +150,9 @@ private extension TopShelfPublisher {
         let item: TopShelfSnapshot.Item
         /// Authenticated Plex URL; only ever used by the app.
         let imageURL: URL
+        /// The image is an unwatched episode's own still and Blur Unwatched
+        /// Episodes is on.
+        let blursImage: Bool
         let signature: String
 
         var imageFileName: String { item.imageFileName }
@@ -150,7 +173,14 @@ private extension TopShelfPublisher {
 
             // Plex art paths carry a timestamp, so new artwork means a new file
             // name and tvOS never shows a stale image cached under an old URL.
+            // An unwatched episode's still only shows here when the show has
+            // no backdrop; with Blur Unwatched Episodes on it is a separate,
+            // blurred file, so toggling the setting never reuses the sharp one.
+            let blursImage = UserPreferences.storedBlursUnwatchedEpisodes
+                && item.isUnwatchedEpisode
+                && imagePath == item.thumb
             let imageKey = "\(item.serverID ?? "")|\(imagePath)|\(TopShelfPublisher.imageWidth)x\(TopShelfPublisher.imageHeight)"
+                + (blursImage ? "|blur" : "")
             let imageFileName = SHA256.hash(data: Data(imageKey.utf8))
                 .prefix(16)
                 .map { String(format: "%02x", $0) }
@@ -166,6 +196,7 @@ private extension TopShelfPublisher {
                 displayURL: displayURL
             )
             self.imageURL = imageURL
+            self.blursImage = blursImage
             self.signature = [
                 self.item.id,
                 self.item.title,

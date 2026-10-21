@@ -514,10 +514,16 @@ struct DetailHeroBackdrop: View {
     let height: CGFloat
     var imageAlignment: Alignment = .center
     var keepsPreviousImageWhileLoading = false
+    /// The image is an unwatched episode's own still; see `spoilerBlur`.
+    var blursImage = false
 
     #if canImport(UIKit)
     @State private var retainedImage: UIImage?
     @State private var retainedImageURL: URL?
+    /// `blursImage` as it was for `retainedImage`: while the next episode's
+    /// still loads, the previous one must keep its own blur, or focusing from
+    /// an unwatched episode to a watched one shows the unwatched still sharp.
+    @State private var retainedImageBlurs = false
     #endif
 
     var body: some View {
@@ -552,6 +558,9 @@ struct DetailHeroBackdrop: View {
                 switch phase {
                 case .success(let image):
                     backdropImage(image, size: size)
+                        // The hero's title block sits over the middle; the
+                        // blur alone says what happened.
+                        .spoilerBlur(blursImage, showsGlyph: false)
                 default:
                     Color.clear
                 }
@@ -564,6 +573,7 @@ struct DetailHeroBackdrop: View {
         #if canImport(UIKit)
         if let retainedImage {
             backdropImage(Image(uiImage: retainedImage), size: size)
+                .spoilerBlur(retainedImageURL == imageURL ? blursImage : retainedImageBlurs, showsGlyph: false)
                 .id(retainedImageURL)
                 .transition(.opacity)
         }
@@ -605,6 +615,7 @@ struct DetailHeroBackdrop: View {
             withAnimation(.easeInOut(duration: 0.18)) {
                 retainedImage = image
                 retainedImageURL = imageURL
+                retainedImageBlurs = blursImage
             }
         } catch {
             guard retainedImage == nil else { return }

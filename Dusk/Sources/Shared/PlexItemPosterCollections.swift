@@ -201,6 +201,8 @@ struct PlexItemActionCarouselSection<ContextMenuContent: View>: View {
     var subtitle: (PlexItem) -> String?
     var posterURL: (PlexItem, Int, Int) -> URL?
     var progress: (PlexItem) -> Double? = { _ in nil }
+    /// Whether `posterURL` hands back an unwatched episode's own still.
+    var isUnwatchedEpisodeImage: (PlexItem) -> Bool = { _ in false }
     @ViewBuilder let contextMenuContent: (PlexItem) -> ContextMenuContent
 
     var body: some View {
@@ -220,7 +222,8 @@ struct PlexItemActionCarouselSection<ContextMenuContent: View>: View {
                     progress: progress(item),
                     width: posterWidth,
                     imageAspectRatio: imageAspectRatio,
-                    showsPlayOverlay: true
+                    showsPlayOverlay: true,
+                    isUnwatchedEpisodeImage: isUnwatchedEpisodeImage(item)
                 ) {
                     contextMenuContent(item)
                 }

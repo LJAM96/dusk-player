@@ -214,6 +214,13 @@ struct SettingsTVView: View {
                         selection: $preferences.appearanceMode,
                         selectedTitle: preferences.appearanceMode.displayName
                     ) { $0.displayName }
+
+                    tvRowDivider
+
+                    TVSettingsToggleRow(
+                        title: "Blur Unwatched Episodes",
+                        isOn: $preferences.blursUnwatchedEpisodes
+                    )
                 }
 
                 TVSettingsSection(title: "Playback Advanced", footer: SettingsSupport.playbackAdvancedFooterText) {

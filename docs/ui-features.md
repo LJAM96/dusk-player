@@ -117,6 +117,22 @@ in Dusk. Read this with `docs/codebase-map.md`, `STYLE.md`, and `docs/data-and-p
   season cards and tvOS season pills). Partial progress still renders the bar
   (`DuskPosterMetrics.posterProgressBarHeight`), white on a dark track like the
   TV app, everywhere.
+- Blur Unwatched Episodes (Settings › Appearance,
+  `UserPreferences.blursUnwatchedEpisodes`, off by default, issue #15) reaches
+  views as `\.blursUnwatchedEpisodes` (set in `DuskApp`). An image that is an
+  unwatched (not fully watched, so in-progress counts) episode's **own still**
+  goes through `spoilerBlur(_:)` (`PosterCard.swift`): a local SwiftUI blur sized
+  to the frame's short side, plus a centred `eye.slash` that takes the play
+  glyph's place. Pass the flag only when the chosen path really is the episode's
+  `thumb`: show posters/backdrops inherited onto the episode are never spoilers.
+  Wired: `PosterArtwork`/`PosterActionCard` (`isUnwatchedEpisodeImage`), CW
+  shelves (`landscapeImageIsUnwatchedEpisodeStill`), iOS season rows, tvOS
+  series episode cards, detail hero backdrops (`blursBackdrop`, no glyph; the
+  retained tvOS backdrop keeps the blur of the image it holds), Up Next card and
+  overlay, and the Top Shelf fallback (blur baked into the JPEG). The local
+  blur is deliberate over Plex's transcoder: it also covers downloaded artwork
+  and never depends on a server honouring a parameter. Not covered: posters
+  (show poster first), the player's loading backdrop and scrub previews.
 - Use `PlexItemPosterCarouselSection` for horizontal shelves and
   `PlexItemPosterGrid` for grids. They already handle image sizing, context menus,
   progress, and route creation. Both take `imageAspectRatio` (default 2:3); pass

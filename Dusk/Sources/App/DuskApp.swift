@@ -135,6 +135,7 @@ struct DuskApp: App {
                 .environment(downloadManager)
                 .environment(offlinePlaybackSyncManager)
                 .environment(userPreferences)
+                .environment(\.blursUnwatchedEpisodes, userPreferences.blursUnwatchedEpisodes)
                 .environment(supporterStore)
                 .environment(analytics)
                 #if os(tvOS)

@@ -47,6 +47,7 @@ final class UserPreferences {
         static let showsLiveTVOnHome = "showsLiveTVOnHome"
         static let personalizedShelvesEnabled = "personalizedShelvesEnabled"
         static let compactHomeContinueWatching = "compactHomeContinueWatching"
+        static let blursUnwatchedEpisodes = "blursUnwatchedEpisodes"
         static let downloadMaxResolution = "downloadMaxResolution"
         static let downloadsWifiOnly = "downloadsWifiOnly"
         static let maximumActiveDownloads = "maximumActiveDownloads"
@@ -308,6 +309,18 @@ final class UserPreferences {
         didSet { UserDefaults.standard.set(compactHomeContinueWatching, forKey: Keys.compactHomeContinueWatching) }
     }
 
+    /// Whether the own images of TV episodes the user hasn't finished are
+    /// blurred, so a frame grab never spoils them. Off by default.
+    var blursUnwatchedEpisodes: Bool {
+        didSet { UserDefaults.standard.set(blursUnwatchedEpisodes, forKey: Keys.blursUnwatchedEpisodes) }
+    }
+
+    /// `blursUnwatchedEpisodes` for code that has no `UserPreferences` at hand
+    /// (the Top Shelf publisher).
+    static var storedBlursUnwatchedEpisodes: Bool {
+        UserDefaults.standard.bool(forKey: Keys.blursUnwatchedEpisodes)
+    }
+
     /// Maximum version quality selected for downloads.
     var downloadMaxResolution: MaxResolution {
         didSet { UserDefaults.standard.set(downloadMaxResolution.rawValue, forKey: Keys.downloadMaxResolution) }
@@ -529,6 +542,7 @@ final class UserPreferences {
         self.showsLiveTVOnHome = defaults.bool(forKey: Keys.showsLiveTVOnHome)
         self.personalizedShelvesEnabled = defaults.object(forKey: Keys.personalizedShelvesEnabled) as? Bool ?? true
         self.compactHomeContinueWatching = defaults.bool(forKey: Keys.compactHomeContinueWatching)
+        self.blursUnwatchedEpisodes = defaults.bool(forKey: Keys.blursUnwatchedEpisodes)
         self.downloadMaxResolution = downloadMaxResolution
         self.downloadsWifiOnly = downloadsWifiOnly
         self.maximumActiveDownloads = maximumActiveDownloads

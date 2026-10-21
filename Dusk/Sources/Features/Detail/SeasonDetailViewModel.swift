@@ -187,14 +187,33 @@ final class SeasonDetailViewModel {
         focusedEpisode: PlexEpisode? = nil,
         focusedEpisodeDetails: PlexMediaDetails? = nil
     ) -> URL? {
-        let path = focusedEpisodeDetails?.thumb
+        let path = backdropPath(focusedEpisode: focusedEpisode, focusedEpisodeDetails: focusedEpisodeDetails)
+        return downloadManager?.localArtworkURL(for: path)
+            ?? plexService.imageURL(for: path, serverID: serverID, width: width, height: height)
+    }
+
+    /// Whether `backdropURL` shows the focused episode's own still while that
+    /// episode is unwatched; its `art` is the show's backdrop and never is.
+    func backdropIsUnwatchedEpisodeStill(
+        focusedEpisode: PlexEpisode?,
+        focusedEpisodeDetails: PlexMediaDetails?
+    ) -> Bool {
+        guard let focusedEpisode, !isWatched(focusedEpisode),
+              let path = backdropPath(focusedEpisode: focusedEpisode, focusedEpisodeDetails: focusedEpisodeDetails) else {
+            return false
+        }
+        return path == focusedEpisodeDetails?.thumb || path == focusedEpisode.thumb
+    }
+
+    private func backdropPath(
+        focusedEpisode: PlexEpisode?,
+        focusedEpisodeDetails: PlexMediaDetails?
+    ) -> String? {
+        focusedEpisodeDetails?.thumb
             ?? focusedEpisodeDetails?.art
             ?? focusedEpisode?.thumb
             ?? focusedEpisode?.art
             ?? details?.art
-
-        return downloadManager?.localArtworkURL(for: path)
-            ?? plexService.imageURL(for: path, serverID: serverID, width: width, height: height)
     }
 
     func posterURL(width: Int, height: Int) -> URL? {

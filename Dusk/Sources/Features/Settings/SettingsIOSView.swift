@@ -407,6 +407,9 @@ struct SettingsIOSView: View {
                 }
                 .foregroundStyle(Color.duskTextPrimary)
 
+                Toggle("Blur Unwatched Episodes", isOn: $preferences.blursUnwatchedEpisodes)
+                    .foregroundStyle(Color.duskTextPrimary)
+
                 Button {
                     showsIconPicker = true
                 } label: {

@@ -29,6 +29,8 @@ struct PlayerUpNextPosterView: View {
     let onPlayNow: () -> Void
     let onDismiss: () -> Void
 
+    @Environment(\.blursUnwatchedEpisodes) private var blursUnwatchedEpisodes
+
     #if !os(tvOS)
     @GestureState private var dragTranslation: CGSize = .zero
     #endif
@@ -199,6 +201,8 @@ struct PlayerUpNextPosterView: View {
                     placeholderFill
                 }
             }
+            .frame(width: Metrics.thumbnailWidth, height: Metrics.thumbnailHeight)
+            .spoilerBlur(thumbnailIsUnwatchedEpisodeStill)
 
             LinearGradient(
                 colors: [.clear, .black.opacity(0.28)],
@@ -226,6 +230,10 @@ struct PlayerUpNextPosterView: View {
                 ProgressView()
                     .tint(.white)
             }
+        } else if blursUnwatchedEpisodes && thumbnailIsUnwatchedEpisodeStill {
+            // The blurred still carries the spoiler glyph in this spot, as on
+            // the episode cards.
+            EmptyView()
         } else {
             // Matches the seasons/episode page play icon (`PosterArtwork`), sized
             // to sit inside the still rather than cover it.
@@ -284,6 +292,10 @@ struct PlayerUpNextPosterView: View {
             width: 640,
             height: 360
         )
+    }
+
+    private var thumbnailIsUnwatchedEpisodeStill: Bool {
+        presentation.episode.thumb != nil && !presentation.episode.isWatched
     }
 
     private var metadataText: String? {

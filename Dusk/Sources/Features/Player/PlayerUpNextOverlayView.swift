@@ -142,6 +142,9 @@ struct PlayerUpNextOverlayView: View {
                         placeholderFill
                     }
                 }
+                .frame(width: metrics.previewWidth, height: metrics.previewHeight)
+                // The wash behind is blurred out of recognition already.
+                .spoilerBlur(presentation.episode.thumb != nil && !presentation.episode.isWatched)
             } else {
                 placeholderFill
             }

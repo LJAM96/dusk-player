@@ -12,6 +12,10 @@ struct PosterArtwork: View {
     var showsPlayOverlay: Bool = false
     var availabilityBadge: String? = nil
     var isDimmed: Bool = false
+    /// The image is an unwatched episode's own still; see `spoilerBlur`.
+    var isUnwatchedEpisodeImage: Bool = false
+
+    @Environment(\.blursUnwatchedEpisodes) private var blursUnwatchedEpisodes
 
     private var artworkShape: RoundedRectangle {
         RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
@@ -31,13 +35,15 @@ struct PosterArtwork: View {
             }
         }
         .frame(width: width, height: imageHeight)
+        .spoilerBlur(isUnwatchedEpisodeImage)
         .overlay {
             if isDimmed {
                 Color.black.opacity(0.42)
             }
         }
         .overlay {
-            if showsPlayOverlay {
+            // A blurred still carries the spoiler glyph in the same spot.
+            if showsPlayOverlay, !(blursUnwatchedEpisodes && isUnwatchedEpisodeImage) {
                 Image(systemName: "play.fill")
                     .font(.system(size: playOverlaySymbolSize, weight: .semibold))
                     .foregroundStyle(Color.white.opacity(0.92))
@@ -142,6 +148,80 @@ struct PosterArtwork: View {
     }
 }
 
+// MARK: - Spoiler blur
+
+extension EnvironmentValues {
+    /// Settings › Appearance › Blur Unwatched Episodes, set once at the app
+    /// root so shared artwork views need no `UserPreferences`.
+    @Entry var blursUnwatchedEpisodes = false
+}
+
+extension PlexItem {
+    /// A TV episode the user hasn't finished. In-progress counts, as in Plex's
+    /// own Unwatched filter: the rest of the episode is still ahead.
+    var isUnwatchedEpisode: Bool {
+        type == .episode && !isWatched
+    }
+
+    /// Whether `preferredLandscapePath` is the unwatched episode's own still
+    /// rather than inherited show art.
+    var landscapeImageIsUnwatchedEpisodeStill: Bool {
+        isUnwatchedEpisode && thumb != nil && preferredLandscapePath == thumb
+    }
+}
+
+extension View {
+    /// Blurs an unwatched episode's own image (the frame Plex grabbed, or the
+    /// agent's still) when Blur Unwatched Episodes is on, with an `eye.slash`
+    /// glyph over the middle. Apply it to the image's final frame, before any
+    /// badges or progress bars, so only the artwork blurs. The radius follows
+    /// the frame's short side, so a small card and a full hero end up equally
+    /// unreadable.
+    func spoilerBlur(_ isUnwatchedEpisodeImage: Bool, showsGlyph: Bool = true) -> some View {
+        modifier(SpoilerBlurModifier(isUnwatchedEpisodeImage: isUnwatchedEpisodeImage, showsGlyph: showsGlyph))
+    }
+}
+
+private struct SpoilerBlurModifier: ViewModifier {
+    @Environment(\.blursUnwatchedEpisodes) private var blursUnwatchedEpisodes
+
+    let isUnwatchedEpisodeImage: Bool
+    let showsGlyph: Bool
+
+    @State private var shortSide: CGFloat = 0
+
+    func body(content: Content) -> some View {
+        let isActive = blursUnwatchedEpisodes && isUnwatchedEpisodeImage
+
+        // Radius 0 rather than a branch, so toggling never rebuilds the image
+        // view and makes it reload.
+        content
+            .blur(radius: isActive ? blurRadius : 0, opaque: true)
+            .overlay {
+                if isActive, showsGlyph {
+                    Image(systemName: "eye.slash")
+                        .font(.system(size: glyphSize, weight: .semibold))
+                        .foregroundStyle(Color.white.opacity(0.9))
+                        .shadow(color: .black.opacity(0.3), radius: 6, y: 2)
+                        .accessibilityHidden(true)
+                }
+            }
+            .onGeometryChange(for: CGFloat.self) { proxy in
+                min(proxy.size.width, proxy.size.height)
+            } action: { newValue in
+                shortSide = newValue
+            }
+    }
+
+    private var blurRadius: CGFloat {
+        min(max(shortSide * 0.12, 8), 64)
+    }
+
+    private var glyphSize: CGFloat {
+        min(max(shortSide * 0.24, 16), 48)
+    }
+}
+
 struct PosterCardText: View {
     let title: String
     var subtitle: String?
@@ -216,6 +296,7 @@ struct PosterCard: View {
     var showsPlayOverlay: Bool = false
     var availabilityBadge: String? = nil
     var isDimmed: Bool = false
+    var isUnwatchedEpisodeImage: Bool = false
     var isWatched: Bool = false
     var unwatchedCount: Int? = nil
 
@@ -229,7 +310,8 @@ struct PosterCard: View {
                 imageAspectRatio: imageAspectRatio,
                 showsPlayOverlay: showsPlayOverlay,
                 availabilityBadge: availabilityBadge,
-                isDimmed: isDimmed
+                isDimmed: isDimmed,
+                isUnwatchedEpisodeImage: isUnwatchedEpisodeImage
             )
 
             PosterCardText(

@@ -200,6 +200,10 @@ struct SeriesDetailView: View {
                 focusedEpisode: focusedEpisode,
                 focusedEpisodeDetails: focusedEpisodeDetails(in: season)
             ),
+            blursBackdrop: season.backdropIsUnwatchedEpisodeStill(
+                focusedEpisode: focusedEpisode,
+                focusedEpisodeDetails: focusedEpisodeDetails(in: season)
+            ),
             // The show's clear-logo is the hero title; the show name is only the
             // text fallback when Plex has no logo, kept to one line so the banner
             // height stays put.
@@ -796,7 +800,10 @@ private struct SeriesEpisodeCard: View {
                     progress: progress,
                     width: artworkWidth,
                     imageAspectRatio: 16.0 / 9.0,
-                    showsPlayOverlay: false
+                    showsPlayOverlay: false,
+                    // `episodeImageURL` only falls back to the show poster
+                    // when the episode has no still of its own.
+                    isUnwatchedEpisodeImage: !isWatched && episode.thumb != nil
                 )
                 .opacity(isUnavailableOffline ? 0.46 : 1)
                 .contentShape(.contextMenuPreview, artworkShape)

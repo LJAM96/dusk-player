@@ -427,7 +427,10 @@ private struct SeasonEpisodeRow: View {
                         progress: progress,
                         artworkWidth: artworkWidth,
                         showsPlayOverlay: !constrainsPlaybackToOfflineAvailability || isPlayableOffline,
-                        isUnavailableOffline: isUnavailableOffline
+                        isUnavailableOffline: isUnavailableOffline,
+                        // `episodeImageURL` only falls back to the show poster
+                        // when the episode has no still of its own.
+                        isUnwatchedEpisodeImage: !isWatched && episode.thumb != nil
                     )
                 }
                 .buttonStyle(.plain)
@@ -475,6 +478,7 @@ private struct SeasonEpisodePosterArtwork: View {
     let artworkWidth: CGFloat
     let showsPlayOverlay: Bool
     let isUnavailableOffline: Bool
+    let isUnwatchedEpisodeImage: Bool
 
     var body: some View {
         PosterArtwork(
@@ -482,7 +486,8 @@ private struct SeasonEpisodePosterArtwork: View {
             progress: progress,
             width: artworkWidth,
             imageAspectRatio: 16.0 / 9.0,
-            showsPlayOverlay: showsPlayOverlay
+            showsPlayOverlay: showsPlayOverlay,
+            isUnwatchedEpisodeImage: isUnwatchedEpisodeImage
         )
         .opacity(isUnavailableOffline ? 0.46 : 1)
     }
