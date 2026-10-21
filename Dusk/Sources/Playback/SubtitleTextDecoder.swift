@@ -17,6 +17,16 @@ enum SubtitleTextDecoder {
         }
     }
 
+    /// Sidecars larger than this are not subtitles worth decoding.
+    static let maximumFileSize = 8 * 1_024 * 1_024
+
+    /// The sidecar re-encoded as UTF-8 with a BOM, which makes the demuxer
+    /// (including the ASS path) recognize UTF-8. Nil when it cannot be decoded.
+    static func normalizedFileData(_ data: Data) -> Data? {
+        guard data.count <= maximumFileSize, let text = decode(data) else { return nil }
+        return Data(("\u{FEFF}" + text).utf8)
+    }
+
     static func decode(_ data: Data) -> String? {
         // Check UTF-32 before UTF-16: their little-endian BOMs overlap.
         let unicodeBOMs: [([UInt8], String.Encoding)] = [
@@ -102,14 +112,15 @@ final class SubtitleFileStore: Sendable {
         }
         try Task.checkCancellation()
         let size = try sourceURL.resourceValues(forKeys: [.fileSizeKey]).fileSize ?? 0
-        guard size <= 8 * 1_024 * 1_024 else { throw URLError(.dataLengthExceedsMaximum) }
+        guard size <= SubtitleTextDecoder.maximumFileSize else { throw URLError(.dataLengthExceedsMaximum) }
         let data = try Data(contentsOf: sourceURL, options: .mappedIfSafe)
-        guard let text = SubtitleTextDecoder.decode(data) else { throw URLError(.cannotDecodeContentData) }
+        guard let normalized = SubtitleTextDecoder.normalizedFileData(data) else {
+            throw URLError(.cannotDecodeContentData)
+        }
         try Task.checkCancellation()
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         let target = directory.appendingPathComponent(UUID().uuidString).appendingPathExtension(fileExtension)
-        // A BOM makes the demuxer (including the ASS path) recognize UTF-8.
-        try Data(("\u{FEFF}" + text).utf8).write(to: target, options: .atomic)
+        try normalized.write(to: target, options: .atomic)
         return target
     }
 }

@@ -1024,7 +1024,8 @@ so the whole live HUD is derived from one instant.
   `externalSubtitlePlaceholderIDBase`). Selecting one calls
   `PlaybackCoordinator.switchToVLCKitForExternalSubtitle(streamID:)`, which
   reuses `activateReplacementAttempt` with the same URL/media/decision and only
-  swaps the engine, resuming at the live position. Automatic selection never
+  swaps the engine, resuming at the live position. Local downloads switch too;
+  their sidecars mount from the saved copies (see `downloads-and-offline.md`). Automatic selection never
   picks a placeholder — swapping engines is the viewer's call. It can pick a
   mounted sidecar: the one-shot automatic choice is re-evaluated exactly once
   after an external track appears, and never after the viewer has chosen.

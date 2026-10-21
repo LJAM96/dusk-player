@@ -507,7 +507,7 @@ extension PlaybackCoordinator {
                    !hasHDRVideo, !preferences.forceAVPlayer,
                    let subtitleID = startupSubtitleID,
                    part.streams.contains(where: { $0.id == subtitleID && $0.key != nil }),
-                   !usesLocalDownload {
+                   !usesLocalDownload || downloadManager?.localSubtitleURL(for: id, streamID: subtitleID) != nil {
                     engineType = .vlcKit
                     resolverReason = "Remembered show subtitle; VLCKit mounts Plex sidecar files"
                 }
@@ -1382,6 +1382,19 @@ extension PlaybackCoordinator {
 
     // MARK: - External (sidecar) subtitles
 
+    /// Where a Plex sidecar subtitle mounts from: a local download's saved copy
+    /// when there is one (the only copy reachable offline), else the server.
+    func externalSubtitleURL(for stream: PlexStream) -> URL? {
+        if activePlaybackUsesLocalDownload, let ratingKey,
+           let localURL = downloadManager?.localSubtitleURL(
+               for: PlexItemID(serverID: activePlaybackServerID, ratingKey: ratingKey),
+               streamID: stream.id
+           ) {
+            return localURL
+        }
+        return plexService.externalSubtitleURL(for: stream, serverID: activePlaybackServerID)
+    }
+
     /// Re-reads the playing item after Plex installed a sidecar subtitle, so
     /// the new stream reaches the player's subtitle picker and gets selected.
     ///
@@ -1499,7 +1512,6 @@ extension PlaybackCoordinator {
               !isSwitchingQuality,
               !isPreparingAirPlay,
               !isAirPlaySession,
-              !activePlaybackUsesLocalDownload,
               activeLiveTVContext == nil,
               let details = activeItemDetails,
               let ratingKey,

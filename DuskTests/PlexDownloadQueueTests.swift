@@ -158,6 +158,47 @@ struct PlexDownloadQueueTests {
         #expect(record.convertedMediaVersion(sourcePart: nil)?.part.streams.isEmpty == true)
     }
 
+    @Test func legacyRecordsHaveNoSavedSubtitlesAndSavedPathsSurviveRelaunch() throws {
+        let data = Data(#"{"serverID":"server-a","ratingKey":"42","type":"movie","title":"Example","mediaID":41,"partID":17,"status":"completed","progress":1,"downloadedBytes":1234,"addedAt":0,"updatedAt":1}"#.utf8)
+        var record = try JSONDecoder().decode(DownloadedMediaRecord.self, from: data)
+        #expect(record.externalSubtitlePaths == nil)
+        #expect(record.hasMissingExternalSubtitles == false)
+
+        record.externalSubtitlePaths = [104: "Subtitles/abc/104.srt", 105: "Subtitles/abc/105.ass"]
+        record.hasMissingExternalSubtitles = true
+        let restored = try JSONDecoder().decode(DownloadedMediaRecord.self, from: JSONEncoder().encode(record))
+        #expect(restored.externalSubtitlePaths == [104: "Subtitles/abc/104.srt", 105: "Subtitles/abc/105.ass"])
+        #expect(restored.hasMissingExternalSubtitles)
+    }
+
+    @Test func onlyExternalTextSubtitlesAreSavedForOffline() throws {
+        let json = #"{"id":17,"key":"/library/parts/17/file.mp4","Stream":[{"id":101,"streamType":1,"codec":"h264"},{"id":102,"streamType":3,"codec":"mov_text"},{"id":103,"streamType":3,"codec":"srt","key":"/library/streams/103"},{"id":104,"streamType":3,"codec":"ass","key":"/library/streams/104"},{"id":105,"streamType":3,"codec":"ssa","key":"/library/streams/105"},{"id":106,"streamType":3,"codec":"vtt","key":"/library/streams/106"},{"id":107,"streamType":3,"codec":"vobsub","key":"/library/streams/107"},{"id":108,"streamType":3,"codec":"srt","key":""}]}"#
+        let part = try JSONDecoder().decode(PlexMediaPart.self, from: Data(json.utf8))
+        #expect(DownloadedMediaRecord.offlineSubtitleStreams(in: part).map(\.id) == [103, 104, 105, 106])
+        #expect(DownloadedMediaRecord.offlineSubtitleStreams(in: nil).isEmpty)
+    }
+
+    @Test func savedSubtitlesResolveAndAreDeletedWithTheRecord() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let store = DownloadFileStore(rootDirectory: root)
+        let body = try #require(SubtitleTextDecoder.normalizedFileData(Data("1\n00:00:00,000 --> 00:00:01,000\nHi\n".utf8)))
+
+        let path = try store.saveSubtitle(body, globalKey: "profile:server-a:42", streamID: 103, fileExtension: "srt")
+        #expect(path.hasPrefix("Subtitles/"))
+        #expect(path.hasSuffix("/103.srt"))
+        let url = try #require(store.existingFileURL(for: path))
+        #expect(try Data(contentsOf: url) == body)
+        // A sibling record's folder must survive the delete.
+        let other = try store.saveSubtitle(body, globalKey: "profile:server-a:43", streamID: 1, fileExtension: "srt")
+
+        // Re-keyed since the file was written: the stored path still wins.
+        store.deleteSubtitles(relativePaths: [path], globalKey: "profile:server-b:42")
+        #expect(store.existingFileURL(for: path) == nil)
+        #expect(store.existingFileURL(for: other) != nil)
+        #expect(FileManager.default.fileExists(atPath: store.subtitlesDirectory.path))
+    }
+
     private func rawQueueItem(status: String = "processing", queueID: String = "7", progress: String? = "37.5") throws -> [String: Any] {
         let session = progress.map { ",\"TranscodeSession\":{\"progress\":\($0)}" } ?? ""
         let data = Data("{\"id\":\"23\",\"queueId\":\"\(queueID)\",\"key\":\"/library/metadata/42\",\"status\":\"\(status)\"\(session)}".utf8)

@@ -14,6 +14,10 @@ struct DownloadFileStore: Sendable {
             .appendingPathComponent("Downloads", isDirectory: true)
     }
 
+    init(rootDirectory: URL) {
+        self.rootDirectory = rootDirectory
+    }
+
     var stateFileURL: URL {
         rootDirectory.appendingPathComponent("downloads.json")
     }
@@ -32,6 +36,10 @@ struct DownloadFileStore: Sendable {
 
     var resumeDataDirectory: URL {
         rootDirectory.appendingPathComponent("ResumeData", isDirectory: true)
+    }
+
+    var subtitlesDirectory: URL {
+        rootDirectory.appendingPathComponent("Subtitles", isDirectory: true)
     }
 
     func prepareRootDirectory() throws {
@@ -186,6 +194,32 @@ struct DownloadFileStore: Sendable {
     func deleteVideo(relativePath: String?) {
         guard let url = absoluteURL(for: relativePath) else { return }
         try? FileManager.default.removeItem(at: url)
+    }
+
+    /// One folder per download record. Stored as relative paths on the record,
+    /// so the files keep resolving when a legacy record is re-keyed.
+    func subtitleDirectory(globalKey: String) -> URL {
+        subtitlesDirectory.appendingPathComponent(Self.hash(globalKey), isDirectory: true)
+    }
+
+    /// Writes an already normalized sidecar and returns its relative path.
+    func saveSubtitle(_ data: Data, globalKey: String, streamID: Int, fileExtension: String) throws -> String {
+        let directory = subtitleDirectory(globalKey: globalKey)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let url = directory.appendingPathComponent("\(streamID).\(fileExtension)")
+        try data.write(to: url, options: [.atomic])
+        return relativePath(for: url)
+    }
+
+    /// Removes a record's saved sidecars: the folders its paths point into
+    /// (wherever the record was keyed when they were written) and its current one.
+    func deleteSubtitles(relativePaths: [String], globalKey: String) {
+        var directories = Set(relativePaths.compactMap { absoluteURL(for: $0)?.deletingLastPathComponent() })
+        directories.insert(subtitleDirectory(globalKey: globalKey).standardizedFileURL)
+        let root = subtitlesDirectory.standardizedFileURL.path + "/"
+        for directory in directories where directory.standardizedFileURL.path.hasPrefix(root) {
+            try? FileManager.default.removeItem(at: directory)
+        }
     }
 
     func storageUsageBytes() -> Int64 {

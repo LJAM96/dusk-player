@@ -86,6 +86,21 @@ struct SubtitleTextDecoderTests {
         #expect(try Data(contentsOf: prepared) == Data(("\u{FEFF}" + ass).utf8))
     }
 
+    @Test func savedSidecarsAreUTF8WithABOMAndOversizedOnesAreRejected() throws {
+        let expected = srt(Self.russian)
+        let encoding = String.Encoding(rawValue: CFStringConvertEncodingToNSStringEncoding(
+            CFStringEncoding(CFStringEncodings.windowsCyrillic.rawValue)
+        ))
+        let legacy = try #require(expected.data(using: encoding))
+        let normalized = try #require(SubtitleTextDecoder.normalizedFileData(legacy))
+        #expect(normalized.starts(with: [0xEF, 0xBB, 0xBF]))
+        #expect(SubtitleTextDecoder.decode(normalized) == expected)
+        // Already normalized input stays the same (no second BOM).
+        #expect(SubtitleTextDecoder.normalizedFileData(normalized) == normalized)
+        #expect(SubtitleTextDecoder.normalizedFileData(Data(count: SubtitleTextDecoder.maximumFileSize + 1)) == nil)
+        #expect(SubtitleTextDecoder.normalizedFileData(Data([0, 1, 2, 3])) == nil)
+    }
+
     private func srt(_ text: String) -> String {
         "1\n00:00:00,000 --> 00:00:05,000\n\(text)\n"
     }

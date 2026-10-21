@@ -709,10 +709,7 @@ private struct PlayerSessionView: View {
             // Set before configuring: the first track sync already needs to be
             // able to resolve and mount the part's Plex sidecar subtitles.
             viewModel.externalSubtitleURLProvider = { stream in
-                playback.plexService.externalSubtitleURL(
-                    for: stream,
-                    serverID: playback.activePlaybackServerID
-                )
+                playback.externalSubtitleURL(for: stream)
             }
             viewModel.externalSubtitleRestartHandler = { streamID in
                 playback.switchToVLCKitForExternalSubtitle(streamID: streamID)

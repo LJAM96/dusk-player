@@ -34,6 +34,7 @@ Application Support/Dusk/Downloads/
   Metadata/Profiles/<profile-id>/<server-id>/<endpoint-hash>.json
   Artwork/<path-hash>.jpg
   ResumeData/<global-key-hash>.resume
+  Subtitles/<global-key-hash>/<stream-id>.<ext>
   Profiles/<profile-id>/Movies/<Title>/<Title>.<ext>
   Profiles/<profile-id>/TV Shows/<Show>/Season NN/S<season>E<episode> - <Episode>.<ext>
   Profiles/<profile-id>/Other/<Title>/<Title>.<ext>
@@ -106,10 +107,33 @@ carry over (`DownloadedMediaRecord.convertedMediaVersion`, used by both the
 initial local playback lookup and subtitle refresh), and AirPlay handoff returns
 to the original server media metadata.
 
-Converted copies may omit embedded subtitles. Dusk does not currently cache
-external subtitle sidecars for either download mode; choose Original to retain
-the source's embedded tracks. Subtitles downloaded while connected can still be
-mounted during local playback.
+Converted copies may omit embedded subtitles; choose Original to retain the
+source's embedded tracks.
+
+## External Subtitles
+
+Both download modes save the source part's external **text** sidecars
+(`DownloadedMediaRecord.offlineSubtitleStreams`: a `key` plus a codec
+`SubtitleTextDecoder.fileExtension` knows, so srt/ass/ssa/vtt/smi/MicroDVD;
+never VobSub or unknown codecs). `DownloadManager.cacheExternalSubtitles` runs
+right after a download completes: each `/library/streams/{id}` is fetched,
+normalized to UTF-8 with a BOM (`SubtitleTextDecoder.normalizedFileData`, the
+same step the VLCKit mount uses) and written to `Subtitles/`. The record keeps
+`externalSubtitlePaths` (stream id → relative path; nil = never synced, empty =
+the item has none) and `hasMissingExternalSubtitles`. A failed sidecar never
+fails the download. Records that are unsynced or missing one (downloads made
+before this existed included) are backfilled once per launch when their server
+connects or the profile activates (`backfillExternalSubtitles`). Deleting a
+download removes its subtitle folder; delete-all, storage usage and legacy
+re-keying need nothing extra because paths are relative and under the root.
+
+Local playback mounts them through `PlaybackCoordinator.externalSubtitleURL(for:)`
+(saved copy first, server URL otherwise). An AVPlayer download lists them as
+"switches to VLC engine" rows; picking one restarts the local file on VLCKit at
+the live position, offline too. A remembered show sidecar starts a download on
+VLCKit only when its saved copy exists. Like online playback, automatic
+language selection never switches engines by itself. Sidecars added to the
+server after an item finished downloading are not picked up.
 
 Every queue API is keyed by `PlexItemID`, and `DownloadScope` carries it too:
 rating keys collide across servers, so a record is only ever matched by server +

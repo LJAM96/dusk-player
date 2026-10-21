@@ -96,6 +96,10 @@ final class DownloadManager {
     @ObservationIgnored private var cleanupTask: Task<Void, Never>?
     @ObservationIgnored private var lastProgressPersistDates: [String: Date] = [:]
     @ObservationIgnored private var speedEstimates: [String: SmoothedDownloadSpeed] = [:]
+    /// Records whose external subtitles are being fetched, and the ones a
+    /// backfill already tried this launch (a failure waits for the next one).
+    @ObservationIgnored private var subtitleCachingKeys: Set<String> = []
+    @ObservationIgnored private var subtitleBackfillAttemptedKeys: Set<String> = []
     @ObservationIgnored private lazy var transferController = DownloadTransferController { [weak self] event in
         Task { @MainActor [weak self] in
             self?.handleTransferEvent(event)
@@ -146,6 +150,7 @@ final class DownloadManager {
         connectedServerIDs = current
         guard !appeared.isEmpty else { return }
         processQueueIfNeeded()
+        backfillExternalSubtitles(serverIDs: appeared)
     }
 
     /// Records written before servers were identified by machine identifier can
@@ -532,6 +537,7 @@ final class DownloadManager {
         isQueuePaused = false
         evaluateNetworkConstraints()
         processQueueIfNeeded()
+        backfillExternalSubtitles(serverIDs: Set(plexService.pool.connections.map(\.serverID)))
     }
 
     private func completeDeferredProfileActivationIfPossible() {
@@ -748,6 +754,12 @@ final class DownloadManager {
         return fileStore.existingFileURL(for: record.relativeVideoPath)
     }
 
+    /// The saved copy of one of the download's external subtitles, if any.
+    func localSubtitleURL(for id: PlexItemID, streamID: Int) -> URL? {
+        guard let record = record(for: id), record.status == .completed else { return nil }
+        return fileStore.existingFileURL(for: record.externalSubtitlePaths?[streamID])
+    }
+
     func downloadedMediaVersion(
         for id: PlexItemID,
         in details: PlexMediaDetails,
@@ -759,8 +771,7 @@ final class DownloadManager {
             return nil
         }
         if record.downloadQuality != .original {
-            let sourcePart = details.media.first { $0.id == record.mediaID }?.parts.first { $0.id == record.partID }
-            return record.convertedMediaVersion(sourcePart: sourcePart)
+            return record.convertedMediaVersion(sourcePart: sourcePart(for: record, in: details))
         }
         guard let mediaID = record.mediaID,
               let partID = record.partID,
@@ -1543,6 +1554,7 @@ final class DownloadManager {
             }
             if record.accountProfileID == plexService.activeProfileID, plexService.isSessionReady {
                 await cacheArtwork(for: details, serverID: record.serverID)
+                await cacheExternalSubtitles(globalKey: globalKey, details: details)
             }
         } catch {
             try? FileManager.default.removeItem(at: temporaryURL)
@@ -1743,6 +1755,89 @@ final class DownloadManager {
             } catch {
                 continue
             }
+        }
+    }
+
+    /// The original file's part. Converted downloads still use it: the external
+    /// subtitles belong to the source, not to the prepared MKV.
+    private func sourcePart(for record: DownloadedMediaRecord, in details: PlexMediaDetails) -> PlexMediaPart? {
+        details.media.first { $0.id == record.mediaID }?.parts.first { $0.id == record.partID }
+    }
+
+    /// Completed downloads whose external subtitles were never saved (made
+    /// before Dusk saved them) or partly failed get them once their server
+    /// is reachable. Only text sidecars are saved; see `offlineSubtitleStreams`.
+    private func backfillExternalSubtitles(serverIDs: Set<String>) {
+        guard !isProfileSwitching, plexService.isSessionReady,
+              let activeProfileID = plexService.activeProfileID else { return }
+        let pending = storedRecords.filter {
+            $0.status == .completed && ($0.externalSubtitlePaths == nil || $0.hasMissingExternalSubtitles)
+                && $0.accountProfileID == activeProfileID && serverIDs.contains($0.serverID)
+                && !subtitleBackfillAttemptedKeys.contains($0.globalKey)
+        }
+        guard !pending.isEmpty else { return }
+        subtitleBackfillAttemptedKeys.formUnion(pending.map(\.globalKey))
+        Task { [weak self] in
+            for record in pending {
+                guard let self, let details = self.metadataCache.mediaDetails(
+                    accountProfileID: activeProfileID,
+                    serverID: record.serverID,
+                    ratingKey: record.ratingKey
+                ) else { continue }
+                await self.cacheExternalSubtitles(globalKey: record.globalKey, details: details)
+            }
+        }
+    }
+
+    /// Saves the source part's external text subtitles, normalized to UTF-8,
+    /// next to a completed download. Best effort: a failed sidecar never fails
+    /// the download, it only marks the record for the next backfill.
+    private func cacheExternalSubtitles(globalKey: String, details: PlexMediaDetails) async {
+        guard let record = record(globalKey: globalKey), record.status == .completed,
+              !subtitleCachingKeys.contains(globalKey) else { return }
+        subtitleCachingKeys.insert(globalKey)
+        defer { subtitleCachingKeys.remove(globalKey) }
+
+        let expectedProfileID = record.accountProfileID
+        var paths = record.externalSubtitlePaths ?? [:]
+        var failed = false
+        for stream in DownloadedMediaRecord.offlineSubtitleStreams(in: sourcePart(for: record, in: details))
+        where fileStore.existingFileURL(for: paths[stream.id]) == nil {
+            guard !isProfileSwitching, plexService.activeProfileID == expectedProfileID,
+                  let fileExtension = SubtitleTextDecoder.fileExtension(for: stream.codec),
+                  let url = plexService.externalSubtitleURL(for: stream, serverID: record.serverID) else {
+                failed = true
+                continue
+            }
+            var request = URLRequest(url: url)
+            request.timeoutInterval = 30
+            request.allowsExpensiveNetworkAccess = !preferences.downloadsWifiOnly
+            request.allowsConstrainedNetworkAccess = !preferences.downloadsWifiOnly
+            do {
+                let (data, response) = try await URLSession.shared.data(for: request)
+                guard let response = response as? HTTPURLResponse, (200..<300).contains(response.statusCode),
+                      let normalized = SubtitleTextDecoder.normalizedFileData(data) else {
+                    failed = true
+                    continue
+                }
+                guard self.record(globalKey: globalKey)?.status == .completed,
+                      !deletingDownloadIDs.contains(globalKey) else { return }
+                paths[stream.id] = try fileStore.saveSubtitle(
+                    normalized, globalKey: globalKey, streamID: stream.id, fileExtension: fileExtension
+                )
+            } catch {
+                // Never log the error: URLSession errors can include Plex tokens.
+                failed = true
+            }
+        }
+
+        guard self.record(globalKey: globalKey)?.status == .completed,
+              !deletingDownloadIDs.contains(globalKey) else { return }
+        let savedPaths = paths
+        update(globalKey: globalKey) { item in
+            item.externalSubtitlePaths = savedPaths
+            item.hasMissingExternalSubtitles = failed
+            item.updatedAt = .now
         }
     }
 
@@ -2374,6 +2469,10 @@ final class DownloadManager {
             for record in recordsToDelete {
                 fileStore.deleteVideo(relativePath: record.relativeVideoPath)
                 fileStore.deleteResumeData(relativePath: record.resumeDataPath)
+                fileStore.deleteSubtitles(
+                    relativePaths: Array((record.externalSubtitlePaths ?? [:]).values),
+                    globalKey: record.globalKey
+                )
             }
             let globalKeys = Set(recordsToDelete.map(\.globalKey))
             await self?.finishDeleting(globalKeys: globalKeys)

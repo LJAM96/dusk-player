@@ -222,6 +222,13 @@ struct DownloadedMediaRecord: Codable, Sendable, Identifiable, Hashable {
         ), part)
     }
     var relativeVideoPath: String?
+    /// Plex stream id → relative path of that external text subtitle, saved
+    /// next to the download so it mounts offline. Nil until the item's sidecars
+    /// were fetched once (an empty map: it has none), so downloads made before
+    /// subtitles were saved fetch theirs the next time their server is online.
+    var externalSubtitlePaths: [Int: String]? = nil
+    /// A sidecar could not be fetched; the next backfill retries the missing ones.
+    var hasMissingExternalSubtitles: Bool = false
     var resumeDataPath: String?
     var downloadTaskIdentifier: Int?
     /// Distinguishes an automatic Home-user suspension from a user-requested
@@ -244,7 +251,7 @@ struct DownloadedMediaRecord: Codable, Sendable, Identifiable, Hashable {
         case mediaID, partID
         case downloadQuality, queueClientIdentifier, plexDownloadQueueID, plexDownloadItemID
         case preparationProgress, preparationRetryCount, convertedMediaData
-        case relativeVideoPath, resumeDataPath, downloadTaskIdentifier, wasPausedForProfileSwitch
+        case relativeVideoPath, externalSubtitlePaths, hasMissingExternalSubtitles, resumeDataPath, downloadTaskIdentifier, wasPausedForProfileSwitch
         case status, progress, downloadedBytes, totalBytes
         case errorMessage, addedAt, updatedAt
     }
@@ -283,6 +290,16 @@ struct DownloadedMediaRecord: Codable, Sendable, Identifiable, Hashable {
     var legacyGlobalKey: String {
         Self.globalKey(serverID: serverID, ratingKey: ratingKey)
     }
+
+    /// The source part's external subtitles that can be saved for offline
+    /// playback: text sidecars only. Bitmap sidecars (VobSub) and unknown
+    /// codecs are left on the server.
+    static func offlineSubtitleStreams(in sourcePart: PlexMediaPart?) -> [PlexStream] {
+        (sourcePart?.streams ?? []).filter {
+            $0.streamType == .subtitle && $0.key?.nilIfEmpty != nil
+                && SubtitleTextDecoder.fileExtension(for: $0.codec) != nil
+        }
+    }
 }
 
 extension DownloadedMediaRecord {
@@ -315,6 +332,11 @@ extension DownloadedMediaRecord {
         preparationRetryCount = try container.decodeIfPresent(Int.self, forKey: .preparationRetryCount) ?? 0
         convertedMediaData = try container.decodeIfPresent(Data.self, forKey: .convertedMediaData)
         relativeVideoPath = try container.decodeIfPresent(String.self, forKey: .relativeVideoPath)
+        externalSubtitlePaths = try container.decodeIfPresent([Int: String].self, forKey: .externalSubtitlePaths)
+        hasMissingExternalSubtitles = try container.decodeIfPresent(
+            Bool.self,
+            forKey: .hasMissingExternalSubtitles
+        ) ?? false
         resumeDataPath = try container.decodeIfPresent(String.self, forKey: .resumeDataPath)
         downloadTaskIdentifier = try container.decodeIfPresent(Int.self, forKey: .downloadTaskIdentifier)
         wasPausedForProfileSwitch = try container.decodeIfPresent(
