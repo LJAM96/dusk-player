@@ -315,7 +315,8 @@ Ranked by severity. I fixed nothing, and the only file I changed is this one.
 16. **Alternate icons** have never been applied on a real iPhone or iPad,
     including the three new ones.
 17. **The website** says supporter tips unlock the icons
-    (`website/index.html` FAQ), but the Coffee tip no longer does. Nothing
+    (`index.html` FAQ, now in
+    the private `marvinvr/dusk-player-website` repo), but the Coffee tip no longer does. Nothing
     on the site states prices.
 18. **Localization.** The app is English only (no `.xcstrings` or `.lproj`).
     `Dusk.storekit` has DE subscription names that must also be entered in
