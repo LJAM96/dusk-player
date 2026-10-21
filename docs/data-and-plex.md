@@ -589,6 +589,14 @@ always carries the server.
   - `isStrong` marks the two key kinds that identify the *content* (`plex`,
     `external`). Only those may be recorded as playback alternates; a heuristic
     key may collapse a row on screen and nothing more.
+  - **Editions** (`editionTitle`, "Director's Cut") are separate Plex items
+    with the same guid and external ids, so every non-instance key appends
+    the loosely normalized edition. Two editions never merge and are never each
+    other's playback fallback; the same edition still merges across servers.
+    TV editions live on the show only, so a show's episodes and seasons carry
+    no edition and still key on the shared ids. The UI shows the edition after
+    the year in poster subtitles and in the detail hero tagline, never as a
+    badge.
 
 ## Merging Rules
 `PlexService/MultiServer/` merges what the connected servers return. Fan-outs use

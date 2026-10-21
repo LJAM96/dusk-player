@@ -668,6 +668,9 @@ final class HomeViewModel {
             if let year = item.year {
                 parts.append(String(year))
             }
+            if let edition = item.editionTitle {
+                parts.append(edition)
+            }
         default:
             break
         }

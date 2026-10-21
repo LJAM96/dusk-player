@@ -96,7 +96,7 @@ extension PlaybackPlaceholder {
         default:
             self.init(
                 title: details.title,
-                subtitle: details.year.map(String.init),
+                subtitle: MediaTextFormatter.joinedWithEdition(details.year.map(String.init), edition: details.editionTitle),
                 posterPath: details.thumb ?? details.art,
                 backdropPath: details.art ?? details.thumb,
                 serverID: details.serverID

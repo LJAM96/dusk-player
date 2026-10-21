@@ -14,6 +14,12 @@ import Foundation
 ///    often to key on,
 /// 4. nothing usable: the item is keyed by its own copy and never merges.
 ///
+/// Every key but `.instance` also carries the item's Plex edition. Plex models
+/// each edition ("Director's Cut", "Extended") as its own item with the same
+/// guid and external ids, so without it two editions would collapse into one
+/// row and one could be played as the other's fallback. Items with no edition
+/// keep their plain key, so the same edition still merges across servers.
+///
 /// External ids and the heuristic are namespaced by media type on purpose: a
 /// show, its season and its episode routinely carry the same tvdb id, and a
 /// movie and a show routinely share a tmdb id. None of them may merge.
@@ -58,6 +64,9 @@ extension PlexContentKey {
     ///   - episode: show title plus season/episode numbers when the item is an
     ///     episode or a season, so the heuristic can key on the show rather than
     ///     the title — "Season 1" is the title of every show's first season.
+    ///   - edition: the item's `editionTitle`. Compared loosely (case, accents
+    ///     and punctuation ignored) because each server's edition is typed by
+    ///     its owner.
     ///   - isClip: personal-media item ("Other Videos"). Those report
     ///     `type == .movie`, so the flag is what keeps them out of the movie
     ///     namespace and out of heuristic merging.
@@ -70,17 +79,19 @@ extension PlexContentKey {
         title: String,
         year: Int?,
         episode: EpisodeCoordinates? = nil,
+        edition: String? = nil,
         isClip: Bool = false,
         identity: PlexItemID
     ) -> PlexContentKey {
+        let editionSuffix = edition.map(normalized).flatMap(\.nilIfEmpty).map { "|edition:\($0)" } ?? ""
         if let plexGUID = guid?.nilIfEmpty, plexGUID.lowercased().hasPrefix("plex://") {
-            return .plex(plexGUID.lowercased())
+            return .plex(plexGUID.lowercased() + editionSuffix)
         }
 
         let namespace = isClip ? "clip" : type.rawValue
         for provider in externalProviders {
             if let value = guids.lazy.compactMap({ $0.value(for: provider) }).first {
-                return .external(provider: provider, namespace: namespace, id: value.lowercased())
+                return .external(provider: provider, namespace: namespace, id: value.lowercased() + editionSuffix)
             }
         }
 
@@ -97,14 +108,14 @@ extension PlexContentKey {
             guard type != .episode || episode.episode != nil else { return .instance(identity) }
 
             return .heuristic(
-                "\(namespace)|\(showTitle)|s\(episode.season ?? -1)|e\(episode.episode ?? -1)"
+                "\(namespace)|\(showTitle)|s\(episode.season ?? -1)|e\(episode.episode ?? -1)" + editionSuffix
             )
         }
 
         let normalizedTitle = normalized(title)
         guard !normalizedTitle.isEmpty else { return .instance(identity) }
 
-        return .heuristic("\(namespace)|\(normalizedTitle)|\(year.map(String.init) ?? "")")
+        return .heuristic("\(namespace)|\(normalizedTitle)|\(year.map(String.init) ?? "")" + editionSuffix)
     }
 
     /// Season/episode numbering plus the show it belongs to. A season leaves
@@ -152,6 +163,7 @@ extension PlexContentKey {
                 season: item.type == .season ? item.index : item.parentIndex,
                 episode: item.index
             ),
+            edition: item.editionTitle,
             isClip: item.isClip,
             identity: item.id
         )
@@ -172,6 +184,7 @@ extension PlexContentKey {
                 season: details.type == .season ? details.index : details.parentIndex,
                 episode: details.index
             ),
+            edition: details.editionTitle,
             isClip: details.isClip,
             identity: details.id
         )

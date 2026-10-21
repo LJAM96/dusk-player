@@ -18,6 +18,10 @@ struct PlexItem: Decodable, Sendable, Identifiable {
     let subtype: String?
     let librarySectionID: String?
     let title: String
+    /// Plex edition name ("Director's Cut") when the server holds several
+    /// editions of one movie or show. Each edition is its own item with the
+    /// same guid, so this is also part of its `PlexContentKey`.
+    let editionTitle: String?
 
     let summary: String?
     let studio: String?
@@ -76,7 +80,7 @@ struct PlexItem: Decodable, Sendable, Identifiable {
     let guids: [PlexGuid]
 
     enum CodingKeys: String, CodingKey {
-        case ratingKey, key, type, subtype, librarySectionID, title, guid
+        case ratingKey, key, type, subtype, librarySectionID, title, editionTitle, guid
         case summary, studio, contentRating, year, originallyAvailableAt
         case thumb, art, banner, clearLogo
         case rating, audienceRating
@@ -108,6 +112,7 @@ struct PlexItem: Decodable, Sendable, Identifiable {
             librarySectionID = try container.decodeIfPresent(String.self, forKey: .librarySectionID)
         }
         title = try container.decode(String.self, forKey: .title)
+        editionTitle = Self.trimmedEditionTitle(try container.decodeIfPresent(String.self, forKey: .editionTitle))
 
         summary = try container.decodeIfPresent(String.self, forKey: .summary)
         studio = try container.decodeIfPresent(String.self, forKey: .studio)
@@ -152,6 +157,14 @@ struct PlexItem: Decodable, Sendable, Identifiable {
         roles = try container.decodeIfPresent([PlexRole].self, forKey: .roles)
         guid = try container.decodeIfPresent(String.self, forKey: .guid)
         guids = try container.decodeIfPresent([PlexGuid].self, forKey: .guids) ?? []
+    }
+}
+
+extension PlexItem {
+    /// Plex sends `editionTitle` only when an edition is set, but a hand-edited
+    /// blank one should still read as "no edition" everywhere.
+    static func trimmedEditionTitle(_ value: String?) -> String? {
+        value?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
     }
 }
 

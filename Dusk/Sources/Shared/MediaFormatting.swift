@@ -18,6 +18,14 @@ enum MediaTextFormatter {
         }
     }
 
+    /// "1982 · Director's Cut". Either part may be missing; nil when both are.
+    static func joinedWithEdition(_ base: String?, edition: String?) -> String? {
+        [base, edition]
+            .compactMap { $0?.nilIfEmpty }
+            .joined(separator: " · ")
+            .nilIfEmpty
+    }
+
     /// "S2 · E8", for tight spots like the tvOS Next Episode tooltip.
     static func compactSeasonEpisodeLabel(season: Int?, episode: Int?) -> String? {
         switch (season, episode) {

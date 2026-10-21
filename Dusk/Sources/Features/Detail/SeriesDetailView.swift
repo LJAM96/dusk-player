@@ -294,7 +294,9 @@ struct SeriesDetailView: View {
 
     @ViewBuilder
     private func seasonTagline(_ season: SeasonDetailViewModel, details: PlexMediaDetails) -> some View {
+        // Editions belong to the show, not the season.
         let parts = [
+            viewModel.show?.details?.editionTitle,
             season.episodeCountText,
             season.watchedEpisodeCountText,
             details.contentRating,

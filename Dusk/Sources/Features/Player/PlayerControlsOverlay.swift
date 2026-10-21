@@ -140,7 +140,7 @@ struct PlayerControlsOverlay: View {
         return PlayerMediaHeader(
             title: mediaDetails.title,
             secondaryTitle: nil,
-            subtitle: mediaDetails.year.map(String.init),
+            subtitle: MediaTextFormatter.joinedWithEdition(mediaDetails.year.map(String.init), edition: mediaDetails.editionTitle),
             usesCompactTitleOnTV: false
         )
     }

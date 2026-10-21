@@ -34,7 +34,7 @@ extension PlexItem {
         if type == .episode {
             return MediaTextFormatter.seasonEpisodeLabel(season: parentIndex, episode: index) ?? title
         }
-        return year.map(String.init)
+        return appendingEdition(to: year.map(String.init))
     }
 
     /// Clip cards show their full upload date plus compact duration. Videos
@@ -53,12 +53,12 @@ extension PlexItem {
         }
         switch type {
         case .movie:
-            return year.map(String.init)
+            return appendingEdition(to: year.map(String.init))
         case .show:
             if let childCount {
-                return MediaTextFormatter.seasonCount(childCount)?.lowercased()
+                return appendingEdition(to: MediaTextFormatter.seasonCount(childCount)?.lowercased())
             }
-            return year.map(String.init)
+            return appendingEdition(to: year.map(String.init))
         case .season:
             return title.nilIfEmpty ?? MediaTextFormatter.seasonEpisodeLabel(season: index, episode: nil)
         case .episode:
@@ -101,18 +101,19 @@ extension PlexItem {
         case .collection:
             return collectionCountLabel
         default:
-            return year.map(String.init)
+            return appendingEdition(to: year.map(String.init))
         }
     }
 
     var filmographyPosterSubtitle: String? {
         switch type {
         case .movie:
-            return year.map(String.init)
+            return appendingEdition(to: year.map(String.init))
         case .show:
             let parts = [
                 year.map(String.init),
                 childCount.flatMap { MediaTextFormatter.seasonCount($0) },
+                editionTitle,
             ]
             .compactMap { $0 }
 
@@ -120,6 +121,13 @@ extension PlexItem {
         default:
             return nil
         }
+    }
+
+    /// `1982 · Director's Cut`: a movie or show's edition rides along in its
+    /// subtitle, quietly, so two editions with the same poster can be told
+    /// apart. Plex only sends an edition when the server holds several.
+    func appendingEdition(to base: String?) -> String? {
+        MediaTextFormatter.joinedWithEdition(base, edition: editionTitle)
     }
 
     /// Artwork always comes from the item's own server: a merged row mixes

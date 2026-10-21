@@ -1860,7 +1860,7 @@ final class DownloadManager {
                 episode: details.index
             )
         case .movie:
-            return details.year.map(String.init)
+            return MediaTextFormatter.joinedWithEdition(details.year.map(String.init), edition: details.editionTitle)
         default:
             return nil
         }

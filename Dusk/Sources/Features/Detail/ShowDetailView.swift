@@ -150,6 +150,7 @@ struct ShowDetailView: View {
     private func metadataTagline(_ details: PlexMediaDetails) -> some View {
         let parts = [
             details.year.map(String.init),
+            details.editionTitle,
             details.contentRating,
             viewModel.seasonCountText,
             viewModel.episodeCountText,

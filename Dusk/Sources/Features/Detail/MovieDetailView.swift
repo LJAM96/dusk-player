@@ -173,6 +173,7 @@ struct MovieDetailView: View {
     private func metadataTagline(_ details: PlexMediaDetails) -> some View {
         let parts = [
             details.year.map(String.init),
+            details.editionTitle,
             details.contentRating,
             viewModel.formattedDuration,
         ].compactMap { $0 }
