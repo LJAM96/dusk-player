@@ -710,8 +710,24 @@ final class SeerrService {
         }
         guard !queryItems.isEmpty else { return url }
         var components = URLComponents(url: url, resolvingAgainstBaseURL: false)
-        components?.queryItems = queryItems
+        // `queryItems` leaves sub-delimiters like ' ! ( ) * unescaped, and
+        // Seerr's OpenAPI validator rejects them with a 400 ("You've got mail").
+        components?.percentEncodedQueryItems = queryItems.map {
+            URLQueryItem(
+                name: Self.percentEncodedQueryValue($0.name),
+                value: $0.value.map(Self.percentEncodedQueryValue)
+            )
+        }
         return components?.url
+    }
+
+    /// RFC 3986 unreserved characters only, matching Seerr's web UI.
+    private static let queryValueAllowed = CharacterSet(
+        charactersIn: "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-._~"
+    )
+
+    private static func percentEncodedQueryValue(_ value: String) -> String {
+        value.addingPercentEncoding(withAllowedCharacters: queryValueAllowed) ?? value
     }
 
     private func validate(response: HTTPURLResponse, data: Data) throws {
