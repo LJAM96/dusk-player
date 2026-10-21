@@ -38,6 +38,7 @@ EXTERNAL_GROUPS="External" # optional comma separated external TestFlight groups
                            # submitted for Beta App Review (internal groups with "all builds" get it automatically)
                            # (external=PENDING_OTHER_BUILD_IN_REVIEW: an older build of the same version is still in
                            # beta review, Apple allows one per version; submit this one once that review is done)
+export EXTERNAL_SKIP_VERSIONS="1.8.*"  # space separated version globs kept internal-only (Marvin 2026-10-21: no 1.8 externally for now)
 # optional shell line run in the project dir before building ($REPO = checkout). VLCKit is not in git:
 # reuse the checkout's copy, then the Xcode Cloud post-clone step verifies it (or downloads the pinned
 # version) and makes sure the Metal toolchain is installed. Release builds must carry Dusk's VLCKit
@@ -116,7 +117,7 @@ xcodebuild -project "$XCPROJ" -alltargets -configuration Release \
 
 # --- the API + signing helper (python3 stdlib) ---
 cat >"$WORK/tf.py" <<'PY'
-import base64, glob, json, os, plistlib, re, subprocess, sys, time, urllib.parse, urllib.request
+import base64, fnmatch, glob, json, os, plistlib, re, subprocess, sys, time, urllib.parse, urllib.request
 
 PLATFORMS = {"ios": ("iOS", "IOS", "iphoneos"), "tvos": ("tvOS", "TV_OS", "appletvos")}  # profile Platform, ASC platform, SDK
 
@@ -156,6 +157,9 @@ def call(method, path, body):
         return {"error": f"{e.code} {msg}"}
 
 def external(app_id, build_id, names):
+    ver = api(f"/v1/builds/{build_id}/preReleaseVersion")["data"]["attributes"]["version"]
+    if any(fnmatch.fnmatch(ver, g) for g in os.environ.get("EXTERNAL_SKIP_VERSIONS", "").split()):
+        print(f"skipped-{ver}-internal-only"); return
     groups = {g["attributes"]["name"]: g["id"] for g in api(f"/v1/apps/{app_id}/betaGroups?limit=200")["data"]
               if not g["attributes"]["isInternalGroup"]}
     missing = [n for n in names.split(",") if n.strip() and n.strip() not in groups]
