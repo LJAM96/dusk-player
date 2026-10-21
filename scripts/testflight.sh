@@ -162,7 +162,10 @@ def external(app_id, build_id, names):
     if missing: print("error:no-group-" + "+".join(m.strip().replace(" ", "_") for m in missing)); return
     for n in names.split(","):
         if not n.strip(): continue
-        r = call("POST", f"/v1/betaGroups/{groups[n.strip()]}/relationships/builds", {"data": [{"type": "builds", "id": build_id}]})
+        for _ in range(10):  # right after VALID the build can still 404 here for a minute
+            r = call("POST", f"/v1/betaGroups/{groups[n.strip()]}/relationships/builds", {"data": [{"type": "builds", "id": build_id}]})
+            if not r.get("error", "").startswith("404"): break
+            time.sleep(15)
         if "error" in r: print("error:add-group:" + r["error"].replace(" ", "_")[:120]); return
     r = call("POST", "/v1/betaAppReviewSubmissions",
              {"data": {"type": "betaAppReviewSubmissions", "relationships": {"build": {"data": {"type": "builds", "id": build_id}}}}})
