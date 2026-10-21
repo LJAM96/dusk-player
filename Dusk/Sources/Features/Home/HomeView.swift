@@ -62,6 +62,11 @@ struct HomeView: View {
                 newViewModel.setPersonalizedShelvesEnabled(preferences.personalizedShelvesEnabled)
                 await newViewModel.load(maxRecentlyAddedItems: recentlyAddedInlineItemLimit)
             }
+            // Hiding or showing a library (Settings › Libraries › Hidden
+            // Libraries) changes what Home may show.
+            .onChange(of: plexService.libraryOrder.hiddenSectionIdentities) { _, _ in
+                viewModel?.hiddenLibrariesDidChange()
+            }
             .onChange(of: preferences.personalizedShelvesEnabled) { _, enabled in
                 viewModel?.setPersonalizedShelvesEnabled(enabled)
             }

@@ -248,9 +248,12 @@ extension PlexService {
             serverID: targetID
         )
         let response = try decodeJSON(HubItemsResponse.self, from: data, serverID: targetID)
-        return (response.MediaContainer.Metadata ?? []) + (response.MediaContainer.Directory ?? [])
+        let items = (response.MediaContainer.Metadata ?? []) + (response.MediaContainer.Directory ?? [])
+        return await loadedHiddenLibraryFilter().filtering(items)
     }
 
+    /// Hidden libraries' titles never come back: search feeds both the Search
+    /// screen and Siri.
     func search(query: String, serverID: String? = nil) async throws -> [PlexSearchResult] {
         let hubs = try await fetchHubs(
             path: "/hubs/search",
@@ -263,7 +266,7 @@ extension PlexService {
             serverID: serverID
         )
 
-        return hubs
+        return await loadedHiddenLibraryFilter().filtering(hubs)
             .filter { !$0.items.isEmpty }
             .flatMap { PlexSearchResult.results(from: $0) }
     }

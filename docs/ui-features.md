@@ -46,8 +46,8 @@ in Dusk. Read this with `docs/codebase-map.md`, `STYLE.md`, and `docs/data-and-p
   present once a section is known to hold items: `LibrariesViewModel` counts each
   video section (`getLibraryItemCount`) and keeps empty or not-yet-counted ones out
   of `libraries`, so an empty section never shows a Videos tab. A failed count shows
-  the section; a cancelled one is retried on the next load. Settings › Navigation
-  Tabs hides any destination, Videos included.
+  the section; a cancelled one is retried on the next load. Settings › Libraries ›
+  Navigation Tabs hides any destination, Videos included.
 - iOS/iPadOS use the modern native `Tab` API with SF Symbols and open Search
   from a circular trailing toolbar action on Home and immediately before Browse
   on each library root, leaving Search out of the tab bar. iPadOS keeps every
@@ -533,7 +533,7 @@ in Dusk. Read this with `docs/codebase-map.md`, `STYLE.md`, and `docs/data-and-p
 
 ### Server Priority
 
-- `Settings › Navigation › Server Priority` opens `ServerPrioritySettingsView` on
+- `Settings › Libraries › Server Priority` opens `ServerPrioritySettingsView` on
   every platform. It answers two questions and nothing else: in which order the
   servers rank, and which of them Dusk uses at all.
 - Each row shows the server name, its ownership ("Your server" / "Shared by X"),
@@ -566,15 +566,14 @@ in Dusk. Read this with `docs/codebase-map.md`, `STYLE.md`, and `docs/data-and-p
 - `LibraryOrderSettingsView` (route `.libraryOrder`) is reached from the library tabs,
   not Settings: iOS has an `arrow.up.arrow.down` toolbar button on each tab's landing
   screen and the library list; tvOS has a "Library Order" glass button in the browse
-  row (recommendations), the chip row (All landing) and atop the library list. It
-  edits the order of *your* libraries across every enabled server, and which of them
-  are hidden (`pinnedSources[].isHidden`; hidden ones drop out of `LibrariesViewModel`,
-  not Home). Both are an
-  account-level Plex setting rather than a Dusk preference: the same order drives the
-  Plex Web sidebar and the other Plex apps signed in as this user.
+  row (recommendations) and atop the library list. It edits the order of *your*
+  visible libraries across every enabled server; hidden ones are not listed and keep
+  their place at the end of the account's list. The order is an account-level Plex
+  setting rather than a Dusk preference: the same order drives the Plex Web sidebar
+  and the other Plex apps signed in as this user.
 - A row carries its server name only when another library of the same type has the
   same title. The server name disambiguates; it is never decoration.
-- The screen lists **every** section, music included, even
+- The screen lists **every** visible section, music included, even
   though Dusk cannot browse it. They occupy slots in the account's order, so
   omitting them would silently move them when the list is written back.
 - iOS/iPadOS use native list editing (`EditButton` + `onMove`). tvOS uses a position
@@ -593,6 +592,26 @@ in Dusk. Read this with `docs/codebase-map.md`, `STYLE.md`, and `docs/data-and-p
   plex.tv itself. Entries for disabled servers, cloud providers, and servers whose
   sections failed to load are carried through untouched — never write an order for a
   server Dusk could not read. Storage format and traps: `docs/data-and-plex.md`.
+
+### Hidden Libraries
+
+- Settings › **Libraries** (formerly "Navigation") › **Hidden Libraries**
+  (`HiddenLibrariesSettingsView`) is the only place to hide a library: one switch per
+  library Dusk can show, grouped under server names when there are several, in server
+  priority then server order (a switch never moves). Library Order has no hide action.
+- Storage is the account's `pinnedSources[].isHidden` (same debounced write as the
+  order), so Plex Web and the other Plex apps hide the library too, and a hide made
+  there applies in Dusk. Nothing is stored in Dusk.
+- A hidden library is gone everywhere: tabs and library lists (`visibleSections`),
+  Home rows and its items in global rows / Continue Watching / hero / Top Shelf
+  (`HomeViewModel.mergedScreen`), personalized shelves, "Show All" and Recently Added
+  paging (`getHubItems`), search and Siri search (`PlexService.search`), a person's
+  titles, and the Siri title catalog (rebuilt when the hidden set changes). Matching
+  is `"<serverID>|<librarySectionID>"` via `HiddenLibraryFilter`; an item without a
+  section id is kept.
+- Home's first paint waits (up to `HomeFirstPaintGate.patience`) for the library order,
+  so a hidden library's rows never flash; a later hide/show reloads Home.
+- Not filtered: downloads already on the device, and Seerr results.
 - Clips never enter the cinematic hero rotation (`HomeViewModel.heroItems()` filters
   `isClip` — frame grabs read poorly full-bleed). They stay visible in hub rows, where
   an all-clip hub (`isVideoHub`) renders as a 16:9 carousel.
@@ -639,11 +658,8 @@ in Dusk. Read this with `docs/codebase-map.md`, `STYLE.md`, and `docs/data-and-p
   tabs derive from the merged library list. Avoid each tab independently discovering
   libraries.
 - `LibrariesView` is the direct Movies/Shows/Videos/Photos tab wrapper (Photos: see
-  "Photos" below). Where the tab lands
-  is Settings › Navigation › **Libraries Open To** (`UserPreferences.libraryLandingPage`,
-  device-local):
-  - **Recommended** (default): `LibraryRecommendationsView` for **all** libraries of
-    that type. Browse reaches every library's grid in one step: on tvOS a leading row
+  "Photos" below). The tab lands on `LibraryRecommendationsView` for **all**
+  libraries of that type. Browse reaches every library's grid in one step: on tvOS a leading row
     of glass buttons ("All Movies", one per library, then "Libraries" when there are
     several) is the first thing under the tab bar, so focus lands there moving down;
     on iOS a toolbar link with one library, or a Browse menu (each library's grid, then
@@ -652,11 +668,8 @@ in Dusk. Read this with `docs/codebase-map.md`, `STYLE.md`, and `docs/data-and-p
     `NavigationPath`, never via `navigationDestination(item:/isPresented:)`: a
     screen pushed outside the path is dropped when anything on it appends to the
     path, so a poster tapped in the grid bounced straight back to the grid.
-  - **All (A–Z)**: one library opens straight on its `LibraryItemsView` grid, with a
-    "Recommended" link (iOS toolbar, tvOS last chip) back to its recommendations;
-    several open on `LibraryTypeListView`, whose rows then open grids.
-  The list's rows follow the same setting. (The old combined `LibrariesHubView` tab
-  is retired; every type gets its own tab.)
+  The list's rows open each library's recommendations. (The old combined
+  `LibrariesHubView` tab is retired; every type gets its own tab.)
 - `LibraryRecommendationsViewModel` takes `libraries: [PlexLibrary]` and is the
   library-scoped home equivalent: `getLibraryHubs(...)` per library (fanned out, each
   routed to its own server), `HubMerge` across them, continue-watching hub extraction,
@@ -736,7 +749,7 @@ in Dusk. Read this with `docs/codebase-map.md`, `STYLE.md`, and `docs/data-and-p
   sections come through the same per-server, per-profile session as every library,
   so a managed user only sees the photo libraries shared with them.
 - No recommendations: one photo library opens straight on `PhotoBrowserView`, several
-  on `LibraryTypeListView` (rows always open the grid, whatever Libraries Open To says).
+  on `LibraryTypeListView` (rows always open the grid).
   `.library(photoLibrary)` and `.photoAlbum(PhotoAlbumRoute)` both land on
   `PhotoBrowserView`.
 - `PhotoBrowserViewModel` walks a list of paged queries (`PlexPhotoQuery`): a library

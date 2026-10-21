@@ -19,10 +19,11 @@ struct HomeRecommendationEngine {
     ) async throws -> [HomePersonalizedShelf] {
         guard itemsPerShelf > 0 else { return [] }
 
-        // Every connected server's sections, already in the account's order.
-        // Shelves therefore span servers: a genre the user likes pulls from
-        // wherever those titles happen to live.
-        let libraries = try await plexService.ensureLibraryOrderLoaded()
+        // Every connected server's sections, already in the account's order,
+        // minus the hidden ones. Shelves therefore span servers: a genre the
+        // user likes pulls from wherever those titles happen to live.
+        try await plexService.ensureLibraryOrderLoaded()
+        let libraries = plexService.libraryOrder.visibleSections
         let movieLibraries = libraries.filter { $0.libraryType == .movie }
         let showLibraries = libraries.filter { $0.libraryType == .show }
 

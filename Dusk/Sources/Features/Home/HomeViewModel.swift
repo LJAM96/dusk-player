@@ -127,6 +127,8 @@ final class HomeViewModel {
     private var firstPaintGate: HomeFirstPaintGate?
     private var recentlyAddedExpansionTask: Task<Void, Never>?
     private var personalizedShelvesTask: Task<Void, Never>?
+    /// The hidden libraries the screen on display was filtered with.
+    private var publishedHiddenLibraryIDs: Set<String> = []
     private var personalizedShelvesEnabled: Bool
 
     private let plexService: PlexService
@@ -159,6 +161,15 @@ final class HomeViewModel {
     /// True once Plex has returned anything Home could render.
     var hasLoadedContent: Bool {
         !hubs.isEmpty || !continueWatching.isEmpty || !personalizedShelves.isEmpty
+    }
+
+    /// Reloads when a library was hidden or shown since the screen on display
+    /// was merged. Before the first paint there is nothing to redo: the running
+    /// load filters with whatever the account says once it settles.
+    func hiddenLibrariesDidChange() {
+        guard hasLoadedContent,
+              plexService.libraryOrder.hiddenSectionIdentities != publishedHiddenLibraryIDs else { return }
+        Task { await load() }
     }
 
     /// The one way Home loads: first mount, tab return, scene activation,
@@ -354,7 +365,8 @@ final class HomeViewModel {
                     hasHero: payloadsByRank.contains { $0?.hasHeroItem == true },
                     firstContentAt: firstContentAt,
                     isSettled: outstanding.isEmpty && orderSettled,
-                    isAwaitingRememberedHero: !outstanding.isDisjoint(with: rememberedHeroServerIDs)
+                    isAwaitingRememberedHero: !outstanding.isDisjoint(with: rememberedHeroServerIDs),
+                    isAwaitingLibraryOrder: !orderSettled
                 )
 
                 switch decision {
@@ -470,10 +482,17 @@ final class HomeViewModel {
         hubsByServer.reserveCapacity(payloads.count)
         continueWatchingByServer.reserveCapacity(payloads.count)
 
+        // Libraries hidden on the account leave Home completely: their rows,
+        // and their titles in global rows and Continue Watching (and so the
+        // hero and the Top Shelf).
+        let hiddenLibraries = plexService.libraryOrder.hiddenLibraryFilter
+        publishedHiddenLibraryIDs = hiddenLibraries.hiddenLibraryIDs
         for payload in payloads {
-            hubsByServer.append((payload?.hubs ?? []).filter { !shouldHideHomeHub($0) })
+            hubsByServer.append(
+                hiddenLibraries.filtering((payload?.hubs ?? []).filter { !shouldHideHomeHub($0) })
+            )
             continueWatchingByServer.append(
-                (payload?.continueWatching ?? []).filter { !shouldHideHomeItem($0) }
+                hiddenLibraries.filtering((payload?.continueWatching ?? []).filter { !shouldHideHomeItem($0) })
             )
         }
 

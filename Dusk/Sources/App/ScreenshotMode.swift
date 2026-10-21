@@ -76,7 +76,7 @@ enum ScreenshotMode {
     }
 
     enum Screen: String {
-        case home, movies, shows, photos, library, collections, detail, search, player, downloads, settings, serverPriority, supporter, icons
+        case home, movies, shows, photos, library, collections, detail, search, player, downloads, settings, serverPriority, hiddenLibraries, supporter, icons
     }
 
     static var screen: Screen? {
@@ -206,6 +206,9 @@ enum ScreenshotMode {
         case .serverPriority:
             destination.tab = .settings
             destination.routes = [.screenshotServerPriority]
+        case .hiddenLibraries:
+            destination.tab = .settings
+            destination.routes = [.screenshotHiddenLibraries]
         case .supporter:
             destination.tab = .settings
             destination.sheet = .supporter

@@ -18,7 +18,7 @@ by launch arguments:
 | --- | --- |
 | `-DuskScreenshotMode YES` | Signs in with a fake account token (Keychain untouched); hero rotation off |
 | `-DuskScreenshotPlexTV <url>` | Replaces `https://plex.tv` (`PlexService.plexTVBase`) |
-| `-DuskScreenshotScreen <name>` | `home`, `movies`, `shows`, `library`, `collections`, `detail`, `search`, `player`, `downloads`, `settings`, `serverPriority`, `supporter`, `icons` |
+| `-DuskScreenshotScreen <name>` | `home`, `movies`, `shows`, `library`, `collections`, `detail`, `search`, `player`, `downloads`, `settings`, `serverPriority`, `hiddenLibraries`, `supporter`, `icons` |
 | `-DuskScreenshotItem <ratingKey>` / `-DuskScreenshotItemType <type>` | Item for `detail`/`player`; type also picks the `library` tab |
 | `-DuskScreenshotPlayOffset <seconds>` | Exact player start position, ignoring the resume point |
 | `-DuskScreenshotKeepHUD YES` | Player controls never auto-hide |

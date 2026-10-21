@@ -2,10 +2,6 @@ import SwiftUI
 
 struct LibraryItemsView: View {
     @State private var viewModel: LibraryItemsViewModel
-    /// Set when the grid is a tab's landing page (Settings › Libraries Open
-    /// To › All), so the library's recommendations stay one step away.
-    private let showsRecommendationsLink: Bool
-
     private let horizontalPadding: CGFloat = DuskPosterMetrics.gridHorizontalPadding
     private let gridSpacing: CGFloat = DuskPosterMetrics.gridSpacing
     private let gridRowSpacing: CGFloat = DuskPosterMetrics.gridRowSpacing
@@ -16,10 +12,8 @@ struct LibraryItemsView: View {
         library: PlexLibrary,
         plexService: PlexService,
         collection: PlexLibraryCollection? = nil,
-        initialGenre: LibraryGenreOption? = nil,
-        showsRecommendationsLink: Bool = false
+        initialGenre: LibraryGenreOption? = nil
     ) {
-        self.showsRecommendationsLink = showsRecommendationsLink
         _viewModel = State(initialValue: LibraryItemsViewModel(
             library: library,
             plexService: plexService,
@@ -57,23 +51,6 @@ struct LibraryItemsView: View {
         .task {
             await viewModel.loadItems()
         }
-        #if os(iOS)
-        .toolbar {
-            if showsRecommendationsLink {
-                ToolbarItemGroup(placement: .topBarTrailing) {
-                    SearchToolbarLink()
-
-                    LibraryOrderToolbarLink()
-
-                    NavigationLink(value: AppNavigationRoute.libraryRecommendations(viewModel.library)) {
-                        Label("Recommended", systemImage: "sparkles")
-                            .font(.subheadline.weight(.semibold))
-                    }
-                    .buttonStyle(.plain)
-                }
-            }
-        }
-        #endif
     }
 
     private var libraryContent: some View {
@@ -150,15 +127,6 @@ struct LibraryItemsView: View {
                 }
                 #endif
 
-                #if os(tvOS)
-                // Last, so a focused (scaled) chip never sits under it.
-                if showsRecommendationsLink {
-                    recommendationsLink
-
-                    libraryOrderLink
-                }
-                #endif
-
                 if viewModel.isLoading && !viewModel.items.isEmpty {
                     ProgressView()
                         .padding(.leading, 6)
@@ -169,20 +137,6 @@ struct LibraryItemsView: View {
             .padding(.bottom, 4)
         }
     }
-
-    #if os(tvOS)
-    private var recommendationsLink: some View {
-        browseChipLink(
-            AppNavigationRoute.libraryRecommendations(viewModel.library),
-            title: "Recommended",
-            systemImage: "sparkles"
-        )
-    }
-
-    private var libraryOrderLink: some View {
-        browseChipLink(.libraryOrder, title: "Library Order", systemImage: "arrow.up.arrow.down")
-    }
-    #endif
 
     private var collectionsLink: some View {
         browseChipLink(

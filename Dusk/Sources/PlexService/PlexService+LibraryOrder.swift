@@ -115,6 +115,14 @@ extension PlexService {
         }
     }
 
+    /// The hidden-library filter, once the account's flags are known. Waits for
+    /// the shared library order load (a no-op once it is cached); if that
+    /// cannot be read, nothing is known to be hidden.
+    func loadedHiddenLibraryFilter() async -> HiddenLibraryFilter {
+        _ = try? await ensureLibraryOrderLoaded()
+        return libraryOrder.hiddenLibraryFilter
+    }
+
     /// Applies the cached order to an already-fetched list, without any
     /// networking. Returns the list unchanged when nothing is cached.
     func effectiveLibraryOrder(for libraries: [PlexLibrary]) -> [PlexLibrary] {

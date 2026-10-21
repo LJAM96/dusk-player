@@ -8,7 +8,10 @@ import Foundation
 /// order every screen in Dusk uses. `PlexService+LibraryOrder` owns all
 /// networking and is the only thing allowed to mutate the store; everything
 /// else reads `orderedSections` / `visibleSections` /
-/// `orderedSectionIdentities`.
+/// `orderedSectionIdentities` / `hiddenLibraryFilter`.
+///
+/// It is also the single source of which libraries are hidden: the account's
+/// `pinnedSources[].isHidden` flags, nothing stored in Dusk.
 ///
 /// The cache is keyed by `"<connected serverIDs in priority order>|<profileID>"`:
 /// the pinned list is per Plex account *token* (Plex Home members each have
@@ -104,6 +107,12 @@ final class LibraryOrderStore {
             pinnedSources: pinnedSources,
             machineIdentifiers: machineIdentifiers
         )
+    }
+
+    /// Hides the hidden libraries' content wherever items from several
+    /// libraries meet. See `HiddenLibraryFilter`.
+    var hiddenLibraryFilter: HiddenLibraryFilter {
+        HiddenLibraryFilter(hiddenLibraryIDs: hiddenSectionIdentities)
     }
 
     /// `orderedSections` without the hidden ones: what screens that list

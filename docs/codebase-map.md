@@ -149,9 +149,8 @@ Libraries:
   non-empty (photo sections too). `ServerLabeling` decides when a library has to
   name its server (same type, same title).
 - `LibrariesView` lands each type tab on `LibraryRecommendationsView` for all of
-  that type's libraries, or on the grid / `LibraryTypeListView` when Settings ›
-  Libraries Open To is All (A–Z); `LibraryTypeListView` is the list of a type's
-  libraries when there is more than one.
+  that type's libraries; `LibraryTypeListView` is the list of a type's libraries
+  when there is more than one.
 - `LibraryItemsViewModel` owns paged item loading, sorting, genre filtering, and
   optional collection scoping (`LibraryCollectionItemsView`, a video library's
   channel filter). Plex collections of movie/TV libraries are
@@ -240,8 +239,15 @@ Settings:
   Plex setting, not a Dusk preference: the view model edits a working copy, then
   writes through `PlexService.reorderLibraries(_:)` after a 1s debounce. iOS uses
   `EditButton` + `onMove`; tvOS uses position menus (`docs/ui-features.md`).
-- `PlexService/LibraryOrderStore` is the single source of that order for the whole
-  app; `PlexService+LibraryOrder.swift` owns the plex.tv read/write.
+- `HiddenLibrariesSettingsView` (Settings › Libraries › Hidden Libraries) is the
+  one place to hide a library: a switch per library, grouped by server. It reuses
+  `LibraryOrderSettingsViewModel.setHidden`, which writes `pinnedSources[].isHidden`.
+- `PlexService/LibraryOrderStore` is the single source of that order, and of which
+  libraries are hidden, for the whole app; `PlexService+LibraryOrder.swift` owns the
+  plex.tv read/write. `PlexService/HiddenLibraryFilter` (`libraryOrder.hiddenLibraryFilter`,
+  or `loadedHiddenLibraryFilter()` to wait for the load) drops hidden libraries' items
+  wherever libraries mix: Home merge, `search`, `getHubItems`, `getPersonMedia`,
+  `HomeRecommendationEngine` (visible sections), `SiriTitleCatalog`.
 
 Search and Seerr:
 

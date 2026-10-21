@@ -153,12 +153,19 @@ struct SettingsIOSView: View {
                     }
                 }
 
-                Picker("Libraries Open To", selection: $preferences.libraryLandingPage) {
-                    ForEach(LibraryLandingPage.allCases) { page in
-                        Text(page.displayName).tag(page)
+                NavigationLink {
+                    HiddenLibrariesSettingsView()
+                } label: {
+                    HStack {
+                        Text("Hidden Libraries")
+                            .foregroundStyle(Color.duskTextPrimary)
+
+                        Spacer()
+
+                        Text(SettingsSupport.hiddenLibrariesSummary(plexService))
+                            .foregroundStyle(Color.duskTextSecondary)
                     }
                 }
-                .foregroundStyle(Color.duskTextPrimary)
 
                 NavigationLink {
                     ServerPrioritySettingsView()
@@ -174,10 +181,10 @@ struct SettingsIOSView: View {
                     }
                 }
             } header: {
-                Text("Navigation")
+                Text("Libraries")
                     .foregroundStyle(Color.duskTextSecondary)
             } footer: {
-                Text(SettingsSupport.navigationFooterText)
+                Text(SettingsSupport.librariesFooterText)
                     .foregroundStyle(Color.duskTextSecondary)
             }
             .listRowBackground(Color.duskSurface)

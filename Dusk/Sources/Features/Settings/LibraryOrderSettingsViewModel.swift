@@ -3,8 +3,9 @@ import Foundation
 // not Foundation.
 import SwiftUI
 
-/// Editing state for the library order screen: the order and which libraries
-/// are hidden.
+/// Editing state for the account's libraries: their order (Library Order) and
+/// which ones are hidden (Settings › Libraries › Hidden Libraries). Both screens
+/// use it because both are written in one go to the same plex.tv setting.
 ///
 /// The list is the user's working copy: every move mutates it immediately so the
 /// UI stays responsive, and the write to Plex is debounced so walking a library
@@ -27,9 +28,8 @@ final class LibraryOrderSettingsViewModel {
     /// Working order. Every section of the connected server, unfiltered: music
     /// and photo libraries are not browsable in Dusk but they occupy a slot in
     /// the account's sidebar order, so leaving them out would silently move them.
-    /// Hidden libraries stay in this list (hiding one does not move its row in
-    /// the tvOS visibility list); a move puts them after the visible ones,
-    /// which is where the account stores them anyway.
+    /// Hidden libraries stay in this list; a move puts them after the visible
+    /// ones, which is where the account stores them anyway.
     private(set) var libraries: [PlexLibrary] = []
     /// `PlexLibrary.id`s the user has hidden.
     private(set) var hiddenIDs: Set<String> = []
@@ -91,6 +91,26 @@ final class LibraryOrderSettingsViewModel {
         libraries.filter { hiddenIDs.contains($0.id) }
     }
 
+    /// The libraries Dusk can show, per server, for the Hidden Libraries
+    /// switches: servers in priority order, each server's libraries in its own
+    /// order. Deliberately not the account order, so a switch never moves.
+    var hideableLibrariesByServer: [LibraryServerGroup] {
+        var groups: [LibraryServerGroup] = []
+        for library in plexService.libraryOrder.sections where library.libraryType != nil {
+            let serverID = library.serverID ?? ""
+            if groups.last?.serverID == serverID {
+                groups[groups.count - 1].libraries.append(library)
+            } else {
+                groups.append(LibraryServerGroup(
+                    serverID: serverID,
+                    serverName: plexService.pool.displayName(for: serverID),
+                    libraries: [library]
+                ))
+            }
+        }
+        return groups
+    }
+
     func isHidden(_ library: PlexLibrary) -> Bool {
         hiddenIDs.contains(library.id)
     }
@@ -130,8 +150,9 @@ final class LibraryOrderSettingsViewModel {
         visibleLibraries.firstIndex(of: library) ?? 0
     }
 
-    /// Hides or shows a library everywhere Dusk lists libraries. The flag lives
-    /// on the Plex account next to the order, so other Plex apps follow it too.
+    /// Hides or shows a library everywhere in Dusk (see `HiddenLibraryFilter`).
+    /// The flag lives on the Plex account next to the order, so other Plex apps
+    /// follow it too.
     func setHidden(_ isHidden: Bool, for library: PlexLibrary) {
         var hidden = hiddenIDs
         if isHidden {
@@ -191,4 +212,13 @@ final class LibraryOrderSettingsViewModel {
         }
         isSaving = false
     }
+}
+
+/// One server's libraries on the Hidden Libraries screen.
+struct LibraryServerGroup: Identifiable {
+    let serverID: String
+    let serverName: String
+    var libraries: [PlexLibrary]
+
+    var id: String { serverID }
 }

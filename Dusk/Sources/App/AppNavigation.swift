@@ -24,12 +24,14 @@ enum AppNavigationRoute: Hashable {
     case person(PlexPersonReference, serverID: String?)
     case seerrMedia(type: SeerrMediaType, id: Int)
     case seerrSeason(tvID: Int, seasonNumber: Int)
-    /// Library Order (order + hidden libraries), reached from the library tabs.
+    /// Library Order, reached from the library tabs.
     case libraryOrder
     #if DEBUG
     /// Screenshot mode only (`ScreenshotMode`): Settings › Server Priority is
     /// otherwise reached through a plain NavigationLink.
     case screenshotServerPriority
+    /// Screenshot mode only: Settings › Libraries › Hidden Libraries.
+    case screenshotHiddenLibraries
     #endif
 
     static func destination(for item: PlexItem) -> Self {
@@ -134,6 +136,8 @@ struct AppNavigationDestinationView: View {
         #if DEBUG
         case .screenshotServerPriority:
             ServerPrioritySettingsView()
+        case .screenshotHiddenLibraries:
+            HiddenLibrariesSettingsView()
         #endif
         }
     }

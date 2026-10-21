@@ -95,8 +95,8 @@ struct SettingsTVView: View {
                 }
 
                 TVSettingsSection(
-                    title: "Navigation",
-                    footer: SettingsSupport.navigationFooterText
+                    title: "Libraries",
+                    footer: SettingsSupport.librariesFooterText
                 ) {
                     TVSettingsNavigationRow(
                         title: "Navigation Tabs",
@@ -107,12 +107,12 @@ struct SettingsTVView: View {
 
                     tvRowDivider
 
-                    TVSettingsMenuRow(
-                        title: "Libraries Open To",
-                        options: LibraryLandingPage.allCases,
-                        selection: $preferences.libraryLandingPage,
-                        selectedTitle: preferences.libraryLandingPage.displayName
-                    ) { $0.displayName }
+                    TVSettingsNavigationRow(
+                        title: "Hidden Libraries",
+                        detail: SettingsSupport.hiddenLibrariesSummary(plexService)
+                    ) {
+                        HiddenLibrariesSettingsView()
+                    }
 
                     tvRowDivider
 

@@ -51,11 +51,13 @@ struct MainTabView: View {
                 }
             }
             // Teaches Siri the recently watched and added titles, again on
-            // each return to the foreground (at most every 30 minutes). Waits
-            // a moment so it never competes with Home's first paint.
+            // each return to the foreground (at most every 30 minutes) and
+            // whenever a library is hidden or shown. Waits a moment so it never
+            // competes with Home's first paint.
             .task(id: SiriCatalogRefreshTrigger(
                 revision: plexService.serverContentRevision,
-                isActive: scenePhase == .active
+                isActive: scenePhase == .active,
+                hiddenLibraryIDs: plexService.libraryOrder.hiddenSectionIdentities
             )) {
                 guard scenePhase == .active else { return }
                 try? await Task.sleep(for: .seconds(5))
@@ -458,4 +460,5 @@ private struct TopShelfLinkAttempt: Equatable {
 private struct SiriCatalogRefreshTrigger: Equatable {
     let revision: ServerContentRevision
     let isActive: Bool
+    let hiddenLibraryIDs: Set<String>
 }

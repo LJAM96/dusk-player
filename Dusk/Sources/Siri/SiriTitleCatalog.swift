@@ -40,6 +40,9 @@ final class SiriTitleCatalog {
         let profileID: String
         let refreshedAt: Date
         let entries: [SiriCatalogEntry]
+        /// The libraries that were hidden when it was built. Hiding or showing
+        /// one rebuilds the catalog, so Siri never offers a hidden title.
+        let hiddenLibraryIDs: Set<String>?
     }
 
     private var stored: Stored?
@@ -74,8 +77,12 @@ final class SiriTitleCatalog {
               let profileID = plexService.activeProfileID,
               !plexService.pool.connections.isEmpty else { return }
 
+        let hiddenLibraries = await plexService.loadedHiddenLibraryFilter()
+        let hiddenLibrariesChanged = (stored?.hiddenLibraryIDs ?? []) != hiddenLibraries.hiddenLibraryIDs
+
         if let stored,
            stored.profileID == profileID,
+           !hiddenLibrariesChanged,
            now.timeIntervalSince(stored.refreshedAt) < Self.refreshInterval {
             return
         }
@@ -86,13 +93,20 @@ final class SiriTitleCatalog {
         }
 
         let task = Task { @MainActor in
-            let entries = await Self.fetchEntries(plexService: plexService)
+            let entries = await Self.fetchEntries(plexService: plexService, hiddenLibraries: hiddenLibraries)
+            // An empty answer normally means the servers did not answer; after
+            // a hide it can also mean every library is hidden now.
             guard !Task.isCancelled,
                   plexService.activeProfileID == profileID,
-                  !entries.isEmpty else { return }
+                  !entries.isEmpty || hiddenLibrariesChanged else { return }
 
             let previous = self.stored?.profileID == profileID ? self.entries : []
-            self.store(Stored(profileID: profileID, refreshedAt: .now, entries: entries))
+            self.store(Stored(
+                profileID: profileID,
+                refreshedAt: .now,
+                entries: entries,
+                hiddenLibraryIDs: hiddenLibraries.hiddenLibraryIDs
+            ))
             if entries != previous {
                 Self.updateSiriVocabulary()
             }
@@ -117,9 +131,12 @@ final class SiriTitleCatalog {
 
     /// Recently watched first (most recent at the top, across servers), then
     /// recently added, one copy per title.
-    private static func fetchEntries(plexService: PlexService) async -> [SiriCatalogEntry] {
+    private static func fetchEntries(
+        plexService: PlexService,
+        hiddenLibraries: HiddenLibraryFilter
+    ) async -> [SiriCatalogEntry] {
         let perServer = await plexService.fanOutAcrossServers { service, serverID in
-            await recentItems(service: service, serverID: serverID)
+            await recentItems(service: service, serverID: serverID, hiddenLibraries: hiddenLibraries)
         }
 
         let watched = perServer
@@ -141,7 +158,8 @@ final class SiriTitleCatalog {
 
     private static func recentItems(
         service: PlexService,
-        serverID: String
+        serverID: String,
+        hiddenLibraries: HiddenLibraryFilter
     ) async -> (watched: [PlexItem], added: [PlexItem]) {
         let libraries: [PlexLibrary]
         do {
@@ -153,7 +171,8 @@ final class SiriTitleCatalog {
 
         var watched: [PlexItem] = []
         var added: [PlexItem] = []
-        for library in libraries where library.libraryType == .movie || library.libraryType == .show {
+        for library in libraries
+        where (library.libraryType == .movie || library.libraryType == .show) && !hiddenLibraries.hides(library) {
             if let items = try? await service.getLibraryItems(
                 sectionId: library.key,
                 size: recentlyWatchedPerLibrary,

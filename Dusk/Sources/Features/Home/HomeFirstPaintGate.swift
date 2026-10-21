@@ -38,19 +38,23 @@ struct HomeFirstPaintGate {
     ///     the library order is known, and no server is still connecting.
     ///   - isAwaitingRememberedHero: a server that had Continue Watching the last
     ///     time Home settled has not answered yet and may still.
+    ///   - isAwaitingLibraryOrder: the account's library order, and with it
+    ///     which libraries are hidden, is not known yet. Painting before it would
+    ///     flash a hidden library's rows, so this waits up to the cap too.
     func decide(
         now: ContinuousClock.Instant,
         hasContent: Bool,
         hasHero: Bool,
         firstContentAt: ContinuousClock.Instant?,
         isSettled: Bool,
-        isAwaitingRememberedHero: Bool
+        isAwaitingRememberedHero: Bool,
+        isAwaitingLibraryOrder: Bool = false
     ) -> Decision {
         guard hasContent, let firstContentAt else { return .wait(until: nil) }
         guard !isSettled else { return .paint }
 
         let cap = startedAt + Self.patience
-        let deadline = isAwaitingRememberedHero && !hasHero
+        let deadline = (isAwaitingRememberedHero && !hasHero) || isAwaitingLibraryOrder
             ? cap
             : min(firstContentAt + Self.settleGrace, cap)
 

@@ -31,7 +31,6 @@ struct LibrariesView: View {
 
 struct LibrariesRootContent: View {
     @Environment(PlexService.self) private var plexService
-    @Environment(UserPreferences.self) private var preferences
     let libraryType: PlexLibraryType
     let viewModel: LibrariesViewModel
     /// The enclosing stack's path, for the iOS Browse menu's pushes (see
@@ -74,19 +73,6 @@ struct LibrariesRootContent: View {
             if libraries.count == 1 {
                 PhotoBrowserView(library: libraries[0], plexService: plexService)
                     .id(libraries[0].id)
-            } else {
-                LibraryTypeListView(libraryType: libraryType, viewModel: viewModel)
-            }
-        } else if preferences.libraryLandingPage == .all {
-            // "All (A–Z)": one library opens straight on its grid; several
-            // open on the list of them, whose rows then open their grids.
-            if libraries.count == 1 {
-                LibraryItemsView(
-                    library: libraries[0],
-                    plexService: plexService,
-                    showsRecommendationsLink: true
-                )
-                .id(libraries[0].id)
             } else {
                 LibraryTypeListView(libraryType: libraryType, viewModel: viewModel)
             }
@@ -146,7 +132,6 @@ struct LibrariesRootContent: View {
 
 /// Every library of one type, in the account's cross-server order.
 struct LibraryTypeListView: View {
-    @Environment(UserPreferences.self) private var preferences
     let libraryType: PlexLibraryType
     let viewModel: LibrariesViewModel
 
@@ -196,13 +181,10 @@ struct LibraryTypeListView: View {
         #endif
     }
 
-    /// A row opens its library the way Settings › Libraries Open To says.
+    /// A row opens its library on its recommendations; photo libraries have
+    /// none and open on their albums.
     private func route(for library: PlexLibrary) -> AppNavigationRoute {
-        guard library.libraryType != .photo else { return .library(library) }
-        return switch preferences.libraryLandingPage {
-        case .recommended: .libraryRecommendations(library)
-        case .all: .library(library)
-        }
+        library.libraryType == .photo ? .library(library) : .libraryRecommendations(library)
     }
 }
 

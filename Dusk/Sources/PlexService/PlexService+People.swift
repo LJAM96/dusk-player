@@ -20,8 +20,9 @@ extension PlexService {
             serverID: serverID
         )
 
+        let hiddenLibraries = await loadedHiddenLibraryFilter()
         var seen = Set<PlexItemID>()
-        return items
+        return hiddenLibraries.filtering(items)
             .filter { $0.type == .movie || $0.type == .show }
             .filter { seen.insert($0.id).inserted }
     }
