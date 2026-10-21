@@ -85,6 +85,10 @@ final class PlaybackCoordinator {
     /// Confirmed tracks in the loaded remux, retained while a new selection
     /// is being prepared so a declined HDR track change can keep playing.
     var remuxTrackSelection: ExplicitTrackSelection?
+    /// The part's server-side selection from before an automatic remux start
+    /// overwrote it, written back when the session ends (see
+    /// `noteAutomaticServerSelectionWrite`).
+    @ObservationIgnored var automaticServerSelectionRestore: ServerStreamSelectionRestore?
     /// Plex subtitle stream id to select as soon as the player can mount it.
     /// Set by the sidecar-download flow and by the AVPlayer → VLCKit switch,
     /// consumed by `PlayerViewModel.configureAutomaticTrackSelection`.

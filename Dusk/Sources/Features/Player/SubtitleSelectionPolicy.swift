@@ -70,7 +70,20 @@ struct SubtitleSelectionPolicy: Equatable, Sendable {
     /// `audioLanguage`. Full subtitles prefer a non-forced, non-SDH track in
     /// the subtitle language; forced subtitles look in the subtitle language,
     /// then in the audio's own language, then at untagged forced tracks.
-    func preferredTrack(in tracks: [SubtitleTrack], audioLanguage rawAudioLanguage: String?) -> SubtitleTrack? {
+    ///
+    /// `serverSelectedStreamID` is the Plex stream the server marks
+    /// `selected` (set by another client or a bulk tool such as PASTA). It
+    /// only breaks ties: the mode and language rules above still decide
+    /// whether and in which language subtitles appear, and a selected forced
+    /// track never stands in for wanted full subtitles.
+    func preferredTrack(
+        in tracks: [SubtitleTrack],
+        audioLanguage rawAudioLanguage: String?,
+        serverSelectedStreamID: Int? = nil
+    ) -> SubtitleTrack? {
+        let serverSelected = serverSelectedStreamID.flatMap { id in
+            tracks.first { $0.plexStreamID == id }
+        }
         let wantsFullSubtitles = switch mode {
         case .off: false
         case .auto: !understands(audioLanguage: rawAudioLanguage)
@@ -78,7 +91,7 @@ struct SubtitleSelectionPolicy: Equatable, Sendable {
         }
 
         if wantsFullSubtitles, let subtitleLanguage,
-           let track = Self.ranked(tracks, language: subtitleLanguage, preferForced: false) {
+           let track = Self.ranked(tracks, language: subtitleLanguage, preferForced: false, serverSelected: serverSelected) {
             return track
         }
 
@@ -87,7 +100,7 @@ struct SubtitleSelectionPolicy: Equatable, Sendable {
         guard !forcedTracks.isEmpty else { return nil }
         let languages = [subtitleLanguage, PlayerViewModel.normalizedLanguageCode(rawAudioLanguage)].compactMap { $0 }
         for language in languages {
-            if let track = Self.ranked(forcedTracks, language: language, preferForced: true) {
+            if let track = Self.ranked(forcedTracks, language: language, preferForced: true, serverSelected: serverSelected) {
                 return track
             }
         }
@@ -99,9 +112,17 @@ struct SubtitleSelectionPolicy: Equatable, Sendable {
             .first
     }
 
-    private static func ranked(_ tracks: [SubtitleTrack], language: String, preferForced: Bool) -> SubtitleTrack? {
-        tracks
-            .filter { PlayerViewModel.normalizedLanguageCode($0.languageCode) == language }
+    private static func ranked(
+        _ tracks: [SubtitleTrack],
+        language: String,
+        preferForced: Bool,
+        serverSelected: SubtitleTrack?
+    ) -> SubtitleTrack? {
+        let matches = tracks.filter { PlayerViewModel.normalizedLanguageCode($0.languageCode) == language }
+        if let serverSelected, matches.contains(serverSelected), isForced(serverSelected) == preferForced {
+            return serverSelected
+        }
+        return matches
             .sorted(by: PlayerViewModel.subtitleOrdering(preferForcedTracks: preferForced))
             .first
     }

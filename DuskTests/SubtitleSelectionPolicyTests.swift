@@ -117,6 +117,65 @@ struct SubtitleSelectionPolicyTests {
         #expect(try pick(policy(.auto), audio: "jpn", streams: titled) == 50)
     }
 
+    // MARK: - Server selection (issue #21)
+
+    /// Fansub release: two full English tracks, the server selects the second.
+    private static let honorifics = #"""
+        {"id":11,"streamType":2,"languageCode":"jpn","codec":"aac","channels":2},
+        {"id":60,"streamType":3,"languageCode":"eng","codec":"ass","displayTitle":"English"},
+        {"id":61,"streamType":3,"languageCode":"eng","codec":"ass","displayTitle":"English (Honorifics)","selected":true},
+        {"id":62,"streamType":3,"languageCode":"eng","codec":"ass","displayTitle":"Signs","forced":true}
+        """#
+
+    private func pick(_ policy: SubtitleSelectionPolicy, audio: String?, streams: String, serverSelected: Bool) throws -> Int? {
+        let part = try self.part(streams)
+        let tracks = part.streams.filter { $0.streamType == .subtitle }.map(SubtitleTrack.init(stream:))
+        return policy.preferredTrack(
+            in: tracks,
+            audioLanguage: audio,
+            serverSelectedStreamID: serverSelected ? PlayerViewModel.serverSelectedStreamID(of: .subtitle, inPart: part) : nil
+        )?.id
+    }
+
+    @Test func serverSelectionBreaksTiesWithinTheWantedLanguage() throws {
+        #expect(try pick(policy(.auto), audio: "jpn", streams: Self.honorifics, serverSelected: false) == 60)
+        #expect(try pick(policy(.auto), audio: "jpn", streams: Self.honorifics, serverSelected: true) == 61)
+        #expect(try pick(policy(.always), audio: "eng", streams: Self.honorifics, serverSelected: true) == 61)
+        let part = try self.part(Self.honorifics)
+        #expect(PlayerViewModel.preferredSubtitleStreamID(inPart: part, policy: policy(.auto, audio: ""), audioStream: nil) == 61)
+    }
+
+    @Test func serverSelectionNeverOverridesModeOrLanguage() throws {
+        // Off still shows only forced subtitles, however the server selected.
+        #expect(try pick(policy(.off), audio: "jpn", streams: Self.honorifics, serverSelected: true) == 62)
+        #expect(try pick(policy(.off, forced: false), audio: "jpn", streams: Self.honorifics, serverSelected: true) == nil)
+        // A selected track in another language does not change the language.
+        let germanSelected = Self.streams.replacingOccurrences(
+            of: #""id":30,"streamType":3"#, with: #""id":30,"selected":true,"streamType":3"#
+        )
+        #expect(try pick(policy(.always), audio: "eng", streams: germanSelected, serverSelected: true) == 20)
+    }
+
+    @Test func selectedForcedTrackDoesNotReplaceWantedFullSubtitles() throws {
+        let forcedSelected = Self.streams.replacingOccurrences(
+            of: #""id":22,"streamType":3"#, with: #""id":22,"selected":true,"streamType":3"#
+        )
+        #expect(try pick(policy(.auto), audio: "jpn", streams: forcedSelected, serverSelected: true) == 20)
+        // But it does win among forced tracks.
+        let twoForced = #"""
+            {"id":70,"streamType":3,"languageCode":"eng","codec":"srt","forced":true},
+            {"id":71,"streamType":3,"languageCode":"eng","codec":"srt","forced":true,"selected":true}
+            """#
+        #expect(try pick(policy(.off), audio: "eng", streams: twoForced, serverSelected: true) == 71)
+    }
+
+    @Test func serverSelectedSDHTrackWinsOverTheFullTrack() throws {
+        let sdhSelected = Self.streams.replacingOccurrences(
+            of: #""id":21,"streamType":3"#, with: #""id":21,"selected":true,"streamType":3"#
+        )
+        #expect(try pick(policy(.always), audio: "eng", streams: sdhSelected, serverSelected: true) == 21)
+    }
+
     // MARK: - Startup pick on Plex metadata
 
     @Test func startupPickUsesTheAudioThePreferenceOpensOn() throws {

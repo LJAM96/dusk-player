@@ -168,6 +168,82 @@ struct ShowTrackPreferenceTests {
         }
     }
 
+    // MARK: - Server selection (issue #21)
+
+    @Test func serverSelectedAudioBreaksTiesWithinTheLanguage() throws {
+        let part = try episode(streams: #"""
+            {"id":1,"streamType":2,"languageCode":"eng","codec":"eac3","channels":6},
+            {"id":2,"streamType":2,"languageCode":"eng","codec":"ac3","channels":6,"selected":true},
+            {"id":3,"streamType":2,"languageCode":"deu","codec":"eac3","channels":6}
+            """#).media[0].parts[0]
+        #expect(PlayerViewModel.preferredAudioStreamPosition(inPart: part, preferredLanguage: nil) == 1)
+        #expect(PlayerViewModel.preferredAudioStreamPosition(inPart: part, preferredLanguage: "en") == 1)
+        // The preferred language still decides the language.
+        #expect(PlayerViewModel.preferredAudioStreamPosition(inPart: part, preferredLanguage: "de") == 2)
+    }
+
+    @Test func serverSelectedAudioIsSkippedWhenItCannotBeDecoded() throws {
+        let part = try episode(streams: #"""
+            {"id":1,"streamType":2,"languageCode":"eng","codec":"truehd","channels":8,"selected":true},
+            {"id":2,"streamType":2,"languageCode":"eng","codec":"ac3","channels":6}
+            """#).media[0].parts[0]
+        #expect(PlayerViewModel.preferredAudioStreamPosition(
+            inPart: part, preferredLanguage: nil, decodesTrueHD: false
+        ) == 1)
+    }
+
+    @Test func automaticRemuxWriteRestoresOnlyWhatItChanged() throws {
+        let part = try episode(streams: #"""
+            {"id":1,"streamType":2,"languageCode":"jpn","codec":"aac","selected":true},
+            {"id":2,"streamType":2,"languageCode":"eng","codec":"aac"},
+            {"id":3,"streamType":3,"languageCode":"eng","codec":"pgs","selected":true},
+            {"id":4,"streamType":3,"languageCode":"eng","codec":"srt","forced":true}
+            """#).media[0].parts[0]
+        let unchanged = ServerStreamSelectionRestore(
+            part: part, writtenAudioStreamID: 1, writtenSubtitleStreamID: 3, serverID: "server"
+        )
+        #expect(unchanged.isEmpty)
+        // A remux that drops the bitmap subtitle cleared it on the server.
+        let dropped = ServerStreamSelectionRestore(
+            part: part, writtenAudioStreamID: 2, writtenSubtitleStreamID: nil, serverID: "server"
+        )
+        #expect(dropped.audioStreamID == 1)
+        #expect(dropped.subtitleStreamID == 3)
+        // Nothing selected before means writing "none" back.
+        let none = try episode(streams: #"""
+            {"id":1,"streamType":2,"languageCode":"eng","codec":"aac"},
+            {"id":4,"streamType":3,"languageCode":"eng","codec":"srt","forced":true}
+            """#).media[0].parts[0]
+        let forced = ServerStreamSelectionRestore(
+            part: none, writtenAudioStreamID: 1, writtenSubtitleStreamID: 4, serverID: "server"
+        )
+        #expect(forced.audioStreamID == nil)
+        #expect(forced.subtitleStreamID == 0)
+    }
+
+    @Test func manualPickKeepsItsHalfOnTheServer() throws {
+        try withStore { store, _ in
+            let details = try episode(streams: #"""
+                {"id":11,"streamType":2,"languageCode":"eng","codec":"aac","channels":2},
+                {"id":12,"streamType":3,"languageCode":"eng","codec":"srt","selected":true}
+                """#)
+            let playback = PlaybackCoordinator(plexService: PlexService())
+            playback.showTrackPreferenceStore = store
+            playback.activePlaybackUsesLocalDownload = true // No network side effects.
+            playback.automaticServerSelectionRestore = ServerStreamSelectionRestore(
+                part: details.media[0].parts[0], writtenAudioStreamID: nil,
+                writtenSubtitleStreamID: nil, serverID: "server"
+            )
+            playback.automaticServerSelectionRestore?.audioStreamID = 11
+            #expect(playback.automaticServerSelectionRestore?.subtitleStreamID == 12)
+            playback.rememberShowTrackChoice(type: .subtitle, streamID: nil)
+            #expect(playback.automaticServerSelectionRestore?.subtitleStreamID == nil)
+            #expect(playback.automaticServerSelectionRestore?.audioStreamID == 11)
+            playback.rememberShowTrackChoice(type: .audio, streamID: 11)
+            #expect(playback.automaticServerSelectionRestore?.isEmpty == true)
+        }
+    }
+
     @Test func unspecifiedAndUnknownLanguagesDoNotGuess() throws {
         let details = try episode(streams: #"""
             {"id":1,"streamType":2},

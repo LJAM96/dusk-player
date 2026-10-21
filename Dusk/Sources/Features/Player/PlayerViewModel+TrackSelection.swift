@@ -359,7 +359,8 @@ extension PlayerViewModel {
     func preferredSubtitleTrack() -> SubtitleTrack? {
         subtitlePolicy.preferredTrack(
             in: automaticallySelectableSubtitleTracks,
-            audioLanguage: automaticSubtitleAudioLanguage()
+            audioLanguage: automaticSubtitleAudioLanguage(),
+            serverSelectedStreamID: Self.serverSelectedStreamID(of: .subtitle, inPart: sourcePart)
         )
     }
 
@@ -867,8 +868,16 @@ extension PlayerViewModel {
             ?? preferredLocalAudioStream(inPart: part, preferredLanguage: policy.audioLanguage)
         return policy.preferredTrack(
             in: tracks,
-            audioLanguage: startupAudio?.languageCode ?? startupAudio?.languageTag
+            audioLanguage: startupAudio?.languageCode ?? startupAudio?.languageTag,
+            serverSelectedStreamID: serverSelectedStreamID(of: .subtitle, inPart: part)
         )?.id
+    }
+
+    /// The stream of `type` the server marks `selected` for this part: a
+    /// choice saved by any Plex client (or a bulk tool such as PASTA), else
+    /// Plex's own pick from the account language settings.
+    static func serverSelectedStreamID(of type: PlexStreamType, inPart part: PlexMediaPart?) -> Int? {
+        part?.streams.first { $0.streamType == type && ($0.isSelected ?? false) }?.id
     }
 
     func scoreSubtitleMatch(track: SubtitleTrack, stream: PlexStream) -> Int {

@@ -53,6 +53,7 @@ extension PlaybackCoordinator {
         audioStreamID: Int?,
         subtitleStreamID: Int?,
         convertsAudio: Bool = false,
+        restoresServerSelection: Bool = false,
         sessionIdentifier: String,
         serverID: String?
     ) async -> SpatialAudioRemux? {
@@ -155,6 +156,12 @@ extension PlaybackCoordinator {
                 subtitleStreamID: subtitleStreamID ?? 0,
                 serverID: serverID
             )
+            if restoresServerSelection {
+                noteAutomaticServerSelectionWrite(
+                    part: part, audioStreamID: audioStreamID,
+                    subtitleStreamID: subtitleStreamID, serverID: serverID
+                )
+            }
         } catch {
             spatialAudioLogger.error(
                 "Could not record stream selection for ratingKey \(ratingKey, privacy: .public): \(error.localizedDescription, privacy: .public); declining remux"

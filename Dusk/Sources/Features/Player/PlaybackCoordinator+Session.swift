@@ -399,6 +399,7 @@ extension PlaybackCoordinator {
                         audioStreamID: audioStreamID,
                         subtitleStreamID: subtitleStreamID,
                         convertsAudio: convertsRememberedAudio,
+                        restoresServerSelection: !hasRememberedMatch,
                         sessionIdentifier: sessionIdentifier,
                         serverID: itemServerID
                     )
@@ -466,6 +467,7 @@ extension PlaybackCoordinator {
                         audioStreamID: audioStreamID,
                         subtitleStreamID: subtitleStreamID,
                         convertsAudio: convertsRememberedAudio,
+                        restoresServerSelection: !hasRememberedMatch,
                         sessionIdentifier: sessionIdentifier,
                         serverID: itemServerID
                     )
@@ -1807,6 +1809,7 @@ extension PlaybackCoordinator {
             stopTranscodeSessionInBackground(transcodeSessionID, serverID: activePlaybackServerID)
             activeTranscodeSessionID = nil
         }
+        restoreAutomaticServerSelectionIfNeeded()
 
         let snapshot = timelineSnapshot(markCompleted: markCompleted)
         lastReportedTimeMs = snapshot.timeMs
