@@ -13,7 +13,9 @@ enum PlayerTVArrow: Equatable {
 /// vocabulary. `PlayerTVHUDController` is the only consumer.
 enum PlayerTVRemoteInput: Equatable {
     /// A directional button went down (a click on the ring, or a directional
-    /// flick on the touch surface — tvOS reports both as arrow presses).
+    /// flick on the touch surface — tvOS reports both as arrow presses on the
+    /// clickpad remote; on the 1st-gen remote a vertical flick only arrives
+    /// as touch movement and is turned into an arrow here).
     case arrowDown(PlayerTVArrow)
     /// The same button came back up. Ends a hold-to-seek.
     case arrowUp(PlayerTVArrow)
@@ -85,17 +87,31 @@ final class PlayerTVRemoteInputViewController: UIViewController, UIGestureRecogn
     private enum PanAxis {
         case undetermined
         case horizontal
-        /// A vertical flick. tvOS also delivers it as an up/down arrow press,
-        /// which is what opens the panel — so the pan must stay out of it or a
-        /// swipe down would start a scrub at the same time.
+        /// A vertical flick. It reaches the controller as an up/down arrow —
+        /// a real press on the clickpad remote, the swipe recognizers on the
+        /// 1st-gen one — which is what opens the panel, so the pan must stay
+        /// out of it or a swipe down would start a scrub at the same time.
         case rejected
     }
 
     private let panRecognizer = UIPanGestureRecognizer()
     private let tapRecognizer = UITapGestureRecognizer()
     private let menuRecognizer = UITapGestureRecognizer()
+    private let swipeUpRecognizer = UISwipeGestureRecognizer()
+    private let swipeDownRecognizer = UISwipeGestureRecognizer()
     private var panAxis: PanAxis = .undetermined
     private var heldArrows: Set<PlayerTVArrow> = []
+
+    private enum VerticalArrowSource {
+        case press
+        case swipe
+    }
+
+    /// The last up/down arrow sent and where it came from. The clickpad remote
+    /// reports one flick both as an arrow press and as a swipe, so the second
+    /// source to report the same arrow within `verticalEchoWindow` is dropped.
+    private var lastVerticalArrow: (arrow: PlayerTVArrow, source: VerticalArrowSource, at: Date)?
+    private static let verticalEchoWindow: TimeInterval = 0.35
 
     override func loadView() {
         view = PlayerTVRemoteInputView()
@@ -132,6 +148,22 @@ final class PlayerTVRemoteInputViewController: UIViewController, UIGestureRecogn
         menuRecognizer.delegate = self
         menuRecognizer.addTarget(self, action: #selector(handleMenu(_:)))
         view.addGestureRecognizer(menuRecognizer)
+
+        // The 1st-gen (glass touch surface) Siri Remote never turns a vertical
+        // flick into an up/down arrow press, so without these the panel and
+        // the action row would be unreachable on it.
+        for (recognizer, direction) in [
+            (swipeUpRecognizer, UISwipeGestureRecognizer.Direction.up),
+            (swipeDownRecognizer, .down),
+        ] {
+            recognizer.direction = direction
+            recognizer.allowedTouchTypes = indirect
+            recognizer.allowedPressTypes = []
+            recognizer.cancelsTouchesInView = false
+            recognizer.delegate = self
+            recognizer.addTarget(self, action: #selector(handleSwipe(_:)))
+            view.addGestureRecognizer(recognizer)
+        }
 
         sentinelView?.isFocusable = isCaptureEnabled
     }
@@ -170,10 +202,11 @@ final class PlayerTVRemoteInputViewController: UIViewController, UIGestureRecogn
                 continue // The Menu-only recognizer owns this entire press.
             }
             guard let input = Self.beganInput(for: press.type) else { continue }
+            handled = true
             if case let .arrowDown(arrow) = input {
+                guard claimVerticalArrow(arrow, from: .press) else { continue }
                 heldArrows.insert(arrow)
             }
-            handled = true
             onInput?(input)
         }
 
@@ -192,8 +225,9 @@ final class PlayerTVRemoteInputViewController: UIViewController, UIGestureRecogn
         for press in presses {
             if let arrow = Self.arrow(for: press.type) {
                 handled = true
-                heldArrows.remove(arrow)
-                onInput?(.arrowUp(arrow))
+                if heldArrows.remove(arrow) != nil {
+                    onInput?(.arrowUp(arrow))
+                }
             } else if press.type == .menu || Self.beganInput(for: press.type) != nil {
                 // Select / play-pause act at press-down; Menu belongs to its
                 // recognizer. None may leak into the system's Back handler.
@@ -237,6 +271,21 @@ final class PlayerTVRemoteInputViewController: UIViewController, UIGestureRecogn
         }
     }
 
+    /// Records an up/down arrow from `source` and reports whether it should be
+    /// delivered. Left/right always pass.
+    private func claimVerticalArrow(_ arrow: PlayerTVArrow, from source: VerticalArrowSource) -> Bool {
+        guard arrow == .up || arrow == .down else { return true }
+        let now = Date()
+        if let last = lastVerticalArrow,
+           last.arrow == arrow,
+           last.source != source,
+           now.timeIntervalSince(last.at) < Self.verticalEchoWindow {
+            return false
+        }
+        lastVerticalArrow = (arrow, source, now)
+        return true
+    }
+
     /// A first responder that loses its presses mid-hold (capture turned off,
     /// the view left the window) would otherwise leave the seek accumulator
     /// running forever.
@@ -256,7 +305,23 @@ final class PlayerTVRemoteInputViewController: UIViewController, UIGestureRecogn
     ) -> Bool {
         // Back must also work with a finger still on the surface. Do not share
         // it with any enclosing presentation/navigation Menu recognizer.
-        gestureRecognizer === menuRecognizer && otherGestureRecognizer === panRecognizer
+        if gestureRecognizer === menuRecognizer {
+            return otherGestureRecognizer === panRecognizer
+        }
+        // The swipes ride along with the pan, which has already recognized by
+        // the time a flick is long enough to count as a swipe.
+        return otherGestureRecognizer === panRecognizer
+            || otherGestureRecognizer === tapRecognizer
+    }
+
+    @objc
+    private func handleSwipe(_ recognizer: UISwipeGestureRecognizer) {
+        // A horizontal scrub that drifts vertically is still a scrub.
+        guard isCaptureEnabled, recognizer.state == .ended, panAxis != .horizontal else { return }
+        let arrow: PlayerTVArrow = recognizer === swipeUpRecognizer ? .up : .down
+        guard claimVerticalArrow(arrow, from: .swipe) else { return }
+        onInput?(.arrowDown(arrow))
+        onInput?(.arrowUp(arrow))
     }
 
     @objc
