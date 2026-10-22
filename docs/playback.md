@@ -2177,6 +2177,48 @@ so the whole live HUD is derived from one instant.
 - `PlaybackNowPlayingController` is iOS-only and owns AVAudioSession,
   MPNowPlayingInfoCenter, remote commands, route/interruption handling, and art.
 
+### Playback queue (playlists and lists)
+- `PlaybackQueue` (`Features/Player/PlaybackQueue.swift`) is a fixed list of
+  `PlaybackQueueItem`s plus the position of the one playing; the source is a
+  Plex playlist or an on-screen list (`PlaybackListContext`: Videos library or
+  folder grid/row, collection). `PlaybackCoordinator.playbackQueue` holds it
+  only for those sessions: `playQueue` (or `play(…, queue:)`) sets it after
+  `enterLoadingState`, every other Play drops it, the cover closing clears it.
+  Ordinary playback has **no queue** and behaves as before.
+- `resolveUpNext(after:prefersDownloadCache:)` is the one Up Next decision,
+  used by the credits poster and by `handlePlaybackEnded`:
+  - queue session → `queue.next(isPlayable:)`, synchronous, no request. The
+    playlist wins over the show's next episode, and its end ends playback.
+    Watched items are **not** skipped; a finished one starts over
+    (`queueStartPositionOverride`). Unplayable kinds are dropped when the queue
+    is built; items whose server is not connected (and not downloaded) and items
+    found gone from the server are skipped.
+  - episode → the neighbours `refreshAdjacentEpisodesIfNeeded` already resolved
+    at session commit when that online lookup succeeded
+    (`PlaybackAdjacentEpisodes.isOnlineEpisodeLookup`; same rules as
+    `getNextEpisode`), so the credits poster no longer asks the server again.
+    Otherwise exactly the old path: the download cache for a download session
+    (poster) or `nextEpisode(after:)`.
+- Up Next presentations carry the generic item plus `queueIndex`/`queueTitle`;
+  the eyebrow reads "NEXT IN <PLAYLIST>" and queue episodes name their show.
+  Starting the item moves the queue first (`moveQueue`), so the commit already
+  sees the new position, and restores it if the start fails.
+- At each queue commit the neighbours come from the queue (Previous/Next and
+  the tvOS Next button step through the playlist, movies included) and
+  `prefetchNextQueueItem` fetches the next item's metadata in the background:
+  fresh watch state replaces the list's copy; a 404 marks it unavailable and
+  the following one is tried. Downloaded items are not fetched.
+- Passout protection counts every queue item, not just episodes. Pre-rolls
+  still only run for the first item (only `beginPlayback` passes a
+  `prerollFeature`). Shuffle is a permutation fixed for the session, started
+  from the beginning of its first item.
+- `UpNext` log category: "Up Next poster ready N ms after the credits marker".
+  Measured 2026-10-22 against plex-demo (iPhone sim, 3-min episode,
+  credits poster): before 9–10 ms LAN / 162–167 ms with 150 ms added latency
+  (one season `/children` request at the credits); after 0 ms in both.
+- Tests: `DuskTests/PlaybackQueueTests.swift` (queue rules and Up Next
+  resolution with a request-counting stub).
+
 ## Cinema Pre-rolls
 Dusk plays the pre-roll videos a server owner set up in Plex (Settings →
 Extras → "Cinema Trailer pre-roll video") in front of a movie, the way official

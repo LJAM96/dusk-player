@@ -547,6 +547,27 @@ File: `PlexService+Playback.swift`.
   engines do not use `PlexService` request headers.
 - Never log raw playback URLs; use `sanitizedPlaybackURLString(for:)`.
 
+## Playlists
+File: `PlexService+Playlists.swift`, models `Models/PlexPlaylist.swift`
+(`PlexPlaylist`, `PlexPlaylistEntry`, `PlexPlaylistAddResult`), shared state
+`PlexService/PlaylistStore.swift` (`plexService.playlists`).
+- A playlist belongs to one server and to the signed-in (Home) user. Every call
+  routes to the playlist's server; an item can only be added to a playlist on
+  its own server (`server://{machineID}/com.plexapp.plugins.library/library/metadata/{rk,rk}`).
+- `GET /playlists?playlistType=video` per connected server (`streamPlaylists`,
+  merged A–Z by the store); `GET /playlists/{id}/items` is paged (200 per page).
+- Create `POST /playlists?type=video&title=&smart=0&uri=` (never empty); add
+  `PUT /playlists/{id}/items?uri=`; remove `DELETE /playlists/{id}/items/{playlistItemID}`;
+  move `PUT …/items/{playlistItemID}/move?after={playlistItemID}` (no `after` =
+  top); rename `PUT /playlists/{id}?title=`; delete `DELETE /playlists/{id}`.
+- Verified on a real PMS (plex-demo, 1.43.5, 2026-10-22): rename via PUT title
+  (and summary) works and answers an empty 200; adding a show or season `uri`
+  adds all its episodes and Plex skips ones already present (`leafCountAdded` <
+  `leafCountRequested`); smart playlists answer item edits with 400 and list
+  items without `playlistItemID`; the list's `duration` is milliseconds but the
+  `/items` container's `duration` is **seconds**.
+- `HomeHubFilter` still keeps Plex's own playlist hub off Home.
+
 ## Photo Libraries
 File: `PlexService+Photos.swift`, model `Models/PlexPhoto.swift`.
 - Photo sections are decoded as `PlexPhotoItem`, never `PlexItem` (which keeps

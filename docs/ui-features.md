@@ -939,6 +939,54 @@ in Dusk. Read this with `docs/codebase-map.md`, `STYLE.md`, and `docs/data-and-p
   live seek bar shows LIVE or the time behind live and provides Go Live; all
   forward movement is clamped to the HLS edge.
 
+## Playlists
+
+- A data-driven destination like Live TV: `PlexLibraryType.playlists` joins the
+  tab list (so Settings › Navigation Tabs orders and hides it) only while
+  `PlexService.playlists` (`PlaylistStore`) holds a video playlist on a
+  connected server. `MainTabView` loads the store per `serverContentRevision`;
+  creating the first playlist from Add to Playlist brings the tab in. iPhone
+  folds it into More under the five-tab rule; tvOS puts it before Search.
+- `Features/Playlists`: `PlaylistsView` (square cards with Plex's `composite`
+  mosaic, `N items · duration`, `· Smart`, the server name only when playlists
+  span servers; context menu Play / Shuffle / Rename / Delete),
+  `PlaylistDetailView` + model (detail hero with the first item's art,
+  Play/Resume at the first unfinished item, Play from Beginning in the primary's
+  context menu (iOS) and More, Shuffle, More › Edit/Rename/Delete), and
+  `PlaylistActions` (queues, rename, delete shared by both screens).
+- Rows: 16:9 still with progress, title, `Show · S1 · E4` or the year, runtime,
+  quiet checkmark. Tap / Select plays the playlist **from that row**, and
+  playback continues through every following item, watched ones included (a
+  finished item starts over). Context menu: Play from Here, Go to Details (+ Go
+  to Season/Show on iOS), Mark Watched/Unwatched, Remove from Playlist.
+- iOS builds the whole page as one plain `List` (hero row full-bleed) so rows
+  get native swipe-to-delete and `EditMode` drag reorder (More › Edit; a Done
+  button ends it). tvOS uses a focusable row stack (TextPrimary band on focus)
+  and edits only through each row's context menu; no reorder on tvOS in v1.
+- Smart playlists: play, shuffle, delete. More says filters are edited in Plex
+  Web. Plex rejects item edits on them (HTTP 400).
+- Every edit goes to the playlist's server first; removals/reorders are applied
+  optimistically and rolled back with an alert on failure.
+- Add to Playlist: `AddToPlaylistPresenter` (owned by `MainTabView`, in the
+  environment) presents `AddToPlaylistSheet` for an `AddToPlaylistTarget`.
+  Entry points: `AddToPlaylistMenuButton` inside `PlexItemContextMenuContent`
+  (every poster grid/row), `HomeItemContextMenu`, episode rows (iOS season
+  page, tvOS series page), tvOS season pills, search results; and the icon-only
+  `AddToPlaylistHeroButton` (`text.badge.plus`) on movie, episode, season, show
+  and video pages (tvOS series page: the show). The sheet lists only regular
+  playlists **on the item's own server**, most recently updated first, under
+  "New Playlist…" (Plex cannot create an empty playlist, so a new one starts
+  with the item). A show or season asks "Add N episodes?" first; Plex expands
+  it and skips episodes already in the playlist, and the confirmation says so.
+- Play-through lists: grids and rows of Videos libraries and their folders
+  (`LibraryItemsView`, channel/hub rows of `LibraryRecommendationsView`) and
+  collection pages pass `playThroughTitle` to `PlexItemPosterGrid` /
+  `PlexItemPosterCarouselSection`. Their movies and videos then open through
+  `.videoInList` / `.movieInList` routes carrying a `PlaybackListContext`, and
+  the page's Play starts a list queue at that item (Up Next "Next in <list>").
+  Collection Play continues through the collection; Shuffle shuffles it. TV
+  episodes never take part.
+
 ## Search And Settings
 
 - `SearchView` is a thin tab-root wrapper (`NavigationStack` + destinations) around

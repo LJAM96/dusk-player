@@ -30,6 +30,7 @@ Dusk/Sources
     Seerr/             Request-only external movie/show/season detail flows
     Player/            Full-screen playback UI and coordinator
     Downloads/         Downloads screen and download controls
+    Playlists/         Playlists tab, playlist page, Add to Playlist sheet
     Search/            Search view and view model
     Settings/          Preferences, server priority, and account settings
     Supporter/         Supporter tier: StoreKit store, sheet, prompt, app icons
@@ -183,7 +184,8 @@ Detail:
 Player:
 
 - `PlaybackCoordinator` starts library and Live TV sessions and owns
-  timeline/scrobble/up-next. Live sessions never scrobble. Its entry points take
+  timeline/scrobble/up-next. `playbackQueue` (`PlaybackQueue`) is set only for
+  playlist/list sessions; `resolveUpNext` is the single Up Next decision. Live sessions never scrobble. Its entry points take
   a `PlexItemID`, and `activePlaybackServerID` is what every follow-up call is
   routed to.
 - `PlaybackSourceResolver` picks which connected server plays an item and in
@@ -250,6 +252,18 @@ Settings:
   or `loadedHiddenLibraryFilter()` to wait for the load) drops hidden libraries' items
   wherever libraries mix: Home merge, `search`, `getHubItems`, `getPersonMedia`,
   `HomeRecommendationEngine` (visible sections), `SiriTitleCatalog`.
+
+Playlists:
+
+- `PlexService.playlists` (`PlaylistStore`) is the one copy of the account's
+  video playlists; `PlexService+Playlists` loads and edits them.
+- `PlaylistsView`, `PlaylistDetailView`/`PlaylistDetailViewModel`,
+  `PlaylistActions` and `AddToPlaylist.swift` (target, presenter, menu/hero
+  buttons, sheet) live in `Features/Playlists`. See `docs/ui-features.md` →
+  "Playlists".
+- Playback goes through `PlaybackCoordinator.playQueue` with a
+  `PlaybackQueue` (`Features/Player/PlaybackQueue.swift`); lists that play
+  through carry a `PlaybackListContext` in their route.
 
 Search and Seerr:
 

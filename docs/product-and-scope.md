@@ -60,8 +60,14 @@ Current product pillars:
   retaining playback control, Plex timeline reporting, and continuous playback.
 - SharePlay watch-together sessions on iPhone, iPad, and Apple TV for Plex
   library video, with per-participant local streaming and synchronized transport.
+- Plex video playlists (1.8): a Playlists destination, play/resume/shuffle with
+  play-through and Up Next, Add to Playlist everywhere, remove/reorder (iOS),
+  rename/delete; smart playlists are play/shuffle/delete only. Videos libraries,
+  their folders and collections play through their list the same way.
+  Later: Download Playlist and offline playlists, an in-player queue view,
+  tvOS reorder, photo playlists, a Home row, repeat.
 
-Future ideas such as Jellyfin, playlists, DVR scheduling,
+Future ideas such as Jellyfin, DVR scheduling,
 native macOS work, or broader provider abstractions are not current architecture
 requirements. Do not shape today's code around them without an explicit task.
 
