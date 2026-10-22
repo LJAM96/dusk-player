@@ -178,7 +178,8 @@ private extension SearchRootContent {
                                     progress: item.progress,
                                     width: width,
                                     imageAspectRatio: aspectRatio,
-                                    availabilityBadge: vm.availabilityBadge(for: item)
+                                    availabilityBadge: vm.availabilityBadge(for: item),
+                                    isWatched: item.isWatched
                                 )
                             }
                         }
@@ -264,7 +265,8 @@ private extension SearchRootContent {
                                             progress: item.progress,
                                             width: activeLayout.posterWidth,
                                             imageAspectRatio: aspectRatio,
-                                            availabilityBadge: vm.availabilityBadge(for: item)
+                                            availabilityBadge: vm.availabilityBadge(for: item),
+                                            isWatched: item.isWatched
                                         )
                                     }
                                 }

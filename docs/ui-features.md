@@ -135,7 +135,11 @@ in Dusk. Read this with `docs/codebase-map.md`, `STYLE.md`, and `docs/data-and-p
   (show poster first), the player's loading backdrop and scrub previews.
 - Use `PlexItemPosterCarouselSection` for horizontal shelves and
   `PlexItemPosterGrid` for grids. They already handle image sizing, context menus,
-  progress, and route creation. Both take `imageAspectRatio` (default 2:3); pass
+  progress, and route creation. Watch state comes from the item Plex sent with
+  the row (no extra request): `progress` defaults to `PlexItem.posterProgress`
+  (`viewOffset`) and the checkmark to `PlexItem.posterIsWatched` (played
+  movie/episode/clip, or a show/season with every episode watched), so every
+  Home/library hub row and grid shows them, not only Continue Watching. Both take `imageAspectRatio` (default 2:3); pass
   `16.0/9.0` for clip content so the requested transcode size matches the display
   aspect — a 2:3 request would be cropped server-side.
 - Clip rendering is item-driven: `PlexItem.isClip` (item `subtype == "clip"`) and

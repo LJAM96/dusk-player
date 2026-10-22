@@ -129,6 +129,7 @@ struct PosterActionCard<ContextMenuContent: View>: View {
     var availabilityBadge: String? = nil
     var isDimmed = false
     var isUnwatchedEpisodeImage = false
+    var isWatched = false
     @ViewBuilder let contextMenuContent: () -> ContextMenuContent
     #if os(tvOS)
     @FocusState private var isFocused: Bool
@@ -166,7 +167,8 @@ struct PosterActionCard<ContextMenuContent: View>: View {
             PosterCardText(
                 title: title,
                 subtitle: subtitle,
-                width: width
+                width: width,
+                isWatched: isWatched
             )
         }
         .frame(width: width, alignment: .topLeading)
@@ -184,7 +186,8 @@ struct PosterActionCard<ContextMenuContent: View>: View {
                 showsPlayOverlay: showsPlayOverlay,
                 availabilityBadge: availabilityBadge,
                 isDimmed: isDimmed,
-                isUnwatchedEpisodeImage: isUnwatchedEpisodeImage
+                isUnwatchedEpisodeImage: isUnwatchedEpisodeImage,
+                isWatched: isWatched
             )
         }
         .buttonStyle(.plain)

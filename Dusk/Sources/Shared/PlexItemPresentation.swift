@@ -5,6 +5,21 @@ extension PlexItem {
         MediaTextFormatter.progress(durationMs: duration, offsetMs: viewOffset)
     }
 
+    /// The quiet checkmark under a poster card: a played movie, episode or
+    /// clip, or a show/season with every episode watched. Same rule as the
+    /// season cards, so a row of mixed items marks them all alike.
+    var posterIsWatched: Bool {
+        switch type {
+        case .movie, .episode, .clip:
+            return isWatched
+        case .show, .season:
+            guard let leafCount, leafCount > 0, let viewedLeafCount else { return false }
+            return viewedLeafCount >= leafCount
+        default:
+            return false
+        }
+    }
+
     /// The title under a poster. A season or episode on its own in a row
     /// (Recently Added, mostly) is known by its show — "Season 6" alone says
     /// nothing — so it takes the show's title and leaves the numbering to the

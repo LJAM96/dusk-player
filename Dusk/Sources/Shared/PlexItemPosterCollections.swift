@@ -122,7 +122,7 @@ struct PlexItemPosterCarouselSection<ContextMenuContent: View>: View {
     var showAllRoute: AppNavigationRoute? = nil
     var subtitle: (PlexItem) -> String?
     var posterURL: (PlexItem, Int, Int) -> URL?
-    var progress: (PlexItem) -> Double? = { _ in nil }
+    var progress: (PlexItem) -> Double? = { $0.posterProgress }
     @ViewBuilder let contextMenuContent: (PlexItem) -> ContextMenuContent
 
     var body: some View {
@@ -146,7 +146,8 @@ struct PlexItemPosterCarouselSection<ContextMenuContent: View>: View {
                     subtitle: subtitle(item),
                     progress: progress(item),
                     width: posterWidth,
-                    imageAspectRatio: imageAspectRatio
+                    imageAspectRatio: imageAspectRatio,
+                    isWatched: item.posterIsWatched
                 ) {
                     contextMenuContent(item)
                 }
@@ -175,7 +176,7 @@ extension PlexItemPosterCarouselSection where ContextMenuContent == EmptyView {
         showAllRoute: AppNavigationRoute? = nil,
         subtitle: @escaping (PlexItem) -> String?,
         posterURL: @escaping (PlexItem, Int, Int) -> URL?,
-        progress: @escaping (PlexItem) -> Double? = { _ in nil }
+        progress: @escaping (PlexItem) -> Double? = { $0.posterProgress }
     ) {
         self.title = title
         self.items = items
@@ -200,7 +201,7 @@ struct PlexItemActionCarouselSection<ContextMenuContent: View>: View {
     var showAllRoute: AppNavigationRoute? = nil
     var subtitle: (PlexItem) -> String?
     var posterURL: (PlexItem, Int, Int) -> URL?
-    var progress: (PlexItem) -> Double? = { _ in nil }
+    var progress: (PlexItem) -> Double? = { $0.posterProgress }
     /// Whether `posterURL` hands back an unwatched episode's own still.
     var isUnwatchedEpisodeImage: (PlexItem) -> Bool = { _ in false }
     @ViewBuilder let contextMenuContent: (PlexItem) -> ContextMenuContent
@@ -223,7 +224,8 @@ struct PlexItemActionCarouselSection<ContextMenuContent: View>: View {
                     width: posterWidth,
                     imageAspectRatio: imageAspectRatio,
                     showsPlayOverlay: true,
-                    isUnwatchedEpisodeImage: isUnwatchedEpisodeImage(item)
+                    isUnwatchedEpisodeImage: isUnwatchedEpisodeImage(item),
+                    isWatched: item.posterIsWatched
                 ) {
                     contextMenuContent(item)
                 }
@@ -251,7 +253,7 @@ struct PlexItemPosterGrid<ContextMenuContent: View>: View {
     var imageAspectRatio: CGFloat = 2.0 / 3.0
     var posterURL: (PlexItem, Int, Int) -> URL?
     var subtitle: (PlexItem) -> String?
-    var progress: (PlexItem) -> Double? = { _ in nil }
+    var progress: (PlexItem) -> Double? = { $0.posterProgress }
     var onItemAppear: (PlexItem) -> Void = { _ in }
     @ViewBuilder let contextMenuContent: (PlexItem) -> ContextMenuContent
 
@@ -273,7 +275,8 @@ struct PlexItemPosterGrid<ContextMenuContent: View>: View {
                     subtitle: subtitle(item),
                     progress: progress(item),
                     width: layout.posterWidth,
-                    imageAspectRatio: imageAspectRatio
+                    imageAspectRatio: imageAspectRatio,
+                    isWatched: item.posterIsWatched
                 ) {
                     contextMenuContent(item)
                 }
@@ -293,7 +296,7 @@ extension PlexItemPosterGrid where ContextMenuContent == EmptyView {
         imageAspectRatio: CGFloat = 2.0 / 3.0,
         posterURL: @escaping (PlexItem, Int, Int) -> URL?,
         subtitle: @escaping (PlexItem) -> String?,
-        progress: @escaping (PlexItem) -> Double? = { _ in nil },
+        progress: @escaping (PlexItem) -> Double? = { $0.posterProgress },
         onItemAppear: @escaping (PlexItem) -> Void = { _ in }
     ) {
         self.items = items
