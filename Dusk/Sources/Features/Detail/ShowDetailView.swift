@@ -219,6 +219,7 @@ struct ShowDetailView: View {
             HStack(spacing: detailHeroActionSpacing) {
                 downloadButton()
                 watchedButton()
+                AddToPlaylistHeroButton(target: viewModel.details.flatMap(AddToPlaylistTarget.init(details:)))
             }
         }
         .detailHeroActionStackFrame(isCompactPhone: usesFullWidthActionButtons)

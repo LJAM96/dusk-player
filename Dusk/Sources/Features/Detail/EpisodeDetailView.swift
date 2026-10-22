@@ -270,6 +270,7 @@ struct EpisodeDetailView: View {
             HStack(spacing: detailHeroActionSpacing) {
                 downloadButton(details)
                 watchedButton()
+                AddToPlaylistHeroButton(target: AddToPlaylistTarget(details: details))
             }
         }
         .detailHeroActionStackFrame(isCompactPhone: usesFullWidthActionButtons)

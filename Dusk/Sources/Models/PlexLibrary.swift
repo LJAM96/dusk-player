@@ -6,6 +6,9 @@ enum PlexLibraryType: String, Codable, Sendable, CaseIterable {
     case video
     case liveTV
     case photo
+    /// Not a Plex library: the account's video playlists, a destination that
+    /// shares the library tabs' order and visibility settings.
+    case playlists
 
     var tabTitle: String {
         switch self {
@@ -19,6 +22,8 @@ enum PlexLibraryType: String, Codable, Sendable, CaseIterable {
             "Live TV"
         case .photo:
             "Photos"
+        case .playlists:
+            "Playlists"
         }
     }
 
@@ -34,6 +39,8 @@ enum PlexLibraryType: String, Codable, Sendable, CaseIterable {
             "dot.radiowaves.left.and.right"
         case .photo:
             "photo.on.rectangle"
+        case .playlists:
+            "list.and.film"
         }
     }
 }

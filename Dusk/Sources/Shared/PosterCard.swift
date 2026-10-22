@@ -356,6 +356,8 @@ struct PlexItemContextMenuContent: View {
     var onMarkUnwatched: (() -> Void)?
     var detailsRoute: AppNavigationRoute? = nil
     var detailsLabel: String = "View Details"
+    /// Off where the item already is in a playlist (the playlist page).
+    var showsAddToPlaylist = true
 
     var body: some View {
         if item.canMarkWatchedFromContextMenu, let onMarkWatched {
@@ -386,6 +388,10 @@ struct PlexItemContextMenuContent: View {
             NavigationLink(value: showRoute) {
                 Label("Go to Show", systemImage: "tv.fill")
             }
+        }
+
+        if showsAddToPlaylist {
+            AddToPlaylistMenuButton(target: AddToPlaylistTarget(item: item))
         }
     }
 }

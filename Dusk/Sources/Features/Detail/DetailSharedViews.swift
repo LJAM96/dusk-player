@@ -202,6 +202,10 @@ struct DetailHeroSection<Supertitle: View, Subtitle: View, Actions: View>: View 
     /// season·episode marker). Kept as `AnyView` so callers can opt in without
     /// adding another generic parameter to every hero.
     var titleAccessory: AnyView? = nil
+    /// iPad: a text title (no clear-logo) that is the page's own name, like a
+    /// playlist's, heads the left column above the metadata instead of the
+    /// right column a season/episode title uses.
+    var leadsWithTextTitle = false
     @ViewBuilder var supertitle: Supertitle
     @ViewBuilder var subtitle: Subtitle
     @ViewBuilder var actions: Actions
@@ -219,6 +223,7 @@ struct DetailHeroSection<Supertitle: View, Subtitle: View, Actions: View>: View 
         keepsPreviousBackdropWhileLoading: Bool = false,
         titleLineLimit: Int = 2,
         titleAccessory: AnyView? = nil,
+        leadsWithTextTitle: Bool = false,
         @ViewBuilder supertitle: () -> Supertitle,
         @ViewBuilder subtitle: () -> Subtitle,
         @ViewBuilder actions: () -> Actions
@@ -235,6 +240,7 @@ struct DetailHeroSection<Supertitle: View, Subtitle: View, Actions: View>: View 
         self.keepsPreviousBackdropWhileLoading = keepsPreviousBackdropWhileLoading
         self.titleLineLimit = titleLineLimit
         self.titleAccessory = titleAccessory
+        self.leadsWithTextTitle = leadsWithTextTitle
         self.supertitle = supertitle()
         self.subtitle = subtitle()
         self.actions = actions()
@@ -367,7 +373,20 @@ struct DetailHeroSection<Supertitle: View, Subtitle: View, Actions: View>: View 
     private func twoColumnHeroContent(titleArtworkHeight: CGFloat) -> some View {
         let columnWidth = detailHeroRegularPrimaryWidth
 
-        if titleArtworkURL != nil {
+        if leadsWithTextTitle, titleArtworkURL == nil {
+            HStack(alignment: .bottom, spacing: 36) {
+                VStack(alignment: .leading, spacing: 16) {
+                    VStack(alignment: .leading, spacing: 8) {
+                        titleView(height: titleArtworkHeight, alignment: .leading)
+                        subtitle
+                    }
+                    actions
+                }
+                .frame(width: columnWidth, alignment: .leading)
+
+                descriptionColumn
+            }
+        } else if titleArtworkURL != nil {
             // Show / Movie: the clear-logo is the title and leads the left column;
             // the synopsis sits on the right, level with the metadata under it.
             VStack(alignment: .leading, spacing: 18) {
@@ -485,6 +504,7 @@ extension DetailHeroSection where Supertitle == EmptyView {
         keepsPreviousBackdropWhileLoading: Bool = false,
         titleLineLimit: Int = 2,
         titleAccessory: AnyView? = nil,
+        leadsWithTextTitle: Bool = false,
         @ViewBuilder subtitle: () -> Subtitle,
         @ViewBuilder actions: () -> Actions
     ) {
@@ -500,6 +520,7 @@ extension DetailHeroSection where Supertitle == EmptyView {
         self.keepsPreviousBackdropWhileLoading = keepsPreviousBackdropWhileLoading
         self.titleLineLimit = titleLineLimit
         self.titleAccessory = titleAccessory
+        self.leadsWithTextTitle = leadsWithTextTitle
         self.supertitle = EmptyView()
         self.subtitle = subtitle()
         self.actions = actions()

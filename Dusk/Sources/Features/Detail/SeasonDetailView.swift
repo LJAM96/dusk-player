@@ -197,6 +197,7 @@ struct SeasonDetailView: View {
                     iconOnly: true
                 )
                 watchedButton()
+                AddToPlaylistHeroButton(target: viewModel.details.flatMap(AddToPlaylistTarget.init(details:)))
             }
         }
         .detailHeroActionStackFrame(isCompactPhone: usesFullWidthDetailActionButtons(for: sizeClass))
@@ -356,6 +357,8 @@ struct SeasonDetailView: View {
                 }
             }
         }
+
+        AddToPlaylistMenuButton(target: AddToPlaylistTarget(episode: episode))
     }
 
 }

@@ -77,6 +77,11 @@ enum ScreenshotMode {
 
     enum Screen: String {
         case home, movies, shows, photos, library, collections, detail, search, player, downloads, settings, serverPriority, hiddenLibraries, supporter, icons
+        /// The Playlists tab; `playlist` opens `-DuskScreenshotItem <playlist
+        /// ratingKey>`; `playlistPlay` plays it from item
+        /// `-DuskScreenshotPlaylistStart <n>`; `addToPlaylist` opens the
+        /// item's detail page with the Add to Playlist sheet over it.
+        case playlists, playlist, playlistPlay, addToPlaylist
     }
 
     static var screen: Screen? {
@@ -90,6 +95,10 @@ enum ScreenshotMode {
         var playID: PlexItemID?
         var playOffsetMilliseconds: Int?
         var sheet: Sheet?
+        var addToPlaylist: AddToPlaylistTarget?
+        /// Play this playlist from `playlistStart`.
+        var playlistID: PlexItemID?
+        var playlistStart = 0
     }
 
     enum Sheet: String, Identifiable {
@@ -138,7 +147,12 @@ enum ScreenshotMode {
         // The demo servers hand out globally unique rating keys, so an item is
         // found by asking each connected server for it.
         var item: PlexItemID?
-        if let ratingKey = defaults.string(forKey: Key.item)?.nilIfEmpty {
+        if [.playlist, .playlistPlay].contains(screen),
+           let ratingKey = defaults.string(forKey: Key.item)?.nilIfEmpty,
+           let primary = plexService.pool.primary?.serverID {
+            // A playlist is not library metadata; the demo has one server.
+            item = PlexItemID(serverID: primary, ratingKey: ratingKey)
+        } else if let ratingKey = defaults.string(forKey: Key.item)?.nilIfEmpty {
             guard let serverID = await server(holding: ratingKey, plexService: plexService) else { return nil }
             item = PlexItemID(serverID: serverID, ratingKey: ratingKey)
         }
@@ -215,6 +229,27 @@ enum ScreenshotMode {
         case .icons:
             destination.tab = .settings
             destination.sheet = .icons
+        case .playlists:
+            destination.tab = .playlists
+        case .playlist:
+            destination.tab = .playlists
+            if let item {
+                destination.routes = [.playlist(id: item)]
+            }
+        case .playlistPlay:
+            destination.tab = .playlists
+            if let item {
+                destination.routes = [.playlist(id: item)]
+                destination.playlistID = item
+                destination.playlistStart = defaults.integer(forKey: "DuskScreenshotPlaylistStart")
+            }
+        case .addToPlaylist:
+            if let item {
+                destination.routes = [.media(type: itemType, id: item)]
+                let details = try? await plexService.getMediaDetails(ratingKey: item.ratingKey, serverID: item.serverID)
+                destination.addToPlaylist = details.flatMap(AddToPlaylistTarget.init(details:))
+                    ?? AddToPlaylistTarget(id: item, type: itemType, title: "Item")
+            }
         }
         return destination
     }

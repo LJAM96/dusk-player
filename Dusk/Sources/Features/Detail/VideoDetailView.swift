@@ -176,6 +176,7 @@ struct VideoDetailView: View {
             downloadButton(details)
             subtitleSearchButton()
             watchedButton()
+            AddToPlaylistHeroButton(target: AddToPlaylistTarget(details: details))
         }
         #else
         // Primary fills the stack width; secondary row is centered beneath it.
@@ -185,6 +186,7 @@ struct VideoDetailView: View {
             HStack(spacing: detailHeroActionSpacing) {
                 downloadButton(details)
                 watchedButton()
+                AddToPlaylistHeroButton(target: AddToPlaylistTarget(details: details))
             }
         }
         .detailHeroActionStackFrame(isCompactPhone: usesFullWidthActionButtons)

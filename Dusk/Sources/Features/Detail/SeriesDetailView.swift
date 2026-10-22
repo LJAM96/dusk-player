@@ -367,6 +367,10 @@ struct SeriesDetailView: View {
             }
             .detailHeroNativeSecondaryButtonStyle()
             .accessibilityLabel(season.isSeasonWatched ? "Mark Season Unwatched" : "Mark Season Watched")
+
+            AddToPlaylistHeroButton(
+                target: viewModel.show?.details.flatMap(AddToPlaylistTarget.init(details:))
+            )
         }
     }
 
@@ -411,6 +415,8 @@ struct SeriesDetailView: View {
         } label: {
             Label("Mark Unwatched", systemImage: "eye.slash")
         }
+
+        AddToPlaylistMenuButton(target: AddToPlaylistTarget(season: season))
     }
 
     // MARK: - Episodes
@@ -531,6 +537,8 @@ struct SeriesDetailView: View {
                 }
             }
         }
+
+        AddToPlaylistMenuButton(target: AddToPlaylistTarget(episode: episode))
     }
 
     @ViewBuilder

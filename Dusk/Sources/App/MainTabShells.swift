@@ -5,6 +5,7 @@ enum MainTabItem: Hashable, Identifiable {
     case home
     case library(PlexLibraryType)
     case liveTV
+    case playlists
     case downloads
     case search
     case settings
@@ -20,6 +21,8 @@ enum MainTabItem: Hashable, Identifiable {
             libraryType.tabTitle
         case .liveTV:
             "Live TV"
+        case .playlists:
+            "Playlists"
         case .downloads:
             "Downloads"
         case .search:
@@ -39,6 +42,8 @@ enum MainTabItem: Hashable, Identifiable {
             libraryType.systemImage
         case .liveTV:
             "dot.radiowaves.left.and.right"
+        case .playlists:
+            PlexLibraryType.playlists.systemImage
         case .downloads:
             "arrow.down.circle"
         case .search:

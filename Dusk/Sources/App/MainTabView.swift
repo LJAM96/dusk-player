@@ -14,12 +14,14 @@ struct MainTabView: View {
     @State private var videosPath = NavigationPath()
     @State private var photosPath = NavigationPath()
     @State private var liveTVPath = NavigationPath()
+    @State private var playlistsPath = NavigationPath()
     @State private var downloadsPath = NavigationPath()
     @State private var searchPath = NavigationPath()
     @State private var settingsPath = NavigationPath()
     @State private var morePath = NavigationPath()
     @State private var librariesViewModel: LibrariesViewModel?
     @State private var liveTVViewModel: LiveTVViewModel?
+    @State private var addToPlaylist = AddToPlaylistPresenter()
     #if os(tvOS)
     @Environment(TopShelfLinkRouter.self) private var topShelfLinks
     @State private var isHomeScrolledOffTop = false
@@ -28,8 +30,13 @@ struct MainTabView: View {
 
     var body: some View {
         @Bindable var bindablePlayback = playback
+        @Bindable var bindableAddToPlaylist = addToPlaylist
 
         shellView
+            .environment(addToPlaylist)
+            .sheet(item: $bindableAddToPlaylist.target) { target in
+                AddToPlaylistSheet(target: target, plexService: plexService)
+            }
             // Which tabs exist depends on the merged library list, so the shell
             // reloads it whenever the set of connected servers changes: it
             // mounts before the first server is connected.
@@ -47,6 +54,10 @@ struct MainTabView: View {
                     liveTVViewModel = LiveTVViewModel(plexService: plexService)
                 }
                 await liveTVViewModel?.discover()
+            }
+            // Playlists bring their tab in only when the account has one.
+            .task(id: plexService.serverContentRevision) {
+                await plexService.loadPlaylists()
             }
             // The shell remounts per Plex Home profile, so each profile's
             // account languages become the Audio & Subtitles defaults.
@@ -221,9 +232,12 @@ struct MainTabView: View {
 
     private var desiredAvailableTabs: [MainTabItem] {
         let availableLibraryTypes = librariesViewModel?.availableLibraryTypes ?? [.movie, .show]
-        let availableTypes = availableLibraryTypes + (liveTVViewModel?.isAvailable == true ? [.liveTV] : [])
-        let contentTabs = preferences.visibleLibraryTabs(from: availableTypes).map { type in
-            type == .liveTV ? MainTabItem.liveTV : MainTabItem.library(type)
+        let contentTabs = preferences.visibleLibraryTabs(from: availableLibraryTypes + dataDrivenTabTypes).map { type in
+            switch type {
+            case .liveTV: MainTabItem.liveTV
+            case .playlists: MainTabItem.playlists
+            default: MainTabItem.library(type)
+            }
         }
         let baseTabs: [MainTabItem] = [.home] + contentTabs
 
@@ -262,16 +276,29 @@ struct MainTabView: View {
     private var moreTabContentTypes: [PlexLibraryType] {
         guard availableTabs.contains(.more) else { return [] }
         let availableLibraryTypes = librariesViewModel?.availableLibraryTypes ?? []
-        let availableTypes = availableLibraryTypes + (liveTVViewModel?.isAvailable == true ? [.liveTV] : [])
-        let visibleTypes = preferences.visibleLibraryTabs(from: availableTypes)
+        let visibleTypes = preferences.visibleLibraryTabs(from: availableLibraryTypes + dataDrivenTabTypes)
         let flatTypes = availableTabs.compactMap { tab -> PlexLibraryType? in
             switch tab {
             case .library(let type): type
             case .liveTV: .liveTV
+            case .playlists: .playlists
             default: nil
             }
         }
         return visibleTypes.filter { !flatTypes.contains($0) }
+    }
+
+    /// Destinations that exist only while a server offers them: Live TV with
+    /// a DVR, Playlists once the account has a video playlist.
+    private var dataDrivenTabTypes: [PlexLibraryType] {
+        var types: [PlexLibraryType] = []
+        if liveTVViewModel?.isAvailable == true {
+            types.append(.liveTV)
+        }
+        if plexService.playlists.hasPlaylists {
+            types.append(.playlists)
+        }
+        return types
     }
 
     @ViewBuilder
@@ -310,6 +337,8 @@ struct MainTabView: View {
             }
         case .liveTV:
             LiveTVView(viewModel: resolvedLiveTVViewModel, path: $liveTVPath)
+        case .playlists:
+            PlaylistsView(path: $playlistsPath)
         case .downloads:
             DownloadsView(path: $downloadsPath)
         case .search:
@@ -371,6 +400,8 @@ struct MainTabView: View {
             photosPath
         case .library(.liveTV), .liveTV:
             liveTVPath
+        case .library(.playlists), .playlists:
+            playlistsPath
         case .downloads:
             downloadsPath
         case .search:
@@ -396,6 +427,8 @@ struct MainTabView: View {
             photosPath = path
         case .library(.liveTV), .liveTV:
             liveTVPath = path
+        case .library(.playlists), .playlists:
+            playlistsPath = path
         case .downloads:
             downloadsPath = path
         case .search:
@@ -419,6 +452,8 @@ struct MainTabView: View {
             $photosPath
         case .liveTV:
             $liveTVPath
+        case .playlists:
+            $playlistsPath
         }
     }
 }
@@ -435,11 +470,30 @@ private extension MainTabView {
                 libraries: librariesViewModel?.libraries ?? [],
                 downloadManager: downloadManager
             ) {
+                if destination.tab == .playlists {
+                    await plexService.loadPlaylists()
+                }
                 if selectedTab != destination.tab {
                     selectedTab = destination.tab
                 }
                 setPath(NavigationPath(destination.routes), for: destination.tab)
                 ScreenshotMode.pendingSheet = destination.sheet
+                if let target = destination.addToPlaylist {
+                    // Let the detail page settle under the sheet.
+                    try? await Task.sleep(for: .seconds(1.5))
+                    addToPlaylist.present(target)
+                }
+                if let playlistID = destination.playlistID,
+                   let playlist = try? await plexService.getPlaylist(ratingKey: playlistID.ratingKey, serverID: playlistID.serverID),
+                   let entries = try? await plexService.getPlaylistEntries(ratingKey: playlist.ratingKey, serverID: playlist.serverID),
+                   let queue = PlaylistActions(plexService: plexService).queue(
+                       for: playlist,
+                       entries: entries,
+                       startIndex: destination.playlistStart
+                   ) {
+                    try? await Task.sleep(for: .seconds(1))
+                    await playback.playQueue(queue)
+                }
                 if let playID = destination.playID {
                     await playback.playForScreenshot(
                         id: playID,

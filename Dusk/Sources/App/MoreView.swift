@@ -54,6 +54,8 @@ struct MoreView: View {
         switch route {
         case .content(.liveTV):
             LiveTVRootContent(viewModel: liveTVViewModel)
+        case .content(.playlists):
+            PlaylistsRootContent()
         case .content(let libraryType):
             LibrariesRootContent(libraryType: libraryType, viewModel: librariesViewModel, path: $path)
         case .downloads:

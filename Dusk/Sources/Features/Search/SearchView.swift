@@ -180,7 +180,11 @@ private extension SearchRootContent {
                                     imageAspectRatio: aspectRatio,
                                     availabilityBadge: vm.availabilityBadge(for: item),
                                     isWatched: item.isWatched
-                                )
+                                ) {
+                                    if case .plex(let plexItem) = item {
+                                        AddToPlaylistMenuButton(target: AddToPlaylistTarget(item: plexItem))
+                                    }
+                                }
                             }
                         }
                     }
@@ -267,7 +271,11 @@ private extension SearchRootContent {
                                             imageAspectRatio: aspectRatio,
                                             availabilityBadge: vm.availabilityBadge(for: item),
                                             isWatched: item.isWatched
-                                        )
+                                        ) {
+                                            if case .plex(let plexItem) = item {
+                                                AddToPlaylistMenuButton(target: AddToPlaylistTarget(item: plexItem))
+                                            }
+                                        }
                                     }
                                 }
                             }

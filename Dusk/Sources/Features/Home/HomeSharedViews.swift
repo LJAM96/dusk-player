@@ -36,6 +36,8 @@ struct HomeItemContextMenu: View {
                 onSelectRoute(showRoute)
             }
         }
+
+        AddToPlaylistMenuButton(target: AddToPlaylistTarget(item: item))
     }
 }
 

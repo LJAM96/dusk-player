@@ -15,6 +15,8 @@ enum AppNavigationRoute: Hashable {
     case libraryRecommendations(PlexLibrary)
     case photoAlbum(PhotoAlbumRoute)
     case hub(PlexHub)
+    /// A Plex playlist, on its own server.
+    case playlist(id: PlexItemID)
     case media(type: PlexMediaType, id: PlexItemID)
     case downloadedMedia(type: PlexMediaType, id: PlexItemID)
     case video(id: PlexItemID)
@@ -88,6 +90,8 @@ struct AppNavigationDestinationView: View {
             )
         case .hub(let hub):
             HomeHubItemsView(hub: hub, plexService: plexService)
+        case .playlist(let id):
+            PlaylistDetailView(id: id, plexService: plexService)
         case let .media(type, id):
             MediaDetailDestinationView(
                 type: type,

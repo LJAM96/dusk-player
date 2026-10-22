@@ -69,6 +69,10 @@ final class PlexService {
     /// connected server's sections. See `PlexService+LibraryOrder`.
     let libraryOrder = LibraryOrderStore()
 
+    /// The account's video playlists on every connected server. See
+    /// `PlexService+Playlists`.
+    let playlists = PlaylistStore()
+
     /// Every server this account can use and the live session with each one.
     /// Everything that talks to a server resolves through here.
     let pool = ServerPool()
@@ -298,6 +302,7 @@ final class PlexService {
     ///   those of servers that never connected this launch.
     func tearDownServerSessions(forgetServers: Bool = false) {
         libraryOrder.invalidate()
+        playlists.reset()
         // Rating keys only mean something for the account that fetched them.
         alternates.reset()
         for task in serverRecoveryTasks.values {
