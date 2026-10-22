@@ -214,6 +214,16 @@ extension PlaybackCoordinator {
     /// Next screen whose callers finalize before presenting.
     func startUpNextPosterPlayback(trigger: UpNextStartTrigger) async {
         guard var poster = upNextPoster, !poster.isStarting else { return }
+        // The lookahead may have found the queued item gone since the poster
+        // went up: start what the queue offers now, or end with the queue.
+        if poster.queueIndex != nil {
+            guard let current = revalidatedQueueCandidate(UpNextCandidate(item: poster.item, queueIndex: poster.queueIndex)) else {
+                endPlaybackAtQueueEnd()
+                return
+            }
+            poster.item = current.item
+            poster.queueIndex = current.queueIndex
+        }
 
         cancelUpNextPosterCountdown()
         poster.isStarting = true
@@ -228,8 +238,8 @@ extension PlaybackCoordinator {
         let previousQueuePosition = moveQueue(to: poster.queueIndex)
         let didStart = await runPlaybackAttempt(
             id: poster.item.id,
-            startPositionOverride: poster.queueIndex == nil ? nil : poster.item.queueStartPositionOverride,
-            resumeOffsetMilliseconds: poster.item.viewOffset,
+            startPositionOverride: nil,
+            resumeOffsetMilliseconds: poster.queueIndex == nil ? poster.item.viewOffset : poster.item.queueResumeFallbackOffset,
             resumeOffsetDurationMilliseconds: poster.item.duration,
             selectedMediaID: nil,
             attemptID: attemptID
@@ -250,6 +260,14 @@ extension PlaybackCoordinator {
             }
             // `startPlaybackSession` clears `upNextPoster` when the new engine
             // commits.
+            return
+        }
+
+        // A queued item that turns out to be gone from its server is skipped:
+        // offer the one after it instead of an error that a retry repeats.
+        if poster.queueIndex != nil, await skipQueueItemIfGone(poster.item) {
+            upNextPoster = nil
+            loadError = nil
             return
         }
 
@@ -391,7 +409,8 @@ extension PlaybackCoordinator {
             clearAdjacentEpisodes()
             return
         }
-        guard adjacentEpisodes?.itemID != itemID else { return }
+        guard adjacentEpisodes?.itemID != itemID
+                || adjacentEpisodes?.queuePosition != playbackQueue?.position else { return }
 
         if playbackQueue != nil {
             adjacentEpisodesTask?.cancel()
@@ -502,11 +521,16 @@ extension PlaybackCoordinator {
             }
         }
 
+        // Only a positive answer is reused. "No next episode" goes through the
+        // old lookup, which re-asks the server (an episode may have been added
+        // since) and falls back to a downloaded next episode the server no
+        // longer lists.
         if let adjacentEpisodes,
            adjacentEpisodes.itemID == activeItemID,
            adjacentEpisodes.isResolved,
-           adjacentEpisodes.isOnlineEpisodeLookup {
-            return adjacentEpisodes.next.map { UpNextCandidate(item: $0.item, queueIndex: nil) }
+           adjacentEpisodes.isOnlineEpisodeLookup,
+           let next = adjacentEpisodes.next {
+            return UpNextCandidate(item: next.item, queueIndex: nil)
         }
 
         return await nextEpisode(after: details).map {
@@ -556,6 +580,7 @@ extension PlaybackCoordinator {
         let queue = playbackQueue
         return PlaybackAdjacentEpisodes(
             itemID: itemID,
+            queuePosition: queue?.position,
             isResolved: true,
             previous: queue?.previous(isPlayable: isQueueItemPlayable).map {
                 .init(item: $0.item, queueIndex: $0.index)
@@ -569,38 +594,32 @@ extension PlaybackCoordinator {
     /// Fetches the next queued item's metadata while the current one plays,
     /// the way the show's next episode is resolved at commit for episodes.
     /// Fresh watch state replaces the playlist's copy (it may have been
-    /// watched elsewhere since the list was read); an item the server no
-    /// longer has is marked unavailable and the one after it is tried, so Up
-    /// Next never offers something that cannot play. Downloaded items are
-    /// not fetched — they play from disk.
+    /// watched elsewhere since the list was read). Items the server no longer
+    /// has are marked unavailable one after another until one answers, so a
+    /// run of removed entries never blocks play-through; a poster already
+    /// offering one moves on with it (`noteQueueItemUnavailable`). Any other
+    /// failure stops quietly. Downloaded items are not fetched — they play
+    /// from disk.
     private func prefetchNextQueueItem() {
         queueLookaheadTask?.cancel()
-        guard let itemID = activeItemID else { return }
+        guard let itemID = activeItemID, let position = playbackQueue?.position else { return }
 
         queueLookaheadTask = Task { @MainActor [weak self] in
-            // A few misses in a row at most; the rest is left to Up Next.
-            for _ in 0..<3 {
+            while true {
                 guard let self, !Task.isCancelled,
-                      self.adjacentEpisodes?.itemID == itemID,
+                      self.isCurrentQueueState(itemID: itemID, position: position),
                       let next = self.playbackQueue?.next(isPlayable: self.isQueueItemPlayable),
                       self.downloadManager?.isPlayableOffline(id: next.item.id) != true else { return }
 
                 do {
-                    let details = try await self.plexService.getMediaDetails(
-                        ratingKey: next.item.ratingKey,
-                        serverID: next.item.serverID
-                    )
-                    guard !Task.isCancelled, self.adjacentEpisodes?.itemID == itemID else { return }
+                    let details = try await self.queueItemLookup(next.item)
+                    guard !Task.isCancelled, self.isCurrentQueueState(itemID: itemID, position: position) else { return }
                     self.playbackQueue?.replaceItem(at: next.index, with: PlaybackQueueItem(details: details))
                     self.adjacentEpisodes = self.queueNeighbours(itemID: itemID)
                     return
                 } catch PlexServiceError.httpError(statusCode: 404) {
-                    guard !Task.isCancelled, self.adjacentEpisodes?.itemID == itemID else { return }
-                    upNextLogger.notice(
-                        "Queued item \(next.item.id.storageKey, privacy: .public) is gone from its server; skipping it"
-                    )
-                    self.playbackQueue?.markUnavailable(next.item.id)
-                    self.adjacentEpisodes = self.queueNeighbours(itemID: itemID)
+                    guard !Task.isCancelled, self.isCurrentQueueState(itemID: itemID, position: position) else { return }
+                    self.noteQueueItemUnavailable(next.item.id)
                 } catch {
                     // Offline or slow: Up Next still offers the item, and
                     // starting it reports a real failure if there is one.
@@ -608,6 +627,86 @@ extension PlaybackCoordinator {
                 }
             }
         }
+    }
+
+    private func isCurrentQueueState(itemID: PlexItemID, position: Int) -> Bool {
+        adjacentEpisodes?.itemID == itemID && playbackQueue?.position == position
+    }
+
+    /// Marks a queued item gone and moves everything that offers it on: the
+    /// Previous / Next targets, and an Up Next poster or screen that has not
+    /// started yet (to the item after it, or away when it was the last).
+    func noteQueueItemUnavailable(_ id: PlexItemID) {
+        guard playbackQueue != nil else { return }
+        upNextLogger.notice("Queued item \(id.storageKey, privacy: .public) is gone from its server; skipping it")
+        playbackQueue?.markUnavailable(id)
+        if let itemID = adjacentEpisodes?.itemID {
+            adjacentEpisodes = queueNeighbours(itemID: itemID)
+        }
+
+        if var poster = upNextPoster, poster.queueIndex != nil, poster.item.id == id, !poster.isStarting {
+            if let next = revalidatedQueueCandidate(UpNextCandidate(item: poster.item, queueIndex: poster.queueIndex)) {
+                poster.item = next.item
+                poster.queueIndex = next.queueIndex
+                upNextPoster = poster
+            } else {
+                dismissUpNextPoster()
+            }
+        }
+        if var presentation = upNextPresentation, presentation.queueIndex != nil,
+           presentation.item.id == id, !presentation.isStarting,
+           let next = revalidatedQueueCandidate(UpNextCandidate(item: presentation.item, queueIndex: presentation.queueIndex)) {
+            presentation.item = next.item
+            presentation.queueIndex = next.queueIndex
+            upNextPresentation = presentation
+        }
+    }
+
+    /// The queued candidate if it can still play, else what the queue offers
+    /// after the current position now; nil at the end of the queue.
+    func revalidatedQueueCandidate(_ candidate: UpNextCandidate) -> UpNextCandidate? {
+        guard let queue = playbackQueue, candidate.queueIndex != nil else { return candidate }
+        if let index = candidate.queueIndex,
+           queue.items.indices.contains(index),
+           queue.items[index].id == candidate.item.id,
+           !queue.unavailableIDs.contains(candidate.item.id),
+           isQueueItemPlayable(candidate.item) {
+            return candidate
+        }
+        return queue.next(isPlayable: isQueueItemPlayable).map { UpNextCandidate(item: $0.item, queueIndex: $0.index) }
+    }
+
+    /// After a queued item failed to start: if its server says it is gone,
+    /// mark it, and offer the next item (or end playback at the queue's end).
+    /// Returns false when it is not gone, so the caller shows the error.
+    private func skipQueueItemIfGone(_ item: PlaybackQueueItem) async -> Bool {
+        do {
+            _ = try await queueItemLookup(item)
+            return false
+        } catch PlexServiceError.httpError(statusCode: 404) {
+            playbackQueue?.markUnavailable(item.id)
+            upNextPresentation = nil
+            if let next = playbackQueue?.next(isPlayable: isQueueItemPlayable) {
+                presentUpNext(for: UpNextCandidate(item: next.item, queueIndex: next.index))
+            } else {
+                endPlaybackAtQueueEnd()
+            }
+            return true
+        } catch {
+            return false
+        }
+    }
+
+    /// The queue has nothing left to play: the same ending as an item with
+    /// no Up Next (`handlePlaybackEnded`).
+    private func endPlaybackAtQueueEnd() {
+        upNextPoster = nil
+        upNextPresentation = nil
+        cancelUpNextCountdown()
+        cancelUpNextPosterCountdown()
+        finalizeCurrentPlaybackSession(markCompleted: true)
+        sharePlayController.leave()
+        showPlayer = false
     }
 
     private static func upNextStartFailureMessage(for item: PlaybackQueueItem) -> String {
@@ -626,6 +725,14 @@ extension PlaybackCoordinator {
     private func startUpNextPlayback(trigger: UpNextStartTrigger) async {
         guard var presentation = upNextPresentation,
               !presentation.isStarting else { return }
+        if presentation.queueIndex != nil {
+            guard let current = revalidatedQueueCandidate(UpNextCandidate(item: presentation.item, queueIndex: presentation.queueIndex)) else {
+                endPlaybackAtQueueEnd()
+                return
+            }
+            presentation.item = current.item
+            presentation.queueIndex = current.queueIndex
+        }
 
         switch trigger {
         case .autoplay:
@@ -646,8 +753,8 @@ extension PlaybackCoordinator {
         let previousQueuePosition = moveQueue(to: presentation.queueIndex)
         let didStart = await runPlaybackAttempt(
             id: presentation.item.id,
-            startPositionOverride: presentation.queueIndex == nil ? nil : presentation.item.queueStartPositionOverride,
-            resumeOffsetMilliseconds: presentation.item.viewOffset,
+            startPositionOverride: nil,
+            resumeOffsetMilliseconds: presentation.queueIndex == nil ? presentation.item.viewOffset : presentation.item.queueResumeFallbackOffset,
             resumeOffsetDurationMilliseconds: presentation.item.duration,
             selectedMediaID: nil,
             attemptID: attemptID
@@ -666,6 +773,11 @@ extension PlaybackCoordinator {
             case .manual:
                 resetContinuousPlayEpisodeRunCountForCurrentItem()
             }
+            return
+        }
+
+        if presentation.queueIndex != nil, await skipQueueItemIfGone(presentation.item) {
+            loadError = nil
             return
         }
 

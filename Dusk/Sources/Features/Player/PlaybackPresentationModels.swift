@@ -576,7 +576,7 @@ struct UpNextPresentation: Sendable {
         case playbackEnded
     }
 
-    let item: PlaybackQueueItem
+    var item: PlaybackQueueItem
     /// Where the item sits in the playback queue; nil outside a playlist
     /// session (the next episode of the show).
     var queueIndex: Int? = nil
@@ -633,6 +633,9 @@ struct PlaybackAdjacentEpisodes: Sendable {
     }
 
     let itemID: PlexItemID
+    /// The queue position they were read for. A playlist may hold the same
+    /// item twice in a row, so the item alone cannot say they are stale.
+    var queuePosition: Int? = nil
     /// False while the lookup is still running.
     var isResolved = false
     var previous: Neighbour?
@@ -662,7 +665,7 @@ struct UpNextPosterPresentation: Sendable {
         case manual
     }
 
-    let item: PlaybackQueueItem
+    var item: PlaybackQueueItem
     /// See `UpNextPresentation.queueIndex` / `queueTitle`.
     var queueIndex: Int? = nil
     var queueTitle: String? = nil

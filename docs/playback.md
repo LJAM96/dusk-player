@@ -2189,25 +2189,38 @@ so the whole live HUD is derived from one instant.
   used by the credits poster and by `handlePlaybackEnded`:
   - queue session → `queue.next(isPlayable:)`, synchronous, no request. The
     playlist wins over the show's next episode, and its end ends playback.
-    Watched items are **not** skipped; a finished one starts over
-    (`queueStartPositionOverride`). Unplayable kinds are dropped when the queue
-    is built; items whose server is not connected (and not downloaded) and items
-    found gone from the server are skipped.
-  - episode → the neighbours `refreshAdjacentEpisodesIfNeeded` already resolved
-    at session commit when that online lookup succeeded
+    Watched items are **not** skipped; a finished one starts over because the
+    session reads fresh details (Plex clears a watched item's offset). Queue
+    starts never force a position (only Play from Beginning / Shuffle do): a
+    watched item just hands no stale list offset over
+    (`queueResumeFallbackOffset`), so pending offline progress and a rewatch
+    begun elsewhere still resume. Unplayable kinds are dropped when the queue
+    is built (the start position is counted per occurrence, so a duplicate
+    entry starts where it was chosen); items whose server is not connected
+    (and not downloaded) and items found gone from the server are skipped.
+  - episode → the next episode `refreshAdjacentEpisodesIfNeeded` already
+    resolved at session commit when that online lookup succeeded and found one
     (`PlaybackAdjacentEpisodes.isOnlineEpisodeLookup`; same rules as
     `getNextEpisode`), so the credits poster no longer asks the server again.
-    Otherwise exactly the old path: the download cache for a download session
-    (poster) or `nextEpisode(after:)`.
+    Otherwise — still running, offline, failed, or **no** next episode —
+    exactly the old path: the download cache for a download session (poster)
+    or `nextEpisode(after:)`, which re-asks the server and falls back to a
+    downloaded next episode the server no longer lists.
 - Up Next presentations carry the generic item plus `queueIndex`/`queueTitle`;
   the eyebrow reads "NEXT IN <PLAYLIST>" and queue episodes name their show.
   Starting the item moves the queue first (`moveQueue`), so the commit already
   sees the new position, and restores it if the start fails.
 - At each queue commit the neighbours come from the queue (Previous/Next and
-  the tvOS Next button step through the playlist, movies included) and
-  `prefetchNextQueueItem` fetches the next item's metadata in the background:
-  fresh watch state replaces the list's copy; a 404 marks it unavailable and
-  the following one is tried. Downloaded items are not fetched.
+  the tvOS Next button step through the playlist, movies included; they are
+  keyed by item **and** queue position, so `[A, A, B]` still moves on) and
+  `prefetchNextQueueItem` fetches the next item's metadata in the background
+  (`queueItemLookup`): fresh watch state replaces the list's copy; a 404 marks
+  it unavailable and the following one is tried, for any run of removed
+  entries. `noteQueueItemUnavailable` also moves a poster/screen already
+  offering that item on, and every queued start revalidates its candidate
+  (`revalidatedQueueCandidate`). A queued start that fails because the item is
+  gone (404) offers the next item instead of an error. Downloaded items are not
+  fetched.
 - Passout protection counts every queue item, not just episodes. Pre-rolls
   still only run for the first item (only `beginPlayback` passes a
   `prerollFeature`). Shuffle is a permutation fixed for the session, started

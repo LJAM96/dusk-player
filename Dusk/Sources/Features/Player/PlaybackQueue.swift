@@ -133,12 +133,15 @@ struct PlaybackQueueItem: Sendable, Identifiable, Equatable {
 
     var isEpisode: Bool { type == .episode }
 
-    /// Where a queue session starts this item: a finished item (watched, no
-    /// rewatch in progress) from the beginning, otherwise nil — its resume
-    /// point, as for any other Play. Without the explicit 0 a stale offset
-    /// the server still holds for a watched item could resume near its end.
-    var queueStartPositionOverride: TimeInterval? {
-        isWatched && (viewOffset ?? 0) == 0 ? 0 : nil
+    /// The resume offset a queue session hands playback as its fallback.
+    /// Never a forced start position: the session decides from fresh details
+    /// (and, for a download, pending offline progress), so a finished item
+    /// starts over because Plex cleared its offset, and a rewatch that began
+    /// since the list was read still resumes. A watched item contributes no
+    /// fallback, so a stale offset in the list can never resume it near its
+    /// end.
+    var queueResumeFallbackOffset: Int? {
+        isWatched ? nil : viewOffset
     }
 
     /// The 16:9 still Up Next shows: an episode's own frame, a movie's
@@ -228,12 +231,15 @@ struct PlaybackQueue: Sendable, Equatable {
         ordered(source: .list(title: title), items: items, startIndex: startIndex)
     }
 
+    /// `startIndex` is an occurrence, not an item: a playlist can hold the
+    /// same title twice, so the position is counted through the filter
+    /// instead of looked up by id.
     private static func ordered(source: Source, items: [PlaybackQueueItem], startIndex: Int) -> PlaybackQueue? {
-        let start = items.indices.contains(startIndex) ? items[startIndex].id : nil
         let playable = items.filter(\.isPlayableKind)
         guard !playable.isEmpty else { return nil }
-        let position = start.flatMap { id in playable.firstIndex { $0.id == id } } ?? 0
-        return PlaybackQueue(source: source, items: playable, position: position)
+        let clampedStart = min(max(startIndex, 0), items.count)
+        let position = items[..<clampedStart].filter(\.isPlayableKind).count
+        return PlaybackQueue(source: source, items: playable, position: min(position, playable.count - 1))
     }
 
     /// A playlist in a random order fixed for the session, starting at its

@@ -185,6 +185,11 @@ final class PlaybackCoordinator {
     @ObservationIgnored nonisolated(unsafe) var adjacentEpisodesTask: Task<Void, Never>?
     /// Prefetches the next queued item's metadata (queue sessions only).
     @ObservationIgnored nonisolated(unsafe) var queueLookaheadTask: Task<Void, Never>?
+    /// How the queue lookahead (and a failed queue start) reads an item's
+    /// metadata. A seam for tests; always the item's own server.
+    @ObservationIgnored var queueItemLookup: @MainActor (PlaybackQueueItem) async throws -> PlexMediaDetails = { _ in
+        throw PlexServiceError.noServerConnected
+    }
     /// One-shot per attempt: observes the engine after an online direct-play
     /// start and swaps the session to the server-stream ladder rung when the
     /// engine fails. Cancelled on finalize/clear/engine swap.
@@ -215,6 +220,9 @@ final class PlaybackCoordinator {
         }
         sharePlayController.playbackCoordinator = self
         sharePlayController.startListening()
+        queueItemLookup = { [plexService] item in
+            try await plexService.getMediaDetails(ratingKey: item.ratingKey, serverID: item.serverID)
+        }
     }
 
     deinit {
@@ -386,14 +394,13 @@ final class PlaybackCoordinator {
     /// follows the queue instead of the show's next episode, and the queue's
     /// end ends playback. `fromStart` ignores the item's resume offset
     /// (Shuffle, Play from Beginning); otherwise it resumes where it was left,
-    /// and a finished item starts over (`queueStartPositionOverride`).
+    /// and a finished item starts over (`queueResumeFallbackOffset`).
     func playQueue(_ queue: PlaybackQueue, fromStart: Bool = false) async {
         guard let item = queue.current else { return }
-        let startPositionOverride = fromStart ? 0 : item.queueStartPositionOverride
         await beginPlayback(
             id: item.id,
-            startPositionOverride: startPositionOverride,
-            resumeOffsetMilliseconds: startPositionOverride == nil ? item.viewOffset : nil,
+            startPositionOverride: fromStart ? 0 : nil,
+            resumeOffsetMilliseconds: fromStart ? nil : item.queueResumeFallbackOffset,
             resumeOffsetDurationMilliseconds: item.duration,
             selectedMediaID: nil,
             placeholder: PlaybackPlaceholder(queueItem: item),
