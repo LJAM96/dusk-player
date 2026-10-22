@@ -1,4 +1,16 @@
 import Foundation
+import OSLog
+
+private let upNextLogger = Logger(subsystem: "com.dusk-player.app", category: "UpNext")
+
+/// What Up Next offers after the item now playing: the next playlist item in
+/// a queue session, otherwise the next episode of the show.
+struct UpNextCandidate: Sendable {
+    let item: PlaybackQueueItem
+    /// Position in `PlaybackCoordinator.playbackQueue`; nil for the show's
+    /// next episode.
+    let queueIndex: Int?
+}
 
 extension PlaybackCoordinator {
     enum UpNextStartTrigger {
@@ -28,18 +40,20 @@ extension PlaybackCoordinator {
         self.upNextPresentation = upNextPresentation
     }
 
-    func presentUpNext(for episode: PlexEpisode) {
-        presentUpNext(for: episode, source: .playbackEnded)
+    func presentUpNext(for candidate: UpNextCandidate) {
+        presentUpNext(for: candidate, source: .playbackEnded)
     }
 
-    func presentUpNext(for episode: PlexEpisode, source: UpNextPresentation.Source) {
+    func presentUpNext(for candidate: UpNextCandidate, source: UpNextPresentation.Source) {
         cancelUpNextCountdown()
 
         let autoplayBlockedByPassoutProtection = shouldPauseContinuousPlayAutoplay()
         let shouldAutoplay = preferences.continuousPlayEnabled && !autoplayBlockedByPassoutProtection
 
         upNextPresentation = UpNextPresentation(
-            episode: episode,
+            item: candidate.item,
+            queueIndex: candidate.queueIndex,
+            queueTitle: queueTitle(for: candidate),
             source: source,
             shouldAutoplay: shouldAutoplay,
             countdownDuration: preferences.continuousPlayCountdown.rawValue,
@@ -142,17 +156,10 @@ extension PlaybackCoordinator {
         // The full-screen Up Next screen takes precedence over the poster.
         guard upNextPresentation == nil else { return }
 
-        guard let activeItemDetails,
-              activeItemDetails.type == .episode else { return }
+        guard let activeItemDetails else { return }
 
-        let resolvedNextEpisode: PlexEpisode?
-        if activePlaybackUsesLocalDownload {
-            resolvedNextEpisode = cachedNextEpisode(after: activeItemDetails)
-        } else {
-            resolvedNextEpisode = await nextEpisode(after: activeItemDetails)
-        }
-
-        guard let nextEpisode = resolvedNextEpisode else { return }
+        let startedAt = ContinuousClock.now
+        guard let candidate = await resolveUpNext(after: activeItemDetails, prefersDownloadCache: true) else { return }
         guard isActiveSession(presentationID: expectedPresentationID, ratingKey: expectedRatingKey) else { return }
         guard upNextPresentation == nil else { return }
         // A poster for a newer credits marker was raised while we resolved.
@@ -160,7 +167,9 @@ extension PlaybackCoordinator {
 
         let mode = upNextPosterMode(creditsMarkerID: creditsMarkerID, estimated: isEstimated)
         var poster = UpNextPosterPresentation(
-            episode: nextEpisode,
+            item: candidate.item,
+            queueIndex: candidate.queueIndex,
+            queueTitle: queueTitle(for: candidate),
             mode: mode,
             creditsMarkerID: creditsMarkerID
         )
@@ -169,6 +178,9 @@ extension PlaybackCoordinator {
             poster.countdownProgress = 0
         }
         upNextPoster = poster
+        upNextLogger.notice(
+            "Up Next poster ready \(Self.milliseconds(since: startedAt), privacy: .public) ms after the credits marker (\(candidate.queueIndex == nil ? "next episode" : "queue", privacy: .public))"
+        )
 
         if poster.isTimed {
             // The auto-advance is now armed for this episode's credits; a later
@@ -213,17 +225,21 @@ extension PlaybackCoordinator {
 
         let attemptID = UUID()
         currentPlaybackAttemptID = attemptID
+        let previousQueuePosition = moveQueue(to: poster.queueIndex)
         let didStart = await runPlaybackAttempt(
-            id: poster.episode.id,
-            startPositionOverride: nil,
-            resumeOffsetMilliseconds: poster.episode.viewOffset,
-            resumeOffsetDurationMilliseconds: poster.episode.duration,
+            id: poster.item.id,
+            startPositionOverride: poster.queueIndex == nil ? nil : poster.item.queueStartPositionOverride,
+            resumeOffsetMilliseconds: poster.item.viewOffset,
+            resumeOffsetDurationMilliseconds: poster.item.duration,
             selectedMediaID: nil,
             attemptID: attemptID
         )
 
         // Superseded by a newer attempt or a dismissal while loading.
         guard currentPlaybackAttemptID == attemptID else { return }
+        if !didStart {
+            moveQueue(to: previousQueuePosition)
+        }
 
         if didStart {
             switch trigger {
@@ -239,11 +255,12 @@ extension PlaybackCoordinator {
 
         // The next episode failed to start — surface the full-screen Up Next
         // screen with an error instead of leaving a dead poster behind.
-        let episode = poster.episode
         upNextPoster = nil
         cancelUpNextCountdown()
         upNextPresentation = UpNextPresentation(
-            episode: episode,
+            item: poster.item,
+            queueIndex: poster.queueIndex,
+            queueTitle: poster.queueTitle,
             source: .playbackEnded,
             shouldAutoplay: false,
             countdownDuration: preferences.continuousPlayCountdown.rawValue,
@@ -252,7 +269,7 @@ extension PlaybackCoordinator {
             autoplayProgress: nil,
             autoplayBlockedByPassoutProtection: false,
             passoutProtectionEpisodeLimit: nil,
-            errorMessage: loadError ?? "Could not start the next episode."
+            errorMessage: loadError ?? Self.upNextStartFailureMessage(for: poster.item)
         )
         loadError = nil
     }
@@ -360,14 +377,15 @@ extension PlaybackCoordinator {
         !isSharePlayActive && !isSharePlayStarting
     }
 
-    /// Resolves the playing episode's neighbours once per item. Called at
+    /// Resolves the playing item's neighbours once per item. Called at
     /// session commit; a Quality switch or delivery fallback of the same item
-    /// keeps what was already resolved. Download sessions only see downloaded
+    /// keeps what was already resolved. A queue session reads them straight
+    /// from the queue (no request) and prefetches the next item; otherwise
+    /// only episodes have neighbours. Download sessions only see downloaded
     /// neighbours; an online lookup that fails falls back to them too, like
     /// `nextEpisode(after:)`.
     func refreshAdjacentEpisodesIfNeeded() {
         guard let details = activeItemDetails,
-              details.type == .episode,
               activeLiveTVContext == nil,
               let itemID = activeItemID else {
             clearAdjacentEpisodes()
@@ -375,15 +393,30 @@ extension PlaybackCoordinator {
         }
         guard adjacentEpisodes?.itemID != itemID else { return }
 
+        if playbackQueue != nil {
+            adjacentEpisodesTask?.cancel()
+            adjacentEpisodesTask = nil
+            adjacentEpisodes = queueNeighbours(itemID: itemID)
+            prefetchNextQueueItem()
+            return
+        }
+
+        guard details.type == .episode else {
+            clearAdjacentEpisodes()
+            return
+        }
+
         adjacentEpisodesTask?.cancel()
-        adjacentEpisodes = PlaybackAdjacentEpisodes(itemID: itemID, episodes: nil)
+        adjacentEpisodes = PlaybackAdjacentEpisodes(itemID: itemID)
         let usesLocalDownload = activePlaybackUsesLocalDownload
 
         adjacentEpisodesTask = Task { @MainActor [weak self] in
             guard let self else { return }
             var resolved: PlexAdjacentEpisodes?
+            var isOnlineEpisodeLookup = false
             if !usesLocalDownload {
                 resolved = try? await self.plexService.getAdjacentEpisodes(around: details)
+                isOnlineEpisodeLookup = resolved != nil
             }
             if resolved == nil {
                 resolved = self.downloadManager?.cachedAdjacentDownloadedEpisodes(around: details)
@@ -392,7 +425,10 @@ extension PlaybackCoordinator {
             guard !Task.isCancelled, self.adjacentEpisodes?.itemID == itemID else { return }
             self.adjacentEpisodes = PlaybackAdjacentEpisodes(
                 itemID: itemID,
-                episodes: resolved ?? PlexAdjacentEpisodes()
+                isResolved: true,
+                previous: resolved?.previous.map { .init(item: PlaybackQueueItem(episode: $0)) },
+                next: resolved?.next.map { .init(item: PlaybackQueueItem(episode: $0)) },
+                isOnlineEpisodeLookup: isOnlineEpisodeLookup
             )
         }
     }
@@ -400,6 +436,8 @@ extension PlaybackCoordinator {
     func clearAdjacentEpisodes() {
         adjacentEpisodesTask?.cancel()
         adjacentEpisodesTask = nil
+        queueLookaheadTask?.cancel()
+        queueLookaheadTask = nil
         adjacentEpisodes = nil
     }
 
@@ -411,18 +449,68 @@ extension PlaybackCoordinator {
     /// restarts the Pause After count from this episode.
     func playAdjacentEpisode(_ direction: AdjacentEpisodeDirection, isPastCredits: Bool) {
         guard canStepEpisodes,
-              let episode = adjacentEpisodes?.episode(direction) else { return }
+              let neighbour = adjacentEpisodes?.neighbour(direction) else { return }
 
         cancelUpNextPosterCountdown()
         finalizeCurrentPlaybackSession(markCompleted: isPastCredits)
 
+        // A playlist session keeps its queue, moved onto the neighbour.
+        var queue = playbackQueue
+        if let index = neighbour.queueIndex {
+            queue?.move(to: index)
+        }
+        let item = neighbour.item
         Task { @MainActor in
-            await play(
-                id: episode.id,
-                resumeOffsetMilliseconds: episode.viewOffset,
-                resumeOffsetDurationMilliseconds: episode.duration,
-                placeholder: PlaybackPlaceholder(episode: episode)
-            )
+            if let queue, neighbour.queueIndex != nil {
+                await playQueue(queue)
+            } else {
+                await play(
+                    id: item.id,
+                    resumeOffsetMilliseconds: item.viewOffset,
+                    resumeOffsetDurationMilliseconds: item.duration,
+                    placeholder: PlaybackPlaceholder(queueItem: item)
+                )
+            }
+        }
+    }
+
+    // MARK: - Resolving Up Next
+
+    /// The one place Up Next decides what follows `details`.
+    ///
+    /// - A queue session answers from the queue, synchronously: the next item
+    ///   that can play (downloaded, or its server connected). Its end is the
+    ///   end of playback — never the show's next episode.
+    /// - Otherwise only an episode has a successor. The neighbours resolved at
+    ///   session commit already hold it when that online lookup succeeded, so
+    ///   the credits poster needs no request of its own. Without that answer
+    ///   (still running, offline, failed) it is resolved as it always was:
+    ///   from the download cache when `prefersDownloadCache` and the session
+    ///   plays a download, else `nextEpisode(after:)`.
+    func resolveUpNext(after details: PlexMediaDetails, prefersDownloadCache: Bool) async -> UpNextCandidate? {
+        if let playbackQueue {
+            return playbackQueue.next(isPlayable: isQueueItemPlayable).map {
+                UpNextCandidate(item: $0.item, queueIndex: $0.index)
+            }
+        }
+
+        guard details.type == .episode else { return nil }
+
+        if prefersDownloadCache, activePlaybackUsesLocalDownload {
+            return cachedNextEpisode(after: details).map {
+                UpNextCandidate(item: PlaybackQueueItem(episode: $0), queueIndex: nil)
+            }
+        }
+
+        if let adjacentEpisodes,
+           adjacentEpisodes.itemID == activeItemID,
+           adjacentEpisodes.isResolved,
+           adjacentEpisodes.isOnlineEpisodeLookup {
+            return adjacentEpisodes.next.map { UpNextCandidate(item: $0.item, queueIndex: nil) }
+        }
+
+        return await nextEpisode(after: details).map {
+            UpNextCandidate(item: PlaybackQueueItem(episode: $0), queueIndex: nil)
         }
     }
 
@@ -436,6 +524,99 @@ extension PlaybackCoordinator {
 
     private func cachedNextEpisode(after episode: PlexMediaDetails) -> PlexEpisode? {
         downloadManager?.cachedNextDownloadedEpisode(after: episode)
+    }
+
+    // MARK: - Playback Queue
+
+    /// Whether a queued item can start now: its server is connected, or it is
+    /// downloaded (which plays with no server at all).
+    func isQueueItemPlayable(_ item: PlaybackQueueItem) -> Bool {
+        if downloadManager?.isPlayableOffline(id: item.id) == true { return true }
+        return plexService.pool.connection(for: item.serverID) != nil
+    }
+
+    /// Moves the queue onto the item an Up Next start is about to play, so the
+    /// commit inside `runPlaybackAttempt` already sees the new position.
+    /// Returns the position it replaced (to restore when the start fails);
+    /// nil, and nothing happens, outside a queue session.
+    @discardableResult
+    func moveQueue(to index: Int?) -> Int? {
+        guard let index, var queue = playbackQueue else { return nil }
+        let previous = queue.position
+        queue.move(to: index)
+        playbackQueue = queue
+        return previous
+    }
+
+    private func queueTitle(for candidate: UpNextCandidate) -> String? {
+        candidate.queueIndex == nil ? nil : playbackQueue?.title
+    }
+
+    private func queueNeighbours(itemID: PlexItemID) -> PlaybackAdjacentEpisodes {
+        let queue = playbackQueue
+        return PlaybackAdjacentEpisodes(
+            itemID: itemID,
+            isResolved: true,
+            previous: queue?.previous(isPlayable: isQueueItemPlayable).map {
+                .init(item: $0.item, queueIndex: $0.index)
+            },
+            next: queue?.next(isPlayable: isQueueItemPlayable).map {
+                .init(item: $0.item, queueIndex: $0.index)
+            }
+        )
+    }
+
+    /// Fetches the next queued item's metadata while the current one plays,
+    /// the way the show's next episode is resolved at commit for episodes.
+    /// Fresh watch state replaces the playlist's copy (it may have been
+    /// watched elsewhere since the list was read); an item the server no
+    /// longer has is marked unavailable and the one after it is tried, so Up
+    /// Next never offers something that cannot play. Downloaded items are
+    /// not fetched — they play from disk.
+    private func prefetchNextQueueItem() {
+        queueLookaheadTask?.cancel()
+        guard let itemID = activeItemID else { return }
+
+        queueLookaheadTask = Task { @MainActor [weak self] in
+            // A few misses in a row at most; the rest is left to Up Next.
+            for _ in 0..<3 {
+                guard let self, !Task.isCancelled,
+                      self.adjacentEpisodes?.itemID == itemID,
+                      let next = self.playbackQueue?.next(isPlayable: self.isQueueItemPlayable),
+                      self.downloadManager?.isPlayableOffline(id: next.item.id) != true else { return }
+
+                do {
+                    let details = try await self.plexService.getMediaDetails(
+                        ratingKey: next.item.ratingKey,
+                        serverID: next.item.serverID
+                    )
+                    guard !Task.isCancelled, self.adjacentEpisodes?.itemID == itemID else { return }
+                    self.playbackQueue?.replaceItem(at: next.index, with: PlaybackQueueItem(details: details))
+                    self.adjacentEpisodes = self.queueNeighbours(itemID: itemID)
+                    return
+                } catch PlexServiceError.httpError(statusCode: 404) {
+                    guard !Task.isCancelled, self.adjacentEpisodes?.itemID == itemID else { return }
+                    upNextLogger.notice(
+                        "Queued item \(next.item.id.storageKey, privacy: .public) is gone from its server; skipping it"
+                    )
+                    self.playbackQueue?.markUnavailable(next.item.id)
+                    self.adjacentEpisodes = self.queueNeighbours(itemID: itemID)
+                } catch {
+                    // Offline or slow: Up Next still offers the item, and
+                    // starting it reports a real failure if there is one.
+                    return
+                }
+            }
+        }
+    }
+
+    private static func upNextStartFailureMessage(for item: PlaybackQueueItem) -> String {
+        item.isEpisode ? "Could not start the next episode." : "Could not start the next item."
+    }
+
+    private static func milliseconds(since start: ContinuousClock.Instant) -> Int {
+        let elapsed = ContinuousClock.now - start
+        return Int(elapsed.components.seconds * 1000 + elapsed.components.attoseconds / 1_000_000_000_000_000)
     }
 
     private func isActiveSession(presentationID expectedPresentationID: UUID, ratingKey expectedRatingKey: String?) -> Bool {
@@ -462,17 +643,21 @@ extension PlaybackCoordinator {
         // already-finalized engine keeps showing behind it.
         let attemptID = UUID()
         currentPlaybackAttemptID = attemptID
+        let previousQueuePosition = moveQueue(to: presentation.queueIndex)
         let didStart = await runPlaybackAttempt(
-            id: presentation.episode.id,
-            startPositionOverride: nil,
-            resumeOffsetMilliseconds: presentation.episode.viewOffset,
-            resumeOffsetDurationMilliseconds: presentation.episode.duration,
+            id: presentation.item.id,
+            startPositionOverride: presentation.queueIndex == nil ? nil : presentation.item.queueStartPositionOverride,
+            resumeOffsetMilliseconds: presentation.item.viewOffset,
+            resumeOffsetDurationMilliseconds: presentation.item.duration,
             selectedMediaID: nil,
             attemptID: attemptID
         )
 
         // Superseded by a newer attempt or a dismissal while loading.
         guard currentPlaybackAttemptID == attemptID else { return }
+        if !didStart {
+            moveQueue(to: previousQueuePosition)
+        }
 
         if didStart {
             switch trigger {
@@ -490,7 +675,7 @@ extension PlaybackCoordinator {
         failedPresentation.countdownStartedAt = nil
         failedPresentation.secondsRemaining = nil
         failedPresentation.autoplayProgress = nil
-        failedPresentation.errorMessage = loadError ?? "Could not start the next episode."
+        failedPresentation.errorMessage = loadError ?? Self.upNextStartFailureMessage(for: failedPresentation.item)
         upNextPresentation = failedPresentation
         loadError = nil
     }

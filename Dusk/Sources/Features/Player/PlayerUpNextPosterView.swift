@@ -156,7 +156,7 @@ struct PlayerUpNextPosterView: View {
     private var textColumn: some View {
         VStack(alignment: .leading, spacing: Metrics.textRowSpacing) {
             HStack(alignment: .firstTextBaseline, spacing: 6) {
-                Text("UP NEXT")
+                Text(eyebrowText)
                     .font(Metrics.eyebrowFont)
                     .tracking(1.2)
                     .foregroundStyle(Metrics.eyebrowColor)
@@ -174,7 +174,7 @@ struct PlayerUpNextPosterView: View {
                 }
             }
 
-            Text(presentation.episode.title)
+            Text(presentation.item.title)
                 .font(Metrics.titleFont)
                 .foregroundStyle(.white)
                 .lineLimit(2)
@@ -285,26 +285,26 @@ struct PlayerUpNextPosterView: View {
 
     private var thumbnailURL: URL? {
         plexService.imageURL(
-            for: presentation.episode.thumb
-                ?? presentation.episode.art
-                ?? presentation.episode.grandparentThumb,
-            serverID: presentation.episode.serverID,
+            for: presentation.item.upNextStillPath,
+            serverID: presentation.item.serverID,
             width: 640,
             height: 360
         )
     }
 
     private var thumbnailIsUnwatchedEpisodeStill: Bool {
-        presentation.episode.thumb != nil && !presentation.episode.isWatched
+        presentation.item.hasUnwatchedEpisodeStill
     }
 
     private var metadataText: String? {
         [
-            MediaTextFormatter.seasonEpisodeLabel(
-                season: presentation.episode.parentIndex,
-                episode: presentation.episode.index
-            ),
-            MediaTextFormatter.shortDuration(milliseconds: presentation.episode.duration),
+            // A playlist mixes shows, so its episodes name theirs; the show's
+            // own next episode never needs to.
+            presentation.queueTitle != nil && presentation.item.isEpisode
+                ? presentation.item.grandparentTitle
+                : nil,
+            presentation.item.upNextDetailLabel(compact: presentation.queueTitle != nil),
+            MediaTextFormatter.shortDuration(milliseconds: presentation.item.duration),
         ]
         .compactMap { $0 }
         .joined(separator: " · ")
@@ -322,8 +322,16 @@ struct PlayerUpNextPosterView: View {
         return "\(secondsRemaining)s"
     }
 
+    /// "Next in Weekend Movies" in a playlist session.
+    private var eyebrowText: String {
+        guard let queueTitle = presentation.queueTitle else { return "UP NEXT" }
+        return "NEXT IN \(queueTitle.uppercased())"
+    }
+
     private var accessibilityLabel: String {
-        "Play next episode: \(presentation.episode.title)"
+        presentation.item.isEpisode
+            ? "Play next episode: \(presentation.item.title)"
+            : "Play next: \(presentation.item.title)"
     }
 
     private var cardShape: RoundedRectangle {

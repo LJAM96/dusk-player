@@ -49,6 +49,11 @@ final class PlaybackCoordinator {
     /// Previous / Next Episode targets for the episode now playing; nil for
     /// anything that is not a library episode (movies, clips, Live TV).
     var adjacentEpisodes: PlaybackAdjacentEpisodes?
+    /// The playlist being played through, with the position of the item now
+    /// playing; nil for ordinary playback, whose Up Next is the show's next
+    /// episode. Set by `playQueue`, kept across Up Next and Previous / Next,
+    /// dropped by any other Play and when the cover closes.
+    var playbackQueue: PlaybackQueue?
     /// Markers whose one-shot auto-skip has been used up for the item currently
     /// playing: an intro Dusk (or the viewer) already skipped, and credits whose
     /// auto-advance countdown already ran or was waved off. Auto-skip is a
@@ -178,6 +183,8 @@ final class PlaybackCoordinator {
     @ObservationIgnored nonisolated(unsafe) var upNextCountdownTask: Task<Void, Never>?
     @ObservationIgnored nonisolated(unsafe) var upNextPosterCountdownTask: Task<Void, Never>?
     @ObservationIgnored nonisolated(unsafe) var adjacentEpisodesTask: Task<Void, Never>?
+    /// Prefetches the next queued item's metadata (queue sessions only).
+    @ObservationIgnored nonisolated(unsafe) var queueLookaheadTask: Task<Void, Never>?
     /// One-shot per attempt: observes the engine after an online direct-play
     /// start and swaps the session to the server-stream ladder rung when the
     /// engine fails. Cancelled on finalize/clear/engine swap.
@@ -217,6 +224,7 @@ final class PlaybackCoordinator {
         spatialAudioTransitionTask?.cancel()
         upNextPosterCountdownTask?.cancel()
         adjacentEpisodesTask?.cancel()
+        queueLookaheadTask?.cancel()
         liveTVScheduleRefreshTask?.cancel()
     }
 
@@ -360,7 +368,8 @@ final class PlaybackCoordinator {
         id: PlexItemID,
         resumeOffsetMilliseconds: Int?,
         resumeOffsetDurationMilliseconds: Int? = nil,
-        placeholder: PlaybackPlaceholder? = nil
+        placeholder: PlaybackPlaceholder? = nil,
+        queue: PlaybackQueue? = nil
     ) async {
         await beginPlayback(
             id: id,
@@ -368,7 +377,27 @@ final class PlaybackCoordinator {
             resumeOffsetMilliseconds: resumeOffsetMilliseconds,
             resumeOffsetDurationMilliseconds: resumeOffsetDurationMilliseconds,
             selectedMediaID: nil,
-            placeholder: placeholder
+            placeholder: placeholder,
+            queue: queue
+        )
+    }
+
+    /// Plays through a queue (a playlist) from its current item. Up Next then
+    /// follows the queue instead of the show's next episode, and the queue's
+    /// end ends playback. `fromStart` ignores the item's resume offset
+    /// (Shuffle, Play from Beginning); otherwise it resumes where it was left,
+    /// and a finished item starts over (`queueStartPositionOverride`).
+    func playQueue(_ queue: PlaybackQueue, fromStart: Bool = false) async {
+        guard let item = queue.current else { return }
+        let startPositionOverride = fromStart ? 0 : item.queueStartPositionOverride
+        await beginPlayback(
+            id: item.id,
+            startPositionOverride: startPositionOverride,
+            resumeOffsetMilliseconds: startPositionOverride == nil ? item.viewOffset : nil,
+            resumeOffsetDurationMilliseconds: item.duration,
+            selectedMediaID: nil,
+            placeholder: PlaybackPlaceholder(queueItem: item),
+            queue: queue
         )
     }
 
@@ -623,7 +652,7 @@ final class PlaybackCoordinator {
               details.type == .episode,
               let next = await nextEpisode(after: details) else { return }
         try? await Task.sleep(for: .seconds(1))
-        presentUpNext(for: next)
+        presentUpNext(for: UpNextCandidate(item: PlaybackQueueItem(episode: next), queueIndex: nil))
     }
     #endif
 
@@ -655,10 +684,13 @@ final class PlaybackCoordinator {
         resumeOffsetDurationMilliseconds: Int? = nil,
         selectedMediaID: Int?,
         restrictToItemServer: Bool = false,
-        placeholder: PlaybackPlaceholder?
+        placeholder: PlaybackPlaceholder?,
+        queue: PlaybackQueue? = nil
     ) async {
         let attemptID = UUID()
         enterLoadingState(placeholder: placeholder, attemptID: attemptID)
+        // After the reset: a fresh Play outside a queue drops any old one.
+        playbackQueue = queue
 
         let didStart = await runPlaybackAttempt(
             id: id,
@@ -714,6 +746,7 @@ final class PlaybackCoordinator {
         upNextPoster = nil
         prerollPlayback = nil
         clearAdjacentEpisodes()
+        playbackQueue = nil
 
         engine?.onPlaybackEnded = nil
         engine?.setPictureInPictureDelegate(nil)
@@ -778,8 +811,11 @@ final class PlaybackCoordinator {
         loadError = nil
     }
 
+    /// Every item of a queue session counts toward passout protection, not
+    /// just episodes: a playlist of movies autoplays the same way.
     func resetContinuousPlayEpisodeRunCountForCurrentItem() {
-        continuousPlayEpisodeRunCount = activeItemDetails?.type == .episode ? 1 : 0
+        let counts = activeItemDetails?.type == .episode || playbackQueue != nil
+        continuousPlayEpisodeRunCount = counts ? 1 : 0
     }
 
     /// Records that a marker's one-shot auto-skip has been used up for the

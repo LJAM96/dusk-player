@@ -144,7 +144,7 @@ struct PlayerUpNextOverlayView: View {
                 }
                 .frame(width: metrics.previewWidth, height: metrics.previewHeight)
                 // The wash behind is blurred out of recognition already.
-                .spoilerBlur(presentation.episode.thumb != nil && !presentation.episode.isWatched)
+                .spoilerBlur(presentation.item.hasUnwatchedEpisodeStill)
             } else {
                 placeholderFill
             }
@@ -176,7 +176,7 @@ struct PlayerUpNextOverlayView: View {
                     .lineLimit(1)
                     .minimumScaleFactor(0.75)
 
-                Text(presentation.episode.title)
+                Text(presentation.item.title)
                     .font(metrics.titleFont)
                     .foregroundStyle(.white)
                     .lineLimit(metrics.titleLineLimit)
@@ -190,7 +190,7 @@ struct PlayerUpNextOverlayView: View {
                 }
             }
 
-            if let summary = presentation.episode.summary,
+            if let summary = presentation.item.summary,
                !summary.isEmpty,
                metrics.summaryLineLimit > 0 {
                 Text(summary)
@@ -266,7 +266,7 @@ struct PlayerUpNextOverlayView: View {
             Task { @MainActor in isPlayFocused = true }
         }
         #endif
-        .accessibilityLabel("\(playButtonTitle): \(presentation.episode.title)")
+        .accessibilityLabel("\(playButtonTitle): \(presentation.item.title)")
     }
 
     private func closeButton(metrics: UpNextLayoutMetrics) -> some View {
@@ -337,8 +337,8 @@ struct PlayerUpNextOverlayView: View {
 
     private var stillURL: URL? {
         plexService.imageURL(
-            for: presentation.episode.thumb ?? presentation.episode.art ?? presentation.episode.grandparentThumb,
-            serverID: presentation.episode.serverID,
+            for: presentation.item.upNextStillPath,
+            serverID: presentation.item.serverID,
             width: 1280,
             height: 720
         )
@@ -346,8 +346,8 @@ struct PlayerUpNextOverlayView: View {
 
     private var backdropURL: URL? {
         plexService.imageURL(
-            for: presentation.episode.art ?? presentation.episode.thumb ?? presentation.episode.grandparentThumb,
-            serverID: presentation.episode.serverID,
+            for: presentation.item.art ?? presentation.item.thumb ?? presentation.item.grandparentThumb,
+            serverID: presentation.item.serverID,
             width: 1280,
             height: 720
         )
@@ -355,11 +355,13 @@ struct PlayerUpNextOverlayView: View {
 
     private var metadataText: String? {
         [
-            MediaTextFormatter.seasonEpisodeLabel(
-                season: presentation.episode.parentIndex,
-                episode: presentation.episode.index
-            ),
-            MediaTextFormatter.shortDuration(milliseconds: presentation.episode.duration),
+            // A playlist mixes shows, so its episodes name theirs; the show's
+            // own next episode never needs to.
+            presentation.queueTitle != nil && presentation.item.isEpisode
+                ? presentation.item.grandparentTitle
+                : nil,
+            presentation.item.upNextDetailLabel(compact: presentation.queueTitle != nil),
+            MediaTextFormatter.shortDuration(milliseconds: presentation.item.duration),
         ]
         .compactMap { $0 }
         .joined(separator: " · ")
@@ -372,6 +374,9 @@ struct PlayerUpNextOverlayView: View {
         }
         if !presentation.shouldAutoplay, case .playbackEnded = presentation.source {
             return "ARE YOU STILL WATCHING?"
+        }
+        if let queueTitle = presentation.queueTitle {
+            return "NEXT IN \(queueTitle.uppercased())"
         }
         return "UP NEXT"
     }

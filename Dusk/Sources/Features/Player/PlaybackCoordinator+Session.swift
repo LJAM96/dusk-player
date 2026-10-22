@@ -1769,19 +1769,18 @@ extension PlaybackCoordinator {
             } else {
                 // Manual mode (continuous play off / passout protection): fall
                 // back to the full-screen "Are You Still Watching?" screen.
-                let episode = poster.episode
+                let candidate = UpNextCandidate(item: poster.item, queueIndex: poster.queueIndex)
                 dismissUpNextPoster()
                 finalizeCurrentPlaybackSession(markCompleted: true)
-                presentUpNext(for: episode)
+                presentUpNext(for: candidate)
             }
             return
         }
 
         if let activeItemDetails,
-           activeItemDetails.type == .episode,
-           let nextEpisode = await nextEpisode(after: activeItemDetails) {
+           let candidate = await resolveUpNext(after: activeItemDetails, prefersDownloadCache: false) {
             finalizeCurrentPlaybackSession(markCompleted: true)
-            presentUpNext(for: nextEpisode)
+            presentUpNext(for: candidate)
             return
         }
 
@@ -1892,6 +1891,7 @@ extension PlaybackCoordinator {
         upNextPoster = nil
         prerollPlayback = nil
         clearAdjacentEpisodes()
+        playbackQueue = nil
         spentAutoSkipMarkerIDs = []
         engine?.onPlaybackEnded = nil
         engine?.setPictureInPictureDelegate(nil)

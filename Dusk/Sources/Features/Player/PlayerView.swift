@@ -694,7 +694,7 @@ private struct PlayerSessionView: View {
         .animation(.easeInOut(duration: 0.25), value: playback.upNextPoster?.creditsMarkerID)
         .animation(.easeOut(duration: 0.14), value: viewModel.seekFeedback?.trigger)
         .animation(.easeInOut(duration: 0.15), value: viewModel.isSpeedBoostActive)
-        .animation(.easeInOut(duration: 0.25), value: playback.upNextPresentation?.episode.ratingKey)
+        .animation(.easeInOut(duration: 0.25), value: playback.upNextPresentation?.item.id)
         .animation(.easeInOut(duration: 0.2), value: playback.qualitySwitchError)
         .duskCaptureStatusBarAppearance()
         .duskStatusBarHidden(!viewModel.showControls)

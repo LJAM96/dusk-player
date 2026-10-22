@@ -67,6 +67,26 @@ extension PlaybackPlaceholder {
         )
     }
 
+    init(queueItem item: PlaybackQueueItem) {
+        if item.isEpisode {
+            self.init(
+                title: item.grandparentTitle ?? item.title,
+                subtitle: item.upNextDetailLabel ?? item.title,
+                posterPath: item.grandparentThumb ?? item.thumb ?? item.art,
+                backdropPath: item.thumb ?? item.art ?? item.grandparentThumb,
+                serverID: item.serverID
+            )
+        } else {
+            self.init(
+                title: item.title,
+                subtitle: item.upNextDetailLabel,
+                posterPath: item.thumb ?? item.art,
+                backdropPath: item.art ?? item.thumb,
+                serverID: item.serverID
+            )
+        }
+    }
+
     init(episode: PlexEpisode) {
         self.init(
             title: episode.grandparentTitle ?? episode.title,
@@ -556,7 +576,12 @@ struct UpNextPresentation: Sendable {
         case playbackEnded
     }
 
-    let episode: PlexEpisode
+    let item: PlaybackQueueItem
+    /// Where the item sits in the playback queue; nil outside a playlist
+    /// session (the next episode of the show).
+    var queueIndex: Int? = nil
+    /// The playlist being played through, for the "Next in …" eyebrow.
+    var queueTitle: String? = nil
     let source: Source
     var shouldAutoplay: Bool
     let countdownDuration: Int
@@ -595,18 +620,37 @@ enum AdjacentEpisodeDirection: Sendable {
     case next
 }
 
-/// Previous / Next Episode targets for the episode now playing. Resolved once
-/// per episode (`PlaybackCoordinator.refreshAdjacentEpisodesIfNeeded`); a
-/// Quality switch or a delivery fallback of the same item keeps them.
+/// Previous / Next targets for the item now playing: the neighbouring
+/// episodes of the show, or the neighbouring playlist items in a queue
+/// session. Resolved once per item
+/// (`PlaybackCoordinator.refreshAdjacentEpisodesIfNeeded`); a Quality switch
+/// or a delivery fallback of the same item keeps them.
 struct PlaybackAdjacentEpisodes: Sendable {
-    let itemID: PlexItemID
-    /// nil while the lookup is still running.
-    var episodes: PlexAdjacentEpisodes?
+    struct Neighbour: Sendable {
+        let item: PlaybackQueueItem
+        /// The neighbour's position in the playback queue (queue sessions).
+        var queueIndex: Int? = nil
+    }
 
-    func episode(_ direction: AdjacentEpisodeDirection) -> PlexEpisode? {
+    let itemID: PlexItemID
+    /// False while the lookup is still running.
+    var isResolved = false
+    var previous: Neighbour?
+    var next: Neighbour?
+    /// True when the show's online episode lookup answered, so `next` is the
+    /// same episode `PlexService.getNextEpisode` would return and Up Next can
+    /// use it without asking the server again. False for the downloaded-only
+    /// fallback (offline, or a failed lookup) and for queue sessions.
+    var isOnlineEpisodeLookup = false
+
+    func episode(_ direction: AdjacentEpisodeDirection) -> PlaybackQueueItem? {
+        neighbour(direction)?.item
+    }
+
+    func neighbour(_ direction: AdjacentEpisodeDirection) -> Neighbour? {
         switch direction {
-        case .previous: episodes?.previous
-        case .next: episodes?.next
+        case .previous: previous
+        case .next: next
         }
     }
 }
@@ -618,7 +662,10 @@ struct UpNextPosterPresentation: Sendable {
         case manual
     }
 
-    let episode: PlexEpisode
+    let item: PlaybackQueueItem
+    /// See `UpNextPresentation.queueIndex` / `queueTitle`.
+    var queueIndex: Int? = nil
+    var queueTitle: String? = nil
     let mode: Mode
     /// Identifies the credits marker that triggered this poster, so repeat
     /// notifications for the same marker don't re-resolve the next episode.
