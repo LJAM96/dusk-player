@@ -316,7 +316,9 @@ struct LibraryItemsView: View {
             progress: { viewModel.progress(for: $0) },
             onItemAppear: { item in
                 Task { await viewModel.loadMoreIfNeeded(currentItem: item) }
-            }
+            },
+            // A Videos library or folder plays through, in the grid's order.
+            playThroughTitle: viewModel.library.libraryType == .video ? viewModel.navigationTitle : nil
         ) { item in
             PlexItemContextMenuContent(
                 item: item,

@@ -97,11 +97,20 @@ final class CollectionDetailViewModel {
         return nextUp.id == playableItems.first?.id ? "Play" : "Play \(nextUp.title)"
     }
 
-    /// Shuffle starts a random title, preferring the unwatched ones.
-    func shuffledPick() -> PlexItem? {
-        let playable = playableItems
-        let unwatched = playable.filter { !$0.isWatched }
-        return (unwatched.isEmpty ? playable : unwatched).randomElement()
+    /// The loaded titles as a list to play through (Play continues with the
+    /// next title in the collection's order).
+    var playThrough: PlaybackListContext? {
+        PlaybackListContext(title: title, plexItems: playableItems)
+    }
+
+    /// Shuffle plays every loaded title in a random order fixed for the
+    /// session, from the beginning of the first.
+    func shuffledQueue() -> PlaybackQueue? {
+        let items = playableItems.map(PlaybackQueueItem.init(item:))
+        guard !items.isEmpty else { return nil }
+        var queue = PlaybackQueue(source: .list(title: title), items: items.shuffled(), isShuffled: true)
+        queue.move(to: 0)
+        return queue
     }
 
     func load() async {

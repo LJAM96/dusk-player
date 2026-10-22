@@ -183,8 +183,8 @@ struct CollectionDetailView: View {
 
     private var shuffleButton: some View {
         Button {
-            if let item = viewModel.shuffledPick() {
-                play(item)
+            if let queue = viewModel.shuffledQueue() {
+                Task { await playback.playQueue(queue, fromStart: true) }
             }
         } label: {
             DetailHeroSecondaryIconLabel(systemImage: "shuffle")
@@ -231,7 +231,8 @@ struct CollectionDetailView: View {
                     progress: { $0.posterProgress },
                     onItemAppear: { item in
                         Task { await viewModel.loadMoreIfNeeded(currentItem: item) }
-                    }
+                    },
+                    playThroughTitle: viewModel.title
                 ) { item in
                     PlexItemContextMenuContent(
                         item: item,
@@ -257,13 +258,15 @@ struct CollectionDetailView: View {
         }
     }
 
+    /// Plays `item` and then the rest of the collection, in its order.
     private func play(_ item: PlexItem) {
         Task {
             await playback.play(
                 id: item.id,
                 resumeOffsetMilliseconds: item.viewOffset,
                 resumeOffsetDurationMilliseconds: item.duration,
-                placeholder: PlaybackPlaceholder(item: item)
+                placeholder: PlaybackPlaceholder(item: item),
+                queue: viewModel.playThrough?.queue(startingAt: item.id)
             )
         }
     }

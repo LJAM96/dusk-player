@@ -379,7 +379,8 @@ struct LibraryRecommendationsView: View {
             subtitle: { viewModel.subtitle(for: $0) },
             posterURL: { item, width, height in
                 viewModel.posterURL(for: item, width: width, height: height)
-            }
+            },
+            playThroughTitle: viewModel.isVideoLibrary ? viewModel.normalizedTitle(for: hub) : nil
         ) { item in
             PlexItemContextMenuContent(
                 item: item,
@@ -410,7 +411,8 @@ struct LibraryRecommendationsView: View {
             subtitle: { viewModel.subtitle(for: $0) },
             posterURL: { item, width, height in
                 viewModel.posterURL(for: item, width: width, height: height)
-            }
+            },
+            playThroughTitle: shelf.collection.title
         ) { item in
             PlexItemContextMenuContent(
                 item: item,

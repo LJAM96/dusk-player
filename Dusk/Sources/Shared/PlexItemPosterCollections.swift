@@ -123,11 +123,15 @@ struct PlexItemPosterCarouselSection<ContextMenuContent: View>: View {
     var subtitle: (PlexItem) -> String?
     var posterURL: (PlexItem, Int, Int) -> URL?
     var progress: (PlexItem) -> Double? = { $0.posterProgress }
+    /// Set where the row is a list of videos to play through (a video
+    /// library's rows): its movies and videos open knowing the row.
+    var playThroughTitle: String? = nil
     @ViewBuilder let contextMenuContent: (PlexItem) -> ContextMenuContent
 
     var body: some View {
         let imageWidth = Int(posterWidth.rounded(.up))
         let imageHeight = Int((posterWidth / imageAspectRatio).rounded(.up))
+        let playThrough = playThroughTitle.flatMap { PlaybackListContext(title: $0, plexItems: items) }
 
         MediaCarousel(
             title: title,
@@ -135,7 +139,7 @@ struct PlexItemPosterCarouselSection<ContextMenuContent: View>: View {
         ) {
             ForEach(items) { item in
                 PosterNavigationCard(
-                    route: AppNavigationRoute.destination(for: item),
+                    route: AppNavigationRoute.destination(for: item, in: playThrough),
                     imageURL: posterURL(item, imageWidth, imageHeight),
                     fallbackImageURL: item.fallbackPosterImageURL(
                         plexService: plexService,
@@ -255,16 +259,21 @@ struct PlexItemPosterGrid<ContextMenuContent: View>: View {
     var subtitle: (PlexItem) -> String?
     var progress: (PlexItem) -> Double? = { $0.posterProgress }
     var onItemAppear: (PlexItem) -> Void = { _ in }
+    /// Set where the grid is a list of videos to play through (a Videos
+    /// library or folder, a collection): its movies and videos open knowing
+    /// the grid, in its current order.
+    var playThroughTitle: String? = nil
     @ViewBuilder let contextMenuContent: (PlexItem) -> ContextMenuContent
 
     var body: some View {
         let imageWidth = Int(layout.posterWidth.rounded(.up))
         let imageHeight = Int((layout.posterWidth / imageAspectRatio).rounded(.up))
+        let playThrough = playThroughTitle.flatMap { PlaybackListContext(title: $0, plexItems: items) }
 
         LazyVGrid(columns: layout.columns, alignment: .leading, spacing: rowSpacing) {
             ForEach(items) { item in
                 PosterNavigationCard(
-                    route: AppNavigationRoute.destination(for: item),
+                    route: AppNavigationRoute.destination(for: item, in: playThrough),
                     imageURL: posterURL(item, imageWidth, imageHeight),
                     fallbackImageURL: item.fallbackPosterImageURL(
                         plexService: plexService,

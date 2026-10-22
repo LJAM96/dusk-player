@@ -12,12 +12,18 @@ struct MovieDetailView: View {
 
     private let horizontalPadding: CGFloat = DuskPosterMetrics.detailHorizontalPadding
 
+    /// The list this page was opened from, when playing should continue
+    /// through it (Videos libraries and folders, collections).
+    private let playThrough: PlaybackListContext?
+
     init(
         id: PlexItemID,
         plexService: PlexService,
         downloadManager: DownloadManager? = nil,
-        offlinePlaybackSyncManager: OfflinePlaybackSyncManager? = nil
+        offlinePlaybackSyncManager: OfflinePlaybackSyncManager? = nil,
+        playThrough: PlaybackListContext? = nil
     ) {
+        self.playThrough = playThrough
         _viewModel = State(initialValue: MovieDetailViewModel(
             id: id,
             plexService: plexService,
@@ -270,7 +276,8 @@ struct MovieDetailView: View {
                     id: details.id,
                     resumeOffsetMilliseconds: details.viewOffset,
                     resumeOffsetDurationMilliseconds: details.duration,
-                    placeholder: PlaybackPlaceholder(details: details)
+                    placeholder: PlaybackPlaceholder(details: details),
+                    queue: playThrough?.queue(startingAt: details.id)
                 )
             }
         } label: {

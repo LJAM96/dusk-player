@@ -20,6 +20,10 @@ enum AppNavigationRoute: Hashable {
     case media(type: PlexMediaType, id: PlexItemID)
     case downloadedMedia(type: PlexMediaType, id: PlexItemID)
     case video(id: PlexItemID)
+    /// A video or movie opened from a list it plays through
+    /// (`PlaybackListContext`): its Play continues with the following items.
+    case videoInList(id: PlexItemID, list: PlaybackListContext)
+    case movieInList(id: PlexItemID, list: PlaybackListContext)
     case downloadedVideo(id: PlexItemID)
     /// Person tag ids are per-server too, so the route carries the server the
     /// credit was read from; nil falls back to the primary server.
@@ -117,6 +121,22 @@ struct AppNavigationDestinationView: View {
                 plexService: plexService,
                 downloadManager: downloadManager,
                 offlinePlaybackSyncManager: offlinePlaybackSyncManager
+            )
+        case let .videoInList(id, list):
+            VideoDetailView(
+                id: id,
+                plexService: plexService,
+                downloadManager: downloadManager,
+                offlinePlaybackSyncManager: offlinePlaybackSyncManager,
+                playThrough: list
+            )
+        case let .movieInList(id, list):
+            MovieDetailView(
+                id: id,
+                plexService: plexService,
+                downloadManager: downloadManager,
+                offlinePlaybackSyncManager: offlinePlaybackSyncManager,
+                playThrough: list
             )
         case let .downloadedVideo(id):
             VideoDetailView(
