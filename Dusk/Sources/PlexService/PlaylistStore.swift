@@ -23,6 +23,13 @@ final class PlaylistStore {
     private(set) var serverOrder: [String] = []
     private(set) var state: State = .idle
     @ObservationIgnored private(set) var loadedRevision: ServerContentRevision?
+    /// Bumped by every load and by `reset`: an answer from an older load is
+    /// dropped instead of putting back a server the newer one removed.
+    @ObservationIgnored private(set) var loadGeneration = 0
+    /// Bumped when the account or profile changes (`reset`, a load for
+    /// another profile). Edits and refreshes that were in flight across it
+    /// are dropped.
+    @ObservationIgnored private(set) var sessionGeneration = 0
 
     /// Every playlist, A–Z like Plex lists them; same-titled playlists keep
     /// server priority order.
@@ -59,9 +66,13 @@ final class PlaylistStore {
 
     // MARK: - Loading (PlexService+Playlists)
 
-    func beginLoad(revision: ServerContentRevision) {
+    /// Returns the load's generation, which `commit`/`finishLoad` must quote.
+    @discardableResult
+    func beginLoad(revision: ServerContentRevision) -> Int {
+        loadGeneration += 1
         if loadedRevision?.profileID != revision.profileID {
             playlistsByServer = [:]
+            sessionGeneration += 1
         }
         // Servers that are no longer connected drop out.
         playlistsByServer = playlistsByServer.filter { revision.serverIDs.contains($0.key) }
@@ -70,13 +81,16 @@ final class PlaylistStore {
         if state != .loaded {
             state = .loading
         }
+        return loadGeneration
     }
 
-    func commit(_ playlists: [PlexPlaylist], serverID: String) {
+    func commit(_ playlists: [PlexPlaylist], serverID: String, generation: Int) {
+        guard generation == loadGeneration, serverOrder.contains(serverID) else { return }
         playlistsByServer[serverID] = playlists
     }
 
-    func finishLoad(failure: String?) {
+    func finishLoad(failure: String?, generation: Int) {
+        guard generation == loadGeneration else { return }
         if let failure, !hasPlaylists {
             state = .failed(failure)
         } else {
@@ -85,6 +99,8 @@ final class PlaylistStore {
     }
 
     func reset() {
+        loadGeneration += 1
+        sessionGeneration += 1
         playlistsByServer = [:]
         serverOrder = []
         loadedRevision = nil
@@ -93,7 +109,10 @@ final class PlaylistStore {
 
     // MARK: - Edits
 
-    func upsert(_ playlist: PlexPlaylist) {
+    /// `sessionGeneration`: the session the caller read before its request;
+    /// an answer that outlived a sign-out or profile switch is dropped.
+    func upsert(_ playlist: PlexPlaylist, sessionGeneration expected: Int? = nil) {
+        if let expected, expected != sessionGeneration { return }
         guard let serverID = playlist.serverID else { return }
         var list = playlistsByServer[serverID] ?? []
         if let index = list.firstIndex(where: { $0.ratingKey == playlist.ratingKey }) {
@@ -107,7 +126,8 @@ final class PlaylistStore {
         }
     }
 
-    func remove(_ id: PlexItemID) {
+    func remove(_ id: PlexItemID, sessionGeneration expected: Int? = nil) {
+        if let expected, expected != sessionGeneration { return }
         guard let serverID = id.serverID else { return }
         playlistsByServer[serverID]?.removeAll { $0.ratingKey == id.ratingKey }
     }

@@ -27,15 +27,17 @@ struct PlaylistActions {
     func rename(_ playlist: PlexPlaylist, to title: String) async throws -> PlexPlaylist {
         let trimmed = title.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty, trimmed != playlist.title else { return playlist }
+        let session = plexService.playlists.sessionGeneration
         try await plexService.renamePlaylist(playlist, to: trimmed)
         let renamed = playlist.renamed(trimmed)
-        plexService.playlists.upsert(renamed)
+        plexService.playlists.upsert(renamed, sessionGeneration: session)
         return renamed
     }
 
     func delete(_ playlist: PlexPlaylist) async throws {
+        let session = plexService.playlists.sessionGeneration
         try await plexService.deletePlaylist(playlist)
-        plexService.playlists.remove(playlist.id)
+        plexService.playlists.remove(playlist.id, sessionGeneration: session)
     }
 
     /// Where Play / Resume starts: the first item that is not fully watched

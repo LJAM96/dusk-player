@@ -566,6 +566,9 @@ File: `PlexService+Playlists.swift`, models `Models/PlexPlaylist.swift`
   `leafCountRequested`); smart playlists answer item edits with 400 and list
   items without `playlistItemID`; the list's `duration` is milliseconds but the
   `/items` container's `duration` is **seconds**.
+- `PlaylistStore` drops stale answers: every load has a generation that its
+  commits must match, and edits/refreshes carry the session generation (bumped
+  by sign-out and profile switches) they started in.
 - `HomeHubFilter` still keeps Plex's own playlist hub off Home.
 
 ## Photo Libraries

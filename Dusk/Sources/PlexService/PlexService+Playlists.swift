@@ -157,24 +157,25 @@ extension PlexService {
     func loadPlaylists(force: Bool = false) async {
         let revision = serverContentRevision
         guard force || playlists.loadedRevision != revision || playlists.state == .idle else { return }
-        playlists.beginLoad(revision: revision)
+        let generation = playlists.beginLoad(revision: revision)
 
         var failure: String?
         for await result in streamPlaylists() {
             if let lists = result.value {
-                playlists.commit(lists, serverID: result.serverID)
+                playlists.commit(lists, serverID: result.serverID, generation: generation)
             } else {
                 failure = "Couldn’t load playlists from \(pool.displayName(for: result.serverID))."
             }
         }
         guard !Task.isCancelled else { return }
-        playlists.finishLoad(failure: failure)
+        playlists.finishLoad(failure: failure, generation: generation)
     }
 
     /// Re-reads one playlist (its count, runtime and mosaic change with every
     /// edit) into the store.
     func refreshPlaylist(_ id: PlexItemID) async {
+        let session = playlists.sessionGeneration
         guard let playlist = try? await getPlaylist(ratingKey: id.ratingKey, serverID: id.serverID) else { return }
-        playlists.upsert(playlist)
+        playlists.upsert(playlist, sessionGeneration: session)
     }
 }

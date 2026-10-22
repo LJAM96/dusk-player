@@ -188,12 +188,13 @@ final class AddToPlaylistViewModel {
             case .new(let title):
                 let trimmed = title.trimmingCharacters(in: .whitespacesAndNewlines)
                 guard !trimmed.isEmpty else { return }
+                let session = plexService.playlists.sessionGeneration
                 let playlist = try await plexService.createPlaylist(
                     title: trimmed,
                     ratingKeys: [target.id.ratingKey],
                     serverID: serverID
                 )
-                plexService.playlists.upsert(playlist)
+                plexService.playlists.upsert(playlist, sessionGeneration: session)
                 confirmation = "Added to “\(playlist.title)”"
             }
         } catch {
