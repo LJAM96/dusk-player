@@ -136,6 +136,11 @@ struct LibraryItemsView: View {
             .padding(.top, 8)
             .padding(.bottom, 4)
         }
+        #if os(tvOS)
+        // So Up from any poster in the first row can reach a chip, not only
+        // from the poster that happens to sit under one.
+        .focusSection()
+        #endif
     }
 
     private var collectionsLink: some View {
