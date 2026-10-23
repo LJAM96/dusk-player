@@ -115,6 +115,14 @@ struct HomeView: View {
             playLiveTV: playLiveTV,
             play: play
         )
+        .overlay(alignment: .topTrailing) {
+            if preferences.showsClock {
+                HomeTVClock()
+                    // Leaves with the tab bar when the page scrolls down.
+                    .opacity(isScrolledOffTop.wrappedValue ? 0 : 1)
+                    .animation(.easeInOut(duration: 0.25), value: isScrolledOffTop.wrappedValue)
+            }
+        }
         #else
         HomeIOSView(
             path: $path,

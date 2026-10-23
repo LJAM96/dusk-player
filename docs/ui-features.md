@@ -272,6 +272,10 @@ in Dusk. Read this with `docs/codebase-map.md`, `STYLE.md`, and `docs/data-and-p
   consistent item section IDs from the representative server. Unscoped Recently
   Added rows can also use the only matching library type on that server. Ambiguous
   rows remain global; mixed/global rows such as Continue Watching keep their place.
+- tvOS Home shows the time at the top right, level with the tab bar (`HomeTVClock`,
+  `TimelineView(.everyMinute)`, system 12/24 h format), fading out with the tab bar
+  when the page scrolls. Settings › Home › Show Clock (`UserPreferences.showsClock`,
+  on by default; tvOS only).
 - `LiveTVHomeShelf` adds currently airing channels when Live TV is available and
   `UserPreferences.showsLiveTVOnHome` (Settings › Home › Show Live TV, off by
   default) is on. When off, Home neither renders the shelf nor requests the

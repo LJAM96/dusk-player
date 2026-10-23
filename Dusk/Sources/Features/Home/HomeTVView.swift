@@ -1140,3 +1140,24 @@ private final class PressObserverHostView: UIView, UIGestureRecognizerDelegate {
     }
 }
 #endif
+
+#if os(tvOS)
+/// The time at the top right of tvOS Home, level with the tab bar, in the
+/// system's own 12/24-hour format. Settings › Home › Show Clock.
+struct HomeTVClock: View {
+    var body: some View {
+        TimelineView(.everyMinute) { context in
+            Text(context.date, format: .dateTime.hour().minute())
+                .font(DuskFont.TV.metadata.monospacedDigit())
+                .foregroundStyle(Color.primary.opacity(0.78))
+                // Hero artwork runs under it, like the "More" hint.
+                .shadow(color: .black.opacity(0.5), radius: 6, y: 1)
+        }
+        // Level with the tab bar, which sits above the safe area.
+        .padding(.top, 64)
+        .ignoresSafeArea(edges: .top)
+        .allowsHitTesting(false)
+        .accessibilityHidden(true)
+    }
+}
+#endif

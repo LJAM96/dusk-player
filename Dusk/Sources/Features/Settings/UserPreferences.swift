@@ -49,6 +49,7 @@ final class UserPreferences {
         static let personalizedShelvesEnabled = "personalizedShelvesEnabled"
         static let compactHomeContinueWatching = "compactHomeContinueWatching"
         static let blursUnwatchedEpisodes = "blursUnwatchedEpisodes"
+        static let showsClock = "showsClock"
         static let downloadMaxResolution = "downloadMaxResolution"
         static let downloadsWifiOnly = "downloadsWifiOnly"
         static let maximumActiveDownloads = "maximumActiveDownloads"
@@ -323,6 +324,11 @@ final class UserPreferences {
         didSet { UserDefaults.standard.set(blursUnwatchedEpisodes, forKey: Keys.blursUnwatchedEpisodes) }
     }
 
+    /// Whether tvOS shows the time at the top right of Home. On by default.
+    var showsClock: Bool {
+        didSet { UserDefaults.standard.set(showsClock, forKey: Keys.showsClock) }
+    }
+
     /// `blursUnwatchedEpisodes` for code that has no `UserPreferences` at hand
     /// (the Top Shelf publisher).
     static var storedBlursUnwatchedEpisodes: Bool {
@@ -553,6 +559,7 @@ final class UserPreferences {
         self.personalizedShelvesEnabled = defaults.object(forKey: Keys.personalizedShelvesEnabled) as? Bool ?? true
         self.compactHomeContinueWatching = defaults.bool(forKey: Keys.compactHomeContinueWatching)
         self.blursUnwatchedEpisodes = defaults.bool(forKey: Keys.blursUnwatchedEpisodes)
+        self.showsClock = defaults.object(forKey: Keys.showsClock) as? Bool ?? true
         self.downloadMaxResolution = downloadMaxResolution
         self.downloadsWifiOnly = downloadsWifiOnly
         self.maximumActiveDownloads = maximumActiveDownloads
