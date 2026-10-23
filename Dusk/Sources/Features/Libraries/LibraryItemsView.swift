@@ -359,28 +359,50 @@ struct LibraryItemsView: View {
     }
 
     private var sortMenu: some View {
-        Menu {
-            Section("Sort") {
-                ForEach(viewModel.availableSortOptions) { sort in
+        let selected = viewModel.selectedSort
+        return Menu {
+            Section("Sort By") {
+                ForEach(viewModel.availableSortFields) { field in
                     Button {
-                        Task { await viewModel.selectSort(sort) }
+                        guard field != selected.field else { return }
+                        Task { await viewModel.selectSort(LibrarySortOption(field)) }
                     } label: {
-                        if sort == viewModel.selectedSort {
-                            Label(sort.title, systemImage: "checkmark")
+                        if field == selected.field {
+                            Label(field.title, systemImage: "checkmark")
                         } else {
-                            Text(sort.title)
+                            Text(field.title)
                         }
                     }
                 }
             }
+            if selected.field.hasDirection {
+                Section("Order") {
+                    sortDirectionButton(descending: false)
+                    sortDirectionButton(descending: true)
+                }
+            }
         } label: {
             browseControlLabel(
-                value: viewModel.selectedSort.title,
+                value: selected.title,
                 systemImage: "arrow.up.arrow.down.circle",
-                isActive: viewModel.selectedSort != viewModel.defaultSortOption
+                isActive: selected != viewModel.defaultSortOption
             )
         }
         .duskSuppressTVOSButtonChrome()
+    }
+
+    private func sortDirectionButton(descending: Bool) -> some View {
+        let field = viewModel.selectedSort.field
+        let title = descending ? field.directionTitles.descending : field.directionTitles.ascending
+        return Button {
+            Task { await viewModel.selectSort(LibrarySortOption(field, descending: descending)) }
+        } label: {
+            if viewModel.selectedSort.isDescending == descending {
+                Label(title, systemImage: "checkmark")
+            } else {
+                Text(title)
+            }
+        }
     }
 
     /// A filter chip rather than a menu: one tap (one click on tvOS) flips it.

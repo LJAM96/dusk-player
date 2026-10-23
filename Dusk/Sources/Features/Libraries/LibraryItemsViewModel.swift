@@ -9,75 +9,152 @@ struct LibraryGenreOption: Hashable, Identifiable, Sendable {
     let value: String?
 }
 
-enum LibrarySortOption: String, CaseIterable, Identifiable {
-    case titleAscending
-    case titleDescending
-    case yearDescending
-    case yearAscending
-    case releaseDateDescending
-    case addedAtDescending
-    case durationDescending
+/// What a library grid can be sorted by, as Plex's `/library/sections/{id}/sorts`
+/// lists them.
+enum LibrarySortField: String, CaseIterable, Identifiable, Sendable {
+    case title
+    case releaseDate
+    case year
+    case addedAt
+    /// Shows only: when the newest episode arrived.
+    case lastEpisodeAdded
+    case userRating
+    case criticRating
+    case audienceRating
+    case duration
+    case lastViewed
+    case random
 
     var id: String { rawValue }
 
-    /// Title sorts list the library alphabetically, which is what the A–Z
-    /// jump needs.
-    var isTitleSort: Bool {
-        self == .titleAscending || self == .titleDescending
-    }
-
     var title: String {
         switch self {
-        case .titleAscending:
-            "Title A-Z"
-        case .titleDescending:
-            "Title Z-A"
-        case .yearDescending:
-            "Year Newest"
-        case .yearAscending:
-            "Year Oldest"
-        case .releaseDateDescending:
-            "Release Date Newest"
-        case .addedAtDescending:
-            "Date Added Newest"
-        case .durationDescending:
-            "Duration Longest"
+        case .title: "Title"
+        case .releaseDate: "Release Date"
+        case .year: "Year"
+        case .addedAt: "Date Added"
+        case .lastEpisodeAdded: "Episode Added"
+        case .userRating: "Your Rating"
+        case .criticRating: "Critic Rating"
+        case .audienceRating: "Audience Rating"
+        case .duration: "Duration"
+        case .lastViewed: "Last Watched"
+        case .random: "Random"
         }
+    }
+
+    var plexKey: String {
+        switch self {
+        case .title: "titleSort"
+        case .releaseDate: "originallyAvailableAt"
+        case .year: "year"
+        case .addedAt: "addedAt"
+        case .lastEpisodeAdded: "episode.addedAt"
+        case .userRating: "userRating"
+        case .criticRating: "rating"
+        case .audienceRating: "audienceRating"
+        case .duration: "duration"
+        case .lastViewed: "lastViewedAt"
+        case .random: "random"
+        }
+    }
+
+    /// Title reads A to Z; everything else starts with the newest, highest
+    /// or longest.
+    var defaultsToDescending: Bool { self != .title }
+
+    /// Random has no order to flip.
+    var hasDirection: Bool { self != .random }
+
+    /// The menu's two order choices, descending first.
+    var directionTitles: (descending: String, ascending: String) {
+        switch self {
+        case .title: ("Z to A", "A to Z")
+        case .releaseDate, .year, .addedAt, .lastEpisodeAdded: ("Newest First", "Oldest First")
+        case .userRating, .criticRating, .audienceRating: ("Highest First", "Lowest First")
+        case .duration: ("Longest First", "Shortest First")
+        case .lastViewed: ("Most Recent First", "Least Recent First")
+        case .random: ("", "")
+        }
+    }
+
+    /// The fields offered for a library of the given type. Video libraries
+    /// lead with upload-date sorts (year is meaningless for clips).
+    static func fields(for libraryType: PlexLibraryType?) -> [LibrarySortField] {
+        switch libraryType {
+        case .video:
+            [.releaseDate, .addedAt, .title, .duration, .lastViewed, .random]
+        case .show:
+            [.title, .releaseDate, .year, .addedAt, .lastEpisodeAdded, .userRating, .criticRating,
+             .audienceRating, .lastViewed, .random]
+        default:
+            [.title, .releaseDate, .year, .addedAt, .userRating, .criticRating, .audienceRating,
+             .duration, .lastViewed, .random]
+        }
+    }
+}
+
+/// A grid sort: a field and its direction.
+struct LibrarySortOption: Hashable, Identifiable, Sendable {
+    let field: LibrarySortField
+    let isDescending: Bool
+
+    init(_ field: LibrarySortField, descending: Bool? = nil) {
+        self.field = field
+        isDescending = field.hasDirection ? (descending ?? field.defaultsToDescending) : false
+    }
+
+    static let titleAscending = LibrarySortOption(.title, descending: false)
+    static let titleDescending = LibrarySortOption(.title, descending: true)
+
+    var id: String { rawValue }
+
+    /// Stored per library: `"<field>"` or `"<field>:desc"`. The names of the
+    /// fixed sorts that came before still read.
+    var rawValue: String {
+        isDescending ? "\(field.rawValue):desc" : field.rawValue
+    }
+
+    init?(rawValue: String) {
+        let legacy: [String: LibrarySortOption] = [
+            "titleAscending": .titleAscending,
+            "titleDescending": .titleDescending,
+            "yearDescending": LibrarySortOption(.year, descending: true),
+            "yearAscending": LibrarySortOption(.year, descending: false),
+            "releaseDateDescending": LibrarySortOption(.releaseDate, descending: true),
+            "addedAtDescending": LibrarySortOption(.addedAt, descending: true),
+            "durationDescending": LibrarySortOption(.duration, descending: true),
+        ]
+        if let sort = legacy[rawValue] {
+            self = sort
+            return
+        }
+        let parts = rawValue.split(separator: ":", maxSplits: 1)
+        guard let field = parts.first.flatMap({ LibrarySortField(rawValue: String($0)) }) else { return nil }
+        self.init(field, descending: parts.count > 1 && parts[1] == "desc")
+    }
+
+    /// The sort chip's label: "Title A to Z", "Date Added", "Random".
+    var title: String {
+        guard field.hasDirection, field == .title else { return field.title }
+        return "Title " + (isDescending ? field.directionTitles.descending : field.directionTitles.ascending)
     }
 
     var plexValue: String {
-        switch self {
-        case .titleAscending:
-            "titleSort"
-        case .titleDescending:
-            "titleSort:desc"
-        case .yearDescending:
-            "year:desc"
-        case .yearAscending:
-            "year"
-        case .releaseDateDescending:
-            "originallyAvailableAt:desc"
-        case .addedAtDescending:
-            "addedAt:desc"
-        case .durationDescending:
-            "duration:desc"
-        }
+        guard field.hasDirection else { return field.plexKey }
+        return isDescending ? "\(field.plexKey):desc" : field.plexKey
     }
 
-    /// The sort choices offered for a library of the given type. Video
-    /// libraries lead with upload-date sorts (year is meaningless for clips);
-    /// movie/show libraries stay title-first, with recently added last.
-    static func options(for libraryType: PlexLibraryType?) -> [LibrarySortOption] {
-        switch libraryType {
-        case .video:
-            [.releaseDateDescending, .addedAtDescending, .titleAscending, .titleDescending, .durationDescending]
-        default:
-            [.titleAscending, .titleDescending, .yearDescending, .yearAscending, .addedAtDescending]
-        }
+    /// Title sorts list the library alphabetically, which is what the A–Z
+    /// jump needs.
+    var isTitleSort: Bool { field == .title }
+
+    static func fields(for libraryType: PlexLibraryType?) -> [LibrarySortField] {
+        LibrarySortField.fields(for: libraryType)
     }
 
     static func defaultOption(for libraryType: PlexLibraryType?) -> LibrarySortOption {
-        libraryType == .video ? .releaseDateDescending : .titleAscending
+        libraryType == .video ? LibrarySortOption(.releaseDate) : .titleAscending
     }
 }
 
@@ -190,8 +267,8 @@ final class LibraryItemsViewModel {
         collection == nil && (library.libraryType == .movie || library.libraryType == .show)
     }
 
-    var availableSortOptions: [LibrarySortOption] {
-        LibrarySortOption.options(for: library.libraryType)
+    var availableSortFields: [LibrarySortField] {
+        LibrarySortOption.fields(for: library.libraryType)
     }
 
     var defaultSortOption: LibrarySortOption {

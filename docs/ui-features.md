@@ -754,8 +754,18 @@ in Dusk. Read this with `docs/codebase-map.md`, `STYLE.md`, and `docs/data-and-p
   video libraries default to Release Date (newest).
 - Use `LibraryGenreSupport` for Plex genre filter discovery, normalization, URL
   parameter extraction, and fallback matching. Do not compare genre strings ad hoc.
+- Sorts are a field plus a direction (`LibrarySortField` × `LibrarySortOption`): Title,
+  Release Date (`originallyAvailableAt`), Year, Date Added, Episode Added (shows,
+  `episode.addedAt`), Your/Critic/Audience Rating (`userRating`/`rating`/`audienceRating`),
+  Duration (not shows), Last Watched (`lastViewedAt`), Random — all keys Plex's
+  `/sorts` lists. The menu has "Sort By" and an "Order" section ("Newest First"…);
+  title defaults ascending, everything else descending. Random pages are each
+  reshuffled by Plex, so appends are de-duplicated by id (titles can be missed, never
+  repeated).
 - The grid's sort is remembered per library (`LibrarySortStore`, keyed on
-  `PlexLibrary.id`; a sort the type no longer offers falls back to its default).
+  `PlexLibrary.id`, stored as `"<field>"`/`"<field>:desc"`; the old fixed names such as
+  `yearDescending` still read; a field the type no longer offers falls back to its
+  default).
 - The grid's **Unwatched** chip (between Genre and Sort) is a one-tap filter, remembered
   per library (`LibraryUnwatchedFilterStore`, keyed on `PlexLibrary.id`) and applied to
   that library's genre and collection grids too. `LibraryUnwatchedFilter` sends

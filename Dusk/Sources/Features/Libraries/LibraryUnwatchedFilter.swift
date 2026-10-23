@@ -79,10 +79,10 @@ struct LibrarySortStore {
     }
 
     func sort(for library: PlexLibrary) -> LibrarySortOption {
-        let options = LibrarySortOption.options(for: library.libraryType)
+        let fields = LibrarySortOption.fields(for: library.libraryType)
         guard let stored = defaults.string(forKey: Self.key(forLibraryID: library.id))
             .flatMap(LibrarySortOption.init(rawValue:)),
-            options.contains(stored) else {
+            fields.contains(stored.field) else {
             return LibrarySortOption.defaultOption(for: library.libraryType)
         }
         return stored
