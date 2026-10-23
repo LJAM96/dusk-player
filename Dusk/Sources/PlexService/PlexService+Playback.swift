@@ -26,6 +26,8 @@ extension PlexService {
         /// (directStream=1, directStreamAudio=1) and only re-encodes what it
         /// must. No bitrate/resolution caps are applied.
         case directStreamFallback
+        /// Decoder-driven AV1 fallback; no quality or resolution cap.
+        case av1Transcode
         /// User-selected AirPlay route: package the original as HLS for native
         /// AVPlayer external playback. Plex may copy compatible tracks, but the
         /// H.264/AAC target lets it convert receiver-incompatible containers,
@@ -46,6 +48,7 @@ extension PlexService {
             switch self {
             case let .manualTranscode(preset): "manual transcode (\(preset.displayName))"
             case .directStreamFallback: "server direct-stream"
+            case .av1Transcode: "AV1 decoder fallback transcode"
             case .airPlay: "AirPlay stream"
             case let .spatialAudioRemux(convertsAudio):
                 convertsAudio ? "video remux with audio conversion" : "Atmos/spatial audio remux"
@@ -85,7 +88,7 @@ extension PlexService {
         func isConvertedAudioRemux(sourceChannels: Int?) -> Bool {
             isVideoCopyRemux
                 && container?.lowercased() == "mp4"
-                && ["hevc", "h264"].contains(videoCodec?.lowercased() ?? "")
+                && ["hevc", "h264", "av1"].contains(videoCodec?.lowercased() ?? "")
                 && audioDecision == "transcode"
                 && audioCodec?.lowercased() == "eac3"
                 && ((sourceChannels ?? 0) < 6 || audioChannels == 6 || audioChannels == 8)
@@ -288,12 +291,13 @@ extension PlexService {
         transcodeSessionID: String,
         audioStreamID: Int? = nil,
         subtitleStreamID: Int? = nil,
+        forceVideoTranscode: Bool = false,
         serverID: String? = nil
     ) async throws -> (url: URL, outcome: TranscodeDecisionOutcome) {
         try await transcodeLadderURL(
             ratingKey: ratingKey,
             mediaIndex: mediaIndex,
-            mode: .directStreamFallback,
+            mode: forceVideoTranscode ? .av1Transcode : .directStreamFallback,
             sessionIdentifier: sessionIdentifier,
             transcodeSessionID: transcodeSessionID,
             audioStreamID: audioStreamID,
@@ -536,6 +540,13 @@ private extension PlexService {
         let decision = try decodeJSON(PlexTranscodeDecisionResponse.self, from: decisionData)
         let outcome = decision.outcome
         let streams = decision.streamDecisions
+        if case .av1Transcode = mode {
+            guard streams.videoDecision == "transcode",
+                  ["h264", "hevc"].contains(streams.videoCodec?.lowercased() ?? ""),
+                  ["mp4", "mpegts"].contains(streams.container?.lowercased() ?? "") else {
+                return (baseURL, .failed("Plex could not convert AV1 to a supported video codec."), streams)
+            }
+        }
 
         guard case .transcodeAvailable = outcome else {
             return (baseURL, outcome, streams)
@@ -568,9 +579,10 @@ extension PlexService {
         transcodeSessionID: String,
         audioStreamID: Int?,
         subtitleStreamID: Int?,
-        token: String?
+        token: String?,
+        av1Capabilities: AV1PlaybackCapabilities = .current
     ) -> [URLQueryItem] {
-        let clientProfileExtra = transcodeClientProfileExtra(for: mode)
+        let clientProfileExtra = transcodeClientProfileExtra(for: mode, av1Capabilities: av1Capabilities)
         let resolvedSourcePath = sourcePath ?? "/library/metadata/\(ratingKey)"
         let isLiveTVSource = resolvedSourcePath.hasPrefix("/livetv/sessions/")
 
@@ -578,7 +590,7 @@ extension PlexService {
         // lets the server copy the original tracks into HLS when it can.
         let allowsDirectStream: Bool
         switch mode {
-        case .manualTranscode: allowsDirectStream = false
+        case .manualTranscode, .av1Transcode: allowsDirectStream = false
         case .directStreamFallback, .airPlay, .spatialAudioRemux: allowsDirectStream = true
         }
         // Converting audio: with direct-stream audio on, Plex ignores the
@@ -673,7 +685,7 @@ extension PlexService {
 }
 
 private extension PlexService {
-    func transcodeClientProfileExtra(for mode: TranscodeDeliveryMode) -> String {
+    func transcodeClientProfileExtra(for mode: TranscodeDeliveryMode, av1Capabilities: AV1PlaybackCapabilities) -> String {
         var clauses: [String] = []
         let convertsAudio: Bool
         if case let .spatialAudioRemux(conversion) = mode {
@@ -687,13 +699,17 @@ private extension PlexService {
             // audio-only). Copy-remuxes accept E-AC-3/AC-3/AAC; converted
             // audio must be E-AC-3. The WebVTT subtitle target turns text
             // subtitles into HLS subtitle segments.
-            let audioCodecs = convertsAudio ? "eac3" : "eac3,ac3,aac"
+            let audioCodecs = convertsAudio ? "eac3" : (av1Capabilities.hardwareDecode ? "eac3,ac3,aac,flac,alac,mp3" : "eac3,ac3,aac")
+            let videoCodecs = av1Capabilities.hardwareDecode ? "hevc,h264,av1" : "hevc,h264"
             clauses.append(
-                "add-transcode-target(type=videoProfile&context=streaming&protocol=hls&container=mp4&videoCodec=hevc,h264&audioCodec=\(audioCodecs))"
+                "add-transcode-target(type=videoProfile&context=streaming&protocol=hls&container=mp4&videoCodec=\(videoCodecs)&audioCodec=\(audioCodecs))"
             )
             clauses.append(
                 "add-transcode-target(type=subtitleProfile&context=streaming&protocol=hls&container=webvtt&subtitleCodec=webvtt)"
             )
+        }
+        if case .av1Transcode = mode {
+            clauses.append("add-transcode-target(type=videoProfile&context=streaming&protocol=hls&container=mp4&videoCodec=hevc,h264&audioCodec=eac3,ac3,aac)")
         }
         if case let .manualTranscode(preset) = mode, let bitrate = preset.videoBitrateKbps {
             clauses.append(
@@ -726,7 +742,7 @@ private extension PlexService {
         // engine rather than simply widening what we accept.
         let allowsSurroundAudioTargets: Bool
         switch mode {
-        case .manualTranscode, .directStreamFallback, .spatialAudioRemux: allowsSurroundAudioTargets = true
+        case .manualTranscode, .directStreamFallback, .spatialAudioRemux, .av1Transcode: allowsSurroundAudioTargets = true
         case .airPlay: allowsSurroundAudioTargets = false
         }
         if allowsSurroundAudioTargets {

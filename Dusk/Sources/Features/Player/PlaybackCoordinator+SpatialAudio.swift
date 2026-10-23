@@ -31,7 +31,7 @@ extension PlaybackCoordinator {
     /// Sessions whose audio/subtitle tracks are chosen by Plex (and changed by
     /// rebuilding the HLS session) rather than by the local engine.
     var usesServerTrackSelection: Bool {
-        isAirPlaySession || isSpatialAudioSession
+        isAirPlaySession || isSpatialAudioSession || isAV1ServerSession
     }
 
     /// Requests a copy-remux, or video copied with E-AC-3 audio conversion.
@@ -57,9 +57,12 @@ extension PlaybackCoordinator {
         sessionIdentifier: String,
         serverID: String?
     ) async -> SpatialAudioRemux? {
+        let isAV1Remux = StreamResolver.canRemuxAV1(media)
         let isDolbyVisionRemux = StreamResolver.isDolbyVisionProfile5(media)
         let resolverDecision = StreamResolver.evaluate(media: media)
         let audioStream = part.streams.first { $0.streamType == .audio && $0.id == audioStreamID }
+        if StreamResolver.containsAV1(media), !isAV1Remux { return nil }
+        if isAV1Remux && !resolverDecision.requiresServerTranscode && !convertsAudio { return nil }
         let subtitleStream = subtitleStreamID.flatMap { id in
             part.streams.first { $0.streamType == .subtitle && $0.id == id }
         }
@@ -76,13 +79,14 @@ extension PlaybackCoordinator {
                 hdrVideoRemuxEnabled: preferences.hdrVideoRemuxEnabled
             ) == nil
         } ?? false
-        let convertsAudio = convertsAudio || convertsDV7TrueHD
+        let convertsAV1Audio = isAV1Remux && audioStream.map { !StreamResolver.canCopyAV1Audio($0) } == true
+        let convertsAudio = convertsAudio || convertsDV7TrueHD || convertsAV1Audio
             || (isDolbyVisionRemux && audioStream.map { !StreamResolver.canCopyIntoRemux(audio: $0) } == true)
         // Audio conversion serves picture preservation/decoder recovery, so
         // it does not depend on the spatial-audio preference.
         let considersSpatialAudio = preferences.spatialAudioRemuxEnabled || convertsAudio
         let considersHDRVideo = preferences.hdrVideoRemuxEnabled
-        guard considersSpatialAudio || considersHDRVideo || isDolbyVisionRemux,
+        guard considersSpatialAudio || considersHDRVideo || isDolbyVisionRemux || isAV1Remux,
               !preferences.forceAVPlayer,
               !preferences.forceVLCKit else {
             return nil
@@ -91,7 +95,7 @@ extension PlaybackCoordinator {
         #if os(tvOS)
         // Enhanced SDR subtitles take priority over an optional Atmos copy
         // remux. Never veto a remux needed to decode audio or preserve HDR/DV.
-        if !convertsAudio, StreamResolver.evaluateForDirectPlayback(
+        if !isAV1Remux, !convertsAudio, StreamResolver.evaluateForDirectPlayback(
             media: media,
             part: part,
             enhancementMode: preferences.videoEnhancementMode,
@@ -105,7 +109,10 @@ extension PlaybackCoordinator {
         // Which of the two non-DV5 reasons qualified, for the session reason.
         var qualifiesForSpatialAudio = false
         var qualifiesForHDRVideo = false
-        if isDolbyVisionRemux {
+        if isAV1Remux {
+            blocker = subtitleStream.map { StreamResolver.canRideRemux(subtitle: $0) } == false
+                ? "selected subtitle requires video conversion" : nil
+        } else if isDolbyVisionRemux {
             blocker = StreamResolver.dolbyVisionRemuxBlocker(
                 media: media,
                 subtitleStream: subtitleStream,
@@ -181,9 +188,19 @@ extension PlaybackCoordinator {
                 convertsAudio: convertsAudio,
                 serverID: serverID
             )
-            let acceptsStreams = convertsAudio
-                ? result.streams.isConvertedAudioRemux(sourceChannels: audioStream?.channels)
-                : result.streams.isLosslessRemux
+            let acceptsStreams: Bool
+            if isAV1Remux {
+                acceptsStreams = result.streams.container?.lowercased() == "mp4" &&
+                    StreamResolver.isAV1Codec(result.streams.videoCodec) &&
+                    result.streams.videoDecision == "copy" &&
+                    (audioStream == nil || (convertsAudio
+                        ? result.streams.isConvertedAudioRemux(sourceChannels: audioStream?.channels)
+                        : result.streams.audioDecision == "copy"))
+            } else {
+                acceptsStreams = convertsAudio
+                    ? result.streams.isConvertedAudioRemux(sourceChannels: audioStream?.channels)
+                    : result.streams.isLosslessRemux
+            }
             guard case .transcodeAvailable = result.outcome,
                   acceptsStreams,
                   subtitleStreamID == nil || result.streams.subtitleLocation == "segments-subs" else {
@@ -198,7 +215,10 @@ extension PlaybackCoordinator {
                 "Spatial-audio remux accepted for ratingKey \(ratingKey, privacy: .public): \(result.streams.logDescription, privacy: .public)"
             )
             let reason: String
-            if isDolbyVisionRemux {
+            if isAV1Remux {
+                let audioNote = convertsAudio ? ", audio converted to E-AC-3" : ""
+                reason = "AV1 hardware decode via Plex fMP4 remux (video copied\(audioNote))"
+            } else if isDolbyVisionRemux {
                 let audioNote = convertsAudio
                     ? ", \(audioStream?.codec?.uppercased() ?? "audio") converted to \(result.streams.audioCodec?.uppercased() ?? "a supported codec")"
                     : ""
@@ -465,6 +485,10 @@ extension PlaybackCoordinator {
         }
 
         let media = details.media[mediaIndex]
+        if StreamResolver.containsAV1(media) {
+            await rebuildAV1ServerSession(reason: reason)
+            return
+        }
         // An unsupported track or a failed Plex request must not turn a
         // working HDR/DV remux into VLC direct play. In particular DV5 has
         // no compatible base layer and produces pink/green video in VLC.

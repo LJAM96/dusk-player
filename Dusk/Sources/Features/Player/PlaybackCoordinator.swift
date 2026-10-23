@@ -87,8 +87,8 @@ final class PlaybackCoordinator {
     /// audio stream must keep converting: the stream itself may be locally
     /// decodable (TrueHD on Dusk's VLCKit), so decodability cannot re-derive it.
     var remuxAudioConversion: RemuxAudioConversion?
-    /// Confirmed tracks in the loaded remux, retained while a new selection
-    /// is being prepared so a declined HDR track change can keep playing.
+    /// Confirmed tracks in the loaded remux / AV1 conversion, retained while
+    /// a new selection is prepared so a declined change can keep playing.
     var remuxTrackSelection: ExplicitTrackSelection?
     /// The part's server-side selection from before an automatic remux start
     /// overwrote it, written back when the session ends (see

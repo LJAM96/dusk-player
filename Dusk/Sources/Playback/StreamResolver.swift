@@ -1,5 +1,4 @@
 import Foundation
-import VideoToolbox
 
 /// Determines which playback engine to use based on the media's codec profile.
 ///
@@ -18,17 +17,16 @@ import VideoToolbox
 ///   and all subtitles are either tx3g/mov_text (embedded) or external text
 ///   (srt/vtt).
 /// - **VLCKit** for everything else: MKV/AVI/WMV containers, 10-bit H.264
-///   (Hi10P), AV1 without hardware decode (libvlc has dav1d software decode),
+///   (Hi10P), budgeted SDR AV1 software decode (see StreamResolver+AV1),
 ///   DTS/TrueHD audio, PGS/ASS/SSA subtitles, or any combination outside the
 ///   AVPlayer set.
 enum StreamResolver {
     struct Decision: Sendable {
         let engine: PlaybackEngineType
         let reason: String
-        /// True when neither local engine can render this media correctly
-        /// (e.g. Dolby Vision profile 5, whose IPTPQc2 color neither AVPlayer
-        /// from a remux nor libvlc can tone-map). The coordinator should start
-        /// such media on the server-transcode ladder rung instead of direct play.
+        /// The source needs server packaging or conversion before playback
+        /// (e.g. hardware AV1 in MKV, unsupported AV1 decode, Dolby Vision 5).
+        /// The coordinator tries an eligible video-copy remux before conversion.
         var requiresServerTranscode: Bool = false
         /// tvOS prefers VLC for enhanced SDR subtitles, including when the
         /// container already needs VLC but an optional Atmos remux could win.
@@ -49,7 +47,7 @@ enum StreamResolver {
     ) -> Decision {
         let decision = evaluate(media: media, forceAVPlayer: forceAVPlayer, forceVLCKit: forceVLCKit)
         #if os(tvOS)
-        guard !forceAVPlayer, !forceVLCKit,
+        guard !containsAV1(media), !forceAVPlayer, !forceVLCKit,
               !decision.requiresServerTranscode,
               let selectedSubtitleStreamID,
               part.streams.contains(where: {
@@ -154,8 +152,8 @@ enum StreamResolver {
     ///
     /// - Parameters:
     ///   - media: The media version to evaluate (container + codec info).
-    ///   - forceAVPlayer: User preference override — always returns `.avPlayer` when true.
-    ///   - forceVLCKit: User preference override — always returns `.vlcKit` when true.
+    ///   - forceAVPlayer: Engine override, subject to AV1 capability safety.
+    ///   - forceVLCKit: Engine override, subject to AV1 capability safety.
     /// - Returns: The engine type to instantiate.
     static func resolve(
         media: PlexMedia,
@@ -172,8 +170,12 @@ enum StreamResolver {
     static func evaluate(
         media: PlexMedia,
         forceAVPlayer: Bool = false,
-        forceVLCKit: Bool = false
+        forceVLCKit: Bool = false,
+        av1Capabilities: AV1PlaybackCapabilities = .current
     ) -> Decision {
+        if let decision = av1Decision(for: media, capabilities: av1Capabilities) {
+            return decision
+        }
         if forceAVPlayer {
             return Decision(engine: .avPlayer, reason: "User preference forced AVPlayer")
         }
@@ -570,7 +572,7 @@ enum StreamResolver {
     /// Whether this device can hardware-decode AV1 (A17 Pro / M3 and newer).
     /// Cached so the VideoToolbox query runs once per process, not per decision.
     private static let hasAV1HardwareDecode: Bool =
-        VTIsHardwareDecodeSupported(kCMVideoCodecType_AV1)
+        AV1PlaybackCapabilities.current.hardwareDecode
 
     /// Dolby Vision profile 5 carries IPTPQc2 color with no HDR10-compatible
     /// base layer; libvlc cannot reshape it, so it must start on a server

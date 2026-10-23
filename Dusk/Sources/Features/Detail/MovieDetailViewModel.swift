@@ -139,7 +139,7 @@ final class MovieDetailViewModel {
             parts.append(res)
         }
         if let codec = media.videoCodec?.uppercased() {
-            parts.append(codec)
+            parts.append(StreamResolver.isAV1Codec(codec) ? "AV1" : codec)
         }
         if let audioCodec = media.audioCodec?.uppercased() {
             parts.append(audioCodec)

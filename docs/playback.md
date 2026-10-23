@@ -828,16 +828,59 @@ so the whole live HUD is derived from one instant.
   `requiresServerTranscode` flag. It does not build URLs, validate network
   access, or inspect local download availability.
 - Evaluation is per-stream across ALL parts (media-level summary fields are
-  the fallback when a part carries no stream metadata): 10-bit H.264 (Hi10P)
-  routes to VLCKit, AV1 uses AVPlayer only when
-  `VTIsHardwareDecodeSupported(kCMVideoCodecType_AV1)` (dav1d decodes it in
-  software otherwise), and Dolby Vision profile 5 sets
-  `requiresServerTranscode` regardless of container — libvlc cannot reshape
-  IPTPQc2, and AVPlayer only renders it from a relabelled remux. DV profiles
-  7/8 follow normal engine selection; when that lands on VLCKit, the HDR
-  remux (above) moves them to AVPlayer.
-- Force preferences override all codec/container checks. `forceAVPlayer` can
-  intentionally choose an engine that later fails on unsupported media.
+  the fallback when a part carries no stream metadata). Hi10P routes to VLC;
+  Dolby Vision profile 5 requires a server remux/transcode. AV1 is evaluated
+  **before** container and forced-engine preferences (see below).
+- Force preferences override the other codec/container checks.
+
+### AV1 (1.8)
+
+`StreamResolver+AV1.swift` owns the AV1 policy. `AV1PlaybackCapabilities.current`
+queries `VTIsHardwareDecodeSupported(kCMVideoCodecType_AV1)` and the loaded
+VLCKit binary's dav1d symbols. Never infer hardware decode from platform or
+simulator model names. A17 Pro/M3-class devices support it; older A12/A15
+Apple TVs generally do not, while the announced A19 Apple TV does.
+
+| Capability / source | Delivery | Engine |
+| --- | --- | --- |
+| Hardware AV1, compatible MP4/MOV/M4V tracks | Original file | AVPlayer |
+| Hardware AV1, MKV or incompatible native tracks | Plex fMP4 video copy; audio copied or converted to E-AC-3 | AVPlayer |
+| No hardware AV1, dav1d present, recent device, SDR ≤1920×1080, ≤30 fps, ≤20 Mbps | Original file | VLCKit |
+| HDR without hardware decode, older device, missing decoder, unknown dimensions, above software budget, or failed local/remux playback | Uncapped Plex HEVC/H.264 conversion | AVPlayer |
+
+The software budget starts at iPhone13,* (A14), iPad13,* (A14/M1), and
+AppleTV11,* (A12). It is conservative policy, not an on-device benchmark.
+Explicit SDR transfer metadata permits 10-bit SDR; missing color metadata on
+10-bit media is treated conservatively. AV1 HDR/DV never enters VLC, including
+forced engines, enhanced subtitles, sidecar mounts and remux failure recovery.
+Unsupported AV1 downloads report that an online conversion is needed.
+
+Hardware MKV delivery reuses `requestSpatialAudioRemux` and `.spatialAudio`:
+AV1 is added to the fMP4 target only on a hardware-capable client, independently
+of the Atmos/HDR preferences. Acceptance requires MP4, AV1 **video copy**, the
+expected audio copy/conversion and segmented text subtitles. HDR10/HLG OBUs
+and static HDR metadata remain in the copied AV1 bitstream; no HEVC Dolby Vision
+patch is applied. A declined remux falls through to video conversion, never a
+known-unplayable direct file. Bitmap/styled subtitle selections may require
+video conversion. Playback Info identifies AV1 and distinguishes remux from
+video conversion.
+
+`TranscodeDeliveryMode.av1Transcode` disables direct stream, advertises only
+HEVC/H.264 output and imposes no app bitrate/resolution cap. Plex picks the
+codec its transcoder supports (including SDR tone mapping when required).
+Decision validation rejects copied AV1 and incompatible containers. Track
+pickers use Plex stream IDs for both remux and AV1 server-conversion sessions;
+changes rebuild the session at the current position. Failed replacements keep
+the current session and release the rejected server session.
+
+Verification: `AV1RoutingTests` injects hardware, software-only, old-device and
+missing-decoder capabilities, plus HDR, frame rate, size and selected-track
+request cases. `scripts/create_av1_demo_samples.sh` creates silent 1080p MKV,
+MP4 and 4K HDR10 MKV fixtures (two audio languages and an SRT sidecar for SDR).
+Refresh/analyze the plex-demo Movies library after generating them. Simulator
+playback validates software decode/server conversion; hardware AV1 and HDR
+output fidelity require a physical capable device. Plex decision/master/init
+inspection can separately confirm AV1 video copy and retained PQ/HLG metadata.
 
 ## PlaybackEngine Contract
 - `PlaybackEngine` is `@MainActor` and implementations are `@Observable`.

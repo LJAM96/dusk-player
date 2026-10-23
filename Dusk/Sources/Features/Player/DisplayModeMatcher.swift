@@ -246,7 +246,7 @@ enum DisplayModeMatcher {
     private static func codecType(for codec: String?) -> CMVideoCodecType {
         switch codec?.lowercased() {
         case "hevc", "h265", "x265": kCMVideoCodecType_HEVC
-        case "av1": kCMVideoCodecType_AV1
+        case "av1", "av01": kCMVideoCodecType_AV1
         case "vp9": kCMVideoCodecType_VP9
         default: kCMVideoCodecType_H264
         }

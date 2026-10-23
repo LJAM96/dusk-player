@@ -202,7 +202,7 @@ struct PlaybackDebugInfo: Sendable {
         case let .transcode(preset):
             preset.displayName
         case .serverStream:
-            "Direct Stream (HLS)"
+            StreamResolver.containsAV1(media) ? "Video Conversion (HLS)" : "Direct Stream (HLS)"
         case .spatialAudio:
             "Remux (HLS, original quality)"
         case .airPlay:
@@ -229,7 +229,7 @@ struct PlaybackDebugInfo: Sendable {
         case .localDownload: "Local Download"
         case let .transcode(preset): "Transcode \(preset.displayName)"
         case .serverStream: "Server Stream (HLS)"
-        case .spatialAudio: "Dolby Atmos / Spatial Audio (HLS)"
+        case .spatialAudio: StreamResolver.containsAV1(media) ? "AV1 Remux (HLS)" : "Dolby Atmos / Spatial Audio (HLS)"
         case .airPlay: "AirPlay (HLS)"
         case .liveTV: "Live TV"
         }
@@ -298,7 +298,8 @@ struct PlaybackDebugInfo: Sendable {
     }
 
     var videoLabel: String {
-        let codec = media.videoCodec?.uppercased() ?? selectedVideoStream?.codec?.uppercased() ?? "Unknown"
+        let rawCodec = selectedVideoStream?.codec ?? media.videoCodec
+        let codec = StreamResolver.isAV1Codec(rawCodec) ? "AV1" : rawCodec?.uppercased() ?? "Unknown"
         if let profile = media.videoProfile?.uppercased() {
             return "\(codec) (\(profile))"
         }

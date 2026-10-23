@@ -298,7 +298,9 @@ extension PlaybackCoordinator {
                 ? ShowTrackPreferences.remuxSubtitleStreamID(startupSubtitleID, in: part)
                 : startupSubtitleID
             let convertsRememberedAudio = rememberedAudio.map {
-                !StreamResolver.canCopyIntoRemux(audio: $0) &&
+                (StreamResolver.containsAV1(media)
+                    ? !StreamResolver.canCopyAV1Audio($0)
+                    : !StreamResolver.canCopyIntoRemux(audio: $0)) &&
                     (hasHDRVideo || PlayerViewModel.isLocallyUndecodableAudioCodec($0.codec))
             } == true
 
@@ -319,6 +321,9 @@ extension PlaybackCoordinator {
             var spatialAudioStreamIDs: (audio: Int?, subtitle: Int?, convertsAudio: Bool, restoresDolbyAtmos: Bool)?
 
             if let localURL {
+                if StreamResolver.containsAV1(media), resolverDecision.requiresServerTranscode {
+                    return .hardFailure("This AV1 download needs a compatible device or an online Plex conversion.")
+                }
                 playbackURL = localURL
                 sanitizedURL = localURL.path
                 playbackDecision = .localDownload
@@ -374,10 +379,10 @@ extension PlaybackCoordinator {
                     activeSubtitleStreamID = subtitleStreamID
                 } else if resolverDecision.requiresServerTranscode {
                     // Delivery ladder: direct play cannot render this media
-                    // correctly (Dolby Vision profile 5). First try a
-                    // video-copy remux AVPlayer renders as Dolby Vision, then
-                    // the server-stream rung. On any failure or ambiguity fall
-                    // back to direct play so playback still starts.
+                    // correctly (Dolby Vision profile 5 or AV1 capability /
+                    // packaging). Try video copy first, then a compatible
+                    // server stream. AV1 never falls back to a known-unplayable
+                    // file when the server cannot prepare either path.
                     let mediaIndex = details.media.firstIndex { $0.id == media.id } ?? 0
                     let audioStreamID = rememberedAudio?.id ?? PlayerViewModel.preferredRemuxAudioStream(
                         inPart: part,
@@ -385,11 +390,12 @@ extension PlaybackCoordinator {
                     )?.id
                     // A bitmap subtitle would force a video re-encode; start
                     // without it rather than lose Dolby Vision.
-                    let subtitleStreamID = remuxSubtitleID.flatMap { id -> Int? in
+                    let requestedSubtitleID = StreamResolver.containsAV1(media) ? startupSubtitleID : remuxSubtitleID
+                    let subtitleStreamID = requestedSubtitleID.flatMap { id -> Int? in
                         guard let stream = part.streams.first(where: { $0.streamType == .subtitle && $0.id == id }) else {
                             return nil
                         }
-                        return StreamResolver.canRideRemux(subtitle: stream) ? id : nil
+                        return StreamResolver.containsAV1(media) || StreamResolver.canRideRemux(subtitle: stream) ? id : nil
                     }
                     let dolbyVisionRemux = await requestSpatialAudioRemux(
                         ratingKey: ratingKey,
@@ -422,8 +428,9 @@ extension PlaybackCoordinator {
                                 mediaIndex: mediaIndex,
                                 sessionIdentifier: sessionIdentifier,
                                 transcodeSessionID: serverStreamSessionID,
-                                audioStreamID: hasRememberedMatch ? audioStreamID : nil,
-                                subtitleStreamID: hasRememberedMatch ? (subtitleStreamID ?? 0) : nil,
+                                audioStreamID: StreamResolver.containsAV1(media) || hasRememberedMatch ? audioStreamID : nil,
+                                subtitleStreamID: StreamResolver.containsAV1(media) || hasRememberedMatch ? (subtitleStreamID ?? 0) : nil,
+                                forceVideoTranscode: StreamResolver.containsAV1(media),
                                 serverID: itemServerID
                             )
                             if case .transcodeAvailable = result.outcome {
@@ -431,14 +438,26 @@ extension PlaybackCoordinator {
                                 sanitizedURL = plexService.sanitizedPlaybackURLString(for: result.url)
                                 playbackDecision = .serverStream
                                 transcodeSessionID = serverStreamSessionID
-                                engineType = preferences.forceVLCKit ? .vlcKit : .avPlayer
+                                engineType = !StreamResolver.containsAV1(media) && preferences.forceVLCKit ? .vlcKit : .avPlayer
                                 resolverReason = "Server stream: \(resolverDecision.reason)"
+                                if StreamResolver.containsAV1(media) {
+                                    activeAudioStreamID = audioStreamID
+                                    activeSubtitleStreamID = subtitleStreamID
+                                }
                             } else {
+                                stopTranscodeSessionInBackground(serverStreamSessionID, serverID: itemServerID)
+                                if StreamResolver.containsAV1(media) {
+                                    return .hardFailure("Plex could not prepare a compatible AV1 stream.")
+                                }
                                 playbackSessionLogger.notice(
                                     "Server stream unavailable for ratingKey \(ratingKey, privacy: .public) (outcome \(String(describing: result.outcome), privacy: .public)); proceeding with direct play"
                                 )
                             }
                         } catch {
+                            stopTranscodeSessionInBackground(serverStreamSessionID, serverID: itemServerID)
+                            if StreamResolver.containsAV1(media) {
+                                return .hardFailure(error.localizedDescription)
+                            }
                             playbackSessionLogger.error(
                                 "Server stream request failed for ratingKey \(ratingKey, privacy: .public): \(error.localizedDescription, privacy: .public); proceeding with direct play"
                             )
@@ -506,7 +525,7 @@ extension PlaybackCoordinator {
                 engineType = directDecision.engine
                 resolverReason = directDecision.reason
                 if hasRememberedMatch,
-                   !hasHDRVideo, !preferences.forceAVPlayer,
+                   !hasHDRVideo, !StreamResolver.containsAV1(media), !preferences.forceAVPlayer,
                    let subtitleID = startupSubtitleID,
                    part.streams.contains(where: { $0.id == subtitleID && $0.key != nil }),
                    !usesLocalDownload || downloadManager?.localSubtitleURL(for: id, streamID: subtitleID) != nil {
@@ -604,6 +623,9 @@ extension PlaybackCoordinator {
                         restoresDolbyAtmos: spatialAudioStreamIDs.restoresDolbyAtmos
                     )
                     : nil
+            } else if case .serverStream = playbackDecision, StreamResolver.containsAV1(media) {
+                // Keep the exact streams used to build the AV1 conversion.
+                remuxAudioConversion = nil
             } else if !wantsAirPlay {
                 remuxAudioConversion = nil
                 activeAudioStreamID = rememberedAudio?.id ?? PlayerViewModel.preferredAudioStreamID(
@@ -628,6 +650,9 @@ extension PlaybackCoordinator {
             remuxTrackSelection = playbackDecision.isSpatialAudio
                 ? ExplicitTrackSelection(audioStreamID: activeAudioStreamID, subtitleStreamID: activeSubtitleStreamID)
                 : nil
+            if case .serverStream = playbackDecision, StreamResolver.containsAV1(media) {
+                remuxTrackSelection = ExplicitTrackSelection(audioStreamID: activeAudioStreamID, subtitleStreamID: activeSubtitleStreamID)
+            }
             activePlaybackUsesLocalDownload = usesLocalDownload
             activePlaybackSessionIdentifier = sessionIdentifier
             activeTranscodeSessionID = transcodeSessionID
@@ -1049,6 +1074,10 @@ extension PlaybackCoordinator {
         activeSubtitleStreamID = subtitleStreamID
 
         guard didChange else { return }
+        if isAV1ServerSession {
+            scheduleAV1ServerTrackChange()
+            return
+        }
         if isSpatialAudioSession {
             scheduleSpatialAudioTrackChange()
             return
@@ -1260,6 +1289,9 @@ extension PlaybackCoordinator {
         remuxTrackSelection = playbackDecision.isSpatialAudio
             ? ExplicitTrackSelection(audioStreamID: activeAudioStreamID, subtitleStreamID: activeSubtitleStreamID)
             : nil
+        if case .serverStream = playbackDecision, StreamResolver.containsAV1(media) {
+            remuxTrackSelection = ExplicitTrackSelection(audioStreamID: activeAudioStreamID, subtitleStreamID: activeSubtitleStreamID)
+        }
         let preferredAudioTrackPosition: Int? = switch playbackDecision {
         case .directPlay, .localDownload:
             audioTrackPositionOverride ?? PlayerViewModel.preferredAudioStreamPosition(
@@ -1523,6 +1555,12 @@ extension PlaybackCoordinator {
             return
         }
 
+        if StreamResolver.containsAV1(debugInfo.media) {
+            activeSubtitleStreamID = streamID
+            Task { await rebuildAV1ServerSession(reason: "AV1 external subtitle selected") }
+            return
+        }
+
         // The engine's clock may not have passed its resume seek yet, so keep
         // the best position any of the three sources knows about.
         let resumePosition = max(
@@ -1619,6 +1657,11 @@ extension PlaybackCoordinator {
                 isAutomaticDirectPlayFallbackAvailable = false
                 isAutomaticDirectPlayFallbackActive = false
             }
+        }
+
+        if let debugInfo, StreamResolver.containsAV1(debugInfo.media) {
+            await rebuildAV1ServerSession(reason: "AV1 local decode or remux failed")
+            return
         }
 
         // A failed Dolby Vision 7 → 8.1 conversion first retries the same

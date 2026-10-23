@@ -4,6 +4,7 @@ import MobileVLCKit
 import TVVLCKit
 #endif
 import Foundation
+import Darwin
 
 /// What the embedded VLCKit build can do beyond VideoLAN's stock binaries.
 ///
@@ -20,6 +21,19 @@ enum VLCKitBuildInfo {
     /// Whether libvlc decodes Dolby TrueHD/MLP (to PCM, up to 7.1; for TrueHD
     /// Atmos that is the 7.1 bed).
     static let decodesTrueHD: Bool = frameworkInfo["DuskVLCKitTrueHD"] as? Bool ?? false
+
+    /// Query the loaded binary, including older Dusk builds without an AV1
+    /// capability stamp. Stock/stale builds must not promise a missing decoder.
+    static let decodesAV1: Bool = {
+        #if canImport(MobileVLCKit) || canImport(TVVLCKit)
+        guard let executable = Bundle(for: VLCMediaPlayer.self).executablePath,
+              let handle = dlopen(executable, RTLD_LAZY | RTLD_NOLOAD) else { return false }
+        defer { dlclose(handle) }
+        return dlsym(handle, "dav1d_open") != nil && dlsym(handle, "dav1d_get_picture") != nil
+        #else
+        return false
+        #endif
+    }()
 
     private static var frameworkInfo: [String: Any] {
         #if canImport(MobileVLCKit) || canImport(TVVLCKit)
