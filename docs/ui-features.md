@@ -760,6 +760,30 @@ in Dusk. Read this with `docs/codebase-map.md`, `STYLE.md`, and `docs/data-and-p
   `TextPrimary` fill with a filled checkmark (STYLE.md selected treatment).
 - `LibraryItemsViewModel` uses a `queryGeneration` guard so stale async page loads do
   not mutate current results. Preserve this pattern when adding filters.
+- **A–Z jump** (title sorts only, not Videos libraries or a locally matched genre):
+  `/library/sections/{id}/firstCharacter` with the grid's own server filters gives
+  per-letter counts → `LibraryLetterIndex` offsets (descending is mirrored; absent
+  letters dim and land on the next one). iOS: `LibraryLetterIndexBar` is a
+  `UITableView`-style index (drag-to-scrub, selection haptic, 12 pt grid gutter).
+  tvOS: a strip in the trailing margin that shows while it has focus or while focus
+  races through the grid (5 moves/s), and stays focusable while hidden at 0.02
+  opacity (the focus engine skips fully transparent views), so Right off the last
+  column reaches it, starting on the browsed letter; selecting moves focus to the
+  letter's first title.
+- A jump outside the loaded titles replaces the grid with a **window** (`windowStart`
+  = server offset of `items[0]`) that starts one row-aligned page above the letter;
+  `gridColumnCount` keeps windows and prepends whole rows, so the letter starts a row
+  and the grid never reflows sideways. Appends page from `windowStart + items.count`.
+  Earlier rows load 1.5 screens before the top and are inserted only when the scroll
+  is not decelerating; the screen then shifts the offset by the inserted height
+  (`ScrollPosition`, `PrependAnchor`). Traps: a scroll view keeps its offset when
+  content grows above, so an unshifted prepend slides new rows into view and cascades
+  through the whole library (seen: thousands of requests, PMS 503);
+  `defaultScrollAnchor(.bottom, for: .sizeChanges)` and `ScrollViewReader` mixed with
+  `.scrollPosition` both failed; a `Bool` `onScrollGeometryChange` misses the
+  transition after a programmatic shift. Lazy grids land `scrollTo` by estimate, so
+  the jump scrolls twice. Known limit: a hard fling into the window top can still
+  skip part of a page.
 - Infinite scroll is triggered from `PlexItemPosterGrid.onItemAppear`; keep pagination
   logic in the view model.
 - **Plex collections** (movie/TV libraries, manual and smart): the grid shows a

@@ -16,6 +16,7 @@ enum ScreenshotMode {
         static let screen = "DuskScreenshotScreen"
         static let item = "DuskScreenshotItem"
         static let itemType = "DuskScreenshotItemType"
+        static let library = "DuskScreenshotLibrary"
         static let search = "DuskScreenshotSearch"
         static let playOffset = "DuskScreenshotPlayOffset"
         static let keepHUD = "DuskScreenshotKeepHUD"
@@ -188,7 +189,9 @@ enum ScreenshotMode {
         case .library:
             let type = itemType == .show ? PlexLibraryType.show : .movie
             destination.tab = .library(type)
-            if let library = libraries.first(where: { $0.libraryType == type }) {
+            // `-DuskScreenshotLibrary <title>` picks one by name.
+            let title = defaults.string(forKey: Key.library)?.nilIfEmpty
+            if let library = libraries.first(where: { $0.libraryType == type && (title.map($0.title.localizedCaseInsensitiveContains) ?? true) }) {
                 destination.routes = [.library(library)]
             }
         case .collections:

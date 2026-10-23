@@ -20,6 +20,12 @@ enum LibrarySortOption: String, CaseIterable, Identifiable {
 
     var id: String { rawValue }
 
+    /// Title sorts list the library alphabetically, which is what the A–Z
+    /// jump needs.
+    var isTitleSort: Bool {
+        self == .titleAscending || self == .titleDescending
+    }
+
     var title: String {
         switch self {
         case .titleAscending:
@@ -117,6 +123,17 @@ final class LibraryItemsViewModel {
     /// Whether the library has collections to browse (and has not switched
     /// them off), which is what puts the Collections chip on the screen.
     private(set) var hasCollections = false
+    /// Server offset of `items[0]`. Zero until an A–Z jump lands past the
+    /// loaded titles; the grid then holds a window of the list that grows
+    /// both ways as it scrolls.
+    private(set) var windowStart = 0
+    private(set) var isLoadingEarlier = false
+    /// The A–Z jump for the current query; nil when it does not apply.
+    private(set) var letterIndex: LibraryLetterIndex?
+    /// Set by the grid. A window and every page prepended to it span whole
+    /// rows, so a jumped-to letter starts a row and the grid never reflows
+    /// sideways while scrolling up.
+    @ObservationIgnored var gridColumnCount = 1
 
     /// The first page is small so it lands fast; later pages are larger
     /// because on a big library every page costs the server a section-wide
@@ -138,6 +155,7 @@ final class LibraryItemsViewModel {
     /// one of them is filtered by Plex; anything else is matched locally.
     private var serverGenreValues: Set<String> = []
     private var queryGeneration = 0
+    private var jumpGeneration = 0
     private var localScanOffset = 0
 
     init(
@@ -248,18 +266,112 @@ final class LibraryItemsViewModel {
             guard generation == queryGeneration else { return }
 
             items = page.items
+            windowStart = 0
             hasMoreItems = page.hasMore
             localScanOffset = page.nextScanOffset ?? 0
         } catch {
             guard generation == queryGeneration else { return }
 
             items = []
+            windowStart = 0
             hasMoreItems = false
             self.error = error.localizedDescription
         }
 
         guard generation == queryGeneration else { return }
         isLoading = false
+        await loadLetterIndex(generation: generation, query: currentQuery)
+    }
+
+    var hasEarlierItems: Bool { windowStart > 0 }
+
+    /// Moves the grid to the first title of `entry` and returns the item to
+    /// scroll to. A letter already loaded is only scrolled to; any other
+    /// replaces the grid with a window starting one page above it, so the
+    /// titles just before the letter are there when scrolling up.
+    func jump(to entry: LibraryLetterIndex.Entry) async -> PlexItem? {
+        guard let letterIndex, let offset = letterIndex.targetOffset(for: entry) else { return nil }
+        if offset >= windowStart, offset < windowStart + items.count {
+            return items[offset - windowStart]
+        }
+
+        jumpGeneration += 1
+        let jump = jumpGeneration
+        let generation = beginNewQuery()
+        let query = currentQuery
+        let start = max(0, offset - rowAlignedPageSize)
+        isLoading = true
+        defer { if generation == queryGeneration { isLoading = false } }
+        do {
+            let page = try await fetchServerFilteredItems(start: start, size: offset - start + pageSize, query: query)
+            guard generation == queryGeneration, jump == jumpGeneration else { return nil }
+            items = page.items
+            windowStart = start
+            hasMoreItems = page.hasMore
+            let index = offset - start
+            return items.indices.contains(index) ? items[index] : items.last
+        } catch {
+            guard generation == queryGeneration else { return nil }
+            self.error = error.localizedDescription
+            return nil
+        }
+    }
+
+    /// The letter the given loaded item falls under, for highlighting it.
+    func letterEntry(for item: PlexItem) -> LibraryLetterIndex.Entry? {
+        guard let letterIndex,
+              let index = items.firstIndex(where: { $0.id == item.id }) else { return nil }
+        return letterIndex.entry(containing: windowStart + index)
+    }
+
+    /// After a jump, nearing the top of the window loads the rows before it.
+    /// `willPrepend` runs right before they are inserted: a scroll view holds
+    /// its offset when content grows above, so the grid has to shift by the
+    /// inserted height or the new rows slide into view.
+    func loadEarlierItems(
+        whenReady: () async -> Void = {},
+        willPrepend: () -> Void
+    ) async {
+        guard windowStart > 0, !isLoadingEarlier, !isLoading else { return }
+
+        let generation = queryGeneration
+        let start = max(0, windowStart - rowAlignedPageSize)
+        let query = currentQuery
+        isLoadingEarlier = true
+        defer { isLoadingEarlier = false }
+
+        guard let page = try? await fetchServerFilteredItems(start: start, size: windowStart - start, query: query),
+              generation == queryGeneration else { return }
+        await whenReady()
+        guard generation == queryGeneration else { return }
+        // Titles that moved across the page boundary since must not repeat.
+        let loaded = Set(items.map(\.id))
+        willPrepend()
+        items.insert(contentsOf: page.items.filter { !loaded.contains($0.id) }, at: 0)
+        windowStart = start
+    }
+
+    private var rowAlignedPageSize: Int {
+        let columns = max(gridColumnCount, 1)
+        return max(pageSize / columns, 1) * columns
+    }
+
+    private func loadLetterIndex(generation: Int, query: LibraryItemsQuery) async {
+        letterIndex = nil
+        // Only Plex's own filters line up with its counts: a locally
+        // matched genre has no offsets to jump to.
+        guard query.sort.isTitleSort, !isVideoLibrary, !items.isEmpty,
+              query.genreValue.map(serverGenreValues.contains) ?? true
+        else { return }
+
+        guard let characters = try? await plexService.getLibraryFirstCharacters(
+            sectionId: library.key,
+            filters: serverFilters(for: query, includingGenre: true),
+            serverID: serverID
+        ), generation == queryGeneration else { return }
+
+        let index = LibraryLetterIndex(characters: characters, descending: query.sort == .titleDescending)
+        letterIndex = index.isUseful ? index : nil
     }
 
     func selectGenre(_ genre: LibraryGenreOption) async {
@@ -304,7 +416,7 @@ final class LibraryItemsViewModel {
         else { return }
 
         let generation = queryGeneration
-        let start = items.count
+        let start = windowStart + items.count
         let query = currentQuery
 
         isLoadingMore = true
@@ -314,7 +426,8 @@ final class LibraryItemsViewModel {
             let page = try await fetchItems(start: start, query: query)
             guard generation == queryGeneration else { return }
 
-            items.append(contentsOf: page.items)
+            let loaded = Set(items.map(\.id))
+            items.append(contentsOf: page.items.filter { !loaded.contains($0.id) })
             hasMoreItems = page.hasMore
             localScanOffset = page.nextScanOffset ?? localScanOffset
         } catch {
@@ -399,8 +512,12 @@ final class LibraryItemsViewModel {
         hasLoadedCollectionInfo = !Task.isCancelled
     }
 
-    private func fetchServerFilteredItems(start: Int, query: LibraryItemsQuery) async throws -> LibraryItemsPage {
-        let size = start == 0 ? firstPageSize : pageSize
+    private func fetchServerFilteredItems(
+        start: Int,
+        size requestedSize: Int? = nil,
+        query: LibraryItemsQuery
+    ) async throws -> LibraryItemsPage {
+        let size = requestedSize ?? (start == 0 ? firstPageSize : pageSize)
         let items = try await plexService.getLibraryItems(
             sectionId: library.key,
             start: start,

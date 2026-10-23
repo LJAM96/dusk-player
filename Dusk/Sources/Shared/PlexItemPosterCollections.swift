@@ -266,6 +266,11 @@ struct PlexItemPosterGrid<ContextMenuContent: View>: View {
     /// library or folder, a collection): its movies and videos open knowing
     /// the grid, in its current order.
     var playThroughTitle: String? = nil
+    /// Lets the screen read and move focus between cards (the tvOS A–Z jump).
+    var focusedItemID: FocusState<PlexItemID?>.Binding? = nil
+    /// Makes the cards (tvOS: the rows, identified by their first item)
+    /// scroll targets, for a `ScrollPosition` that scrolls to an item id.
+    var isScrollTargetLayout = false
     @ViewBuilder let contextMenuContent: (PlexItem) -> ContextMenuContent
 
     var body: some View {
@@ -288,6 +293,7 @@ struct PlexItemPosterGrid<ContextMenuContent: View>: View {
                 )
             }
         }
+        .scrollTargetLayout(isEnabled: isScrollTargetLayout)
         #else
         LazyVGrid(columns: layout.columns, alignment: .leading, spacing: rowSpacing) {
             ForEach(items) { item in
@@ -299,6 +305,7 @@ struct PlexItemPosterGrid<ContextMenuContent: View>: View {
                 )
             }
         }
+        .scrollTargetLayout(isEnabled: isScrollTargetLayout)
         #endif
     }
 
@@ -380,8 +387,22 @@ struct PlexItemPosterGrid<ContextMenuContent: View>: View {
         ) {
             contextMenuContent(item)
         }
+        .modifier(OptionalItemFocus(binding: focusedItemID, id: item.id))
         .onAppear {
             onItemAppear(item)
+        }
+    }
+}
+
+private struct OptionalItemFocus: ViewModifier {
+    let binding: FocusState<PlexItemID?>.Binding?
+    let id: PlexItemID
+
+    func body(content: Content) -> some View {
+        if let binding {
+            content.focused(binding, equals: id)
+        } else {
+            content
         }
     }
 }

@@ -67,6 +67,23 @@ extension PlexService {
         return response.MediaContainer.totalSize ?? response.MediaContainer.size ?? 0
     }
 
+    /// How many titles start with each character under the given filters, in
+    /// title-sort order (`/library/sections/{id}/firstCharacter`). Cheap even on
+    /// a big library; it backs the grid's A–Z jump.
+    func getLibraryFirstCharacters(
+        sectionId: String,
+        filters: [String: String] = [:],
+        serverID: String? = nil
+    ) async throws -> [PlexFirstCharacter] {
+        try await fetchDirectories(
+            path: "/library/sections/\(sectionId)/firstCharacter",
+            queryItems: filters
+                .sorted { $0.key < $1.key }
+                .map { URLQueryItem(name: $0.key, value: $0.value) },
+            serverID: serverID
+        )
+    }
+
     func getLibraryFilters(sectionId: String, serverID: String? = nil) async throws -> [PlexLibraryFilter] {
         try await fetchDirectories(path: "/library/sections/\(sectionId)/filters", serverID: serverID)
     }

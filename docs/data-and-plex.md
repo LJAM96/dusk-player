@@ -316,6 +316,12 @@ Plex collections (`PlexService+Collections.swift`, movie and TV libraries):
   the titles themselves. Per-collection display modes are not read.
 - Search still sends `includeCollections=0`.
 
+First characters (`getLibraryFirstCharacters`): `/library/sections/{id}/firstCharacter`
+answers `Directory` rows `{key: "A", size: 2029}` in ascending title-sort order (only
+letters that have titles; "#" for digits/symbols) and honours the same filters as
+`/all` (type, unwatched, genre, collection). Cheap (<1 s on 60k titles); cumulative
+sizes are exact offsets into `/all?sort=titleSort` (verified on plex-demo Stress Movies).
+
 Extras (`PlexService+Extras.swift`, `Models/PlexExtra.swift`):
 - `getExtras(ratingKey:)` -> `/library/metadata/{rk}/extras` for a movie, show,
   season, or episode. Rows are `type: "clip"` items with a numeric `extraType`

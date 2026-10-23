@@ -8,6 +8,32 @@ struct LibraryItemsView: View {
     private let minimumColumnCount = 2
     private let controlCornerRadius: CGFloat = 18
 
+    @FocusState private var focusedItemID: PlexItemID?
+    /// The latest A–Z jump; a newer one (scrubbing) supersedes it.
+    @State private var jumpTask: Task<Void, Never>?
+    @State private var isJumping = false
+    @State private var scrollPosition = ScrollPosition()
+    @State private var prependAnchor = PrependAnchor()
+
+    /// Plain storage for the scroll offset at the moment rows are prepended;
+    /// not observed, so scrolling does not re-render the screen.
+    private final class PrependAnchor {
+        var offset: CGFloat = 0
+        var isPending = false
+        /// A scroll set mid-fling loses to the momentum, so rows are only
+        /// inserted once the scroll view is not decelerating.
+        var isDecelerating = false
+        var settlesAt = Date.distantPast
+    }
+    #if os(tvOS)
+    /// Shows the A–Z strip while focus races through the grid.
+    @State private var revealsLetterIndex = false
+    @State private var recentFocusMoves: [Date] = []
+    /// The grid card that had focus last; still set while the strip has it.
+    @State private var lastFocusedItemID: PlexItemID?
+    @State private var letterIndexHideTask: Task<Void, Never>?
+    #endif
+
     init(
         library: PlexLibrary,
         plexService: PlexService,
@@ -56,7 +82,7 @@ struct LibraryItemsView: View {
     private var libraryContent: some View {
         GeometryReader { geometry in
             let layout = AdaptivePosterGridLayout.make(
-                containerWidth: geometry.size.width,
+                containerWidth: geometry.size.width - letterIndexGutter,
                 horizontalPadding: horizontalPadding,
                 gridSpacing: gridSpacing,
                 preferredPosterWidth: preferredPosterWidth,
@@ -66,6 +92,12 @@ struct LibraryItemsView: View {
                 VStack(alignment: .leading, spacing: 0) {
                     if viewModel.showsBrowseControls {
                         browseControls
+                    }
+
+                    if viewModel.hasEarlierItems, !viewModel.items.isEmpty {
+                        ProgressView()
+                            .frame(maxWidth: .infinity)
+                            .padding(.top, 24)
                     }
 
                     if let error = viewModel.error, viewModel.items.isEmpty {
@@ -83,6 +115,7 @@ struct LibraryItemsView: View {
                     } else {
                         posterGrid(layout)
                         .padding(.horizontal, horizontalPadding)
+                        .padding(.trailing, letterIndexGutter)
                         .padding(.top, 32)
                         .padding(.bottom, 32)
                     }
@@ -95,11 +128,129 @@ struct LibraryItemsView: View {
                 }
             }
             .scrollIndicators(.hidden)
+            .scrollPosition($scrollPosition)
+            // After a jump, the rows before the window load while they are
+            // still 1.5 screens away, not once the top is hit mid-fling.
+            .onScrollGeometryChange(for: CGPoint.self) { geometry in
+                CGPoint(x: geometry.containerSize.height, y: geometry.contentOffset.y)
+            } action: { _, geometry in
+                prependAnchor.offset = geometry.y
+                if geometry.y < geometry.x * 1.5 { loadEarlierItems() }
+            }
+            .onScrollPhaseChange { _, phase in
+                prependAnchor.isDecelerating = phase == .decelerating || phase == .animating
+            }
+            // A page prepended above the window: move down by exactly what
+            // was inserted, so the titles on screen stay put.
+            .onScrollGeometryChange(for: CGFloat.self) { $0.contentSize.height } action: { old, new in
+                guard prependAnchor.isPending, new > old else { return }
+                prependAnchor.isPending = false
+                prependAnchor.offset += new - old
+                // The next offset report or two can still be the old one.
+                prependAnchor.settlesAt = .now + 0.4
+                scrollPosition.scrollTo(y: prependAnchor.offset)
+            }
             #if os(tvOS)
             .scrollClipDisabled()
             #endif
+            .overlay(alignment: .trailing) {
+                if let index = viewModel.letterIndex, !viewModel.items.isEmpty {
+                    letterIndexBar(index)
+                }
+            }
         }
     }
+
+    // MARK: - A–Z Jump
+
+    /// iOS keeps the last column's titles clear of the index; the tvOS strip
+    /// sits in the screen's trailing margin instead.
+    private var letterIndexGutter: CGFloat {
+        #if os(tvOS)
+        0
+        #else
+        viewModel.letterIndex == nil ? 0 : 12
+        #endif
+    }
+
+    @ViewBuilder
+    private func letterIndexBar(_ index: LibraryLetterIndex) -> some View {
+        #if os(tvOS)
+        LibraryLetterIndexBar(
+            index: index,
+            currentEntry: lastFocusedItem.flatMap(viewModel.letterEntry(for:)),
+            isRevealed: revealsLetterIndex,
+            onSelect: { jump(to: $0) }
+        )
+        // Into the trailing margin, clear of the last column's posters.
+        .padding(.trailing, -56)
+        .onChange(of: focusedItemID) { _, id in
+            guard let id else { return }
+            lastFocusedItemID = id
+            noteFocusMove()
+        }
+        #else
+        LibraryLetterIndexBar(index: index) { jump(to: $0) }
+            .padding(.trailing, 2)
+        #endif
+    }
+
+    private func jump(to entry: LibraryLetterIndex.Entry) {
+        jumpTask?.cancel()
+        isJumping = true
+        jumpTask = Task {
+            defer { if !Task.isCancelled { isJumping = false } }
+            guard let target = await viewModel.jump(to: entry), !Task.isCancelled else { return }
+            // One layout pass for a freshly loaded window before scrolling.
+            await Task.yield()
+            scrollPosition.scrollTo(id: target.id, anchor: .top)
+            // A lazy grid scrolls to a row it has not laid out by estimate,
+            // and rows differ in height (two-line titles); once the target is
+            // on screen a second pass lands it exactly.
+            try? await Task.sleep(for: .milliseconds(80))
+            guard !Task.isCancelled else { return }
+            scrollPosition.scrollTo(id: target.id, anchor: .top)
+            #if os(tvOS)
+            focusedItemID = target.id
+            #endif
+        }
+    }
+
+    private func loadEarlierItems() {
+        guard viewModel.hasEarlierItems, !isJumping, !viewModel.isLoadingEarlier,
+              !prependAnchor.isPending, Date.now >= prependAnchor.settlesAt else { return }
+        Task {
+            await viewModel.loadEarlierItems {
+                while prependAnchor.isDecelerating, !Task.isCancelled {
+                    try? await Task.sleep(for: .milliseconds(50))
+                }
+            } willPrepend: {
+                prependAnchor.isPending = true
+            }
+        }
+    }
+
+    #if os(tvOS)
+    private var lastFocusedItem: PlexItem? {
+        guard let lastFocusedItemID else { return nil }
+        return viewModel.items.first { $0.id == lastFocusedItemID }
+    }
+
+    /// Five focus moves within a second is a held-down remote or a fast
+    /// swipe: reveal the strip, and hide it again once the grid settles.
+    private func noteFocusMove() {
+        let now = Date()
+        recentFocusMoves = recentFocusMoves.filter { now.timeIntervalSince($0) < 1 } + [now]
+        guard recentFocusMoves.count >= 5 else { return }
+        revealsLetterIndex = true
+        letterIndexHideTask?.cancel()
+        letterIndexHideTask = Task {
+            try? await Task.sleep(for: .seconds(2.5))
+            guard !Task.isCancelled else { return }
+            revealsLetterIndex = false
+        }
+    }
+    #endif
 
     private var browseControls: some View {
         ScrollView(.horizontal, showsIndicators: false) {
@@ -309,7 +460,8 @@ struct LibraryItemsView: View {
     }
 
     private func posterGrid(_ layout: AdaptivePosterGridLayout) -> some View {
-        PlexItemPosterGrid(
+        viewModel.gridColumnCount = layout.columns.count
+        return PlexItemPosterGrid(
             items: viewModel.items,
             layout: layout,
             rowSpacing: gridRowSpacing,
@@ -323,7 +475,9 @@ struct LibraryItemsView: View {
                 Task { await viewModel.loadMoreIfNeeded(currentItem: item) }
             },
             // A Videos library or folder plays through, in the grid's order.
-            playThroughTitle: viewModel.library.libraryType == .video ? viewModel.navigationTitle : nil
+            playThroughTitle: viewModel.library.libraryType == .video ? viewModel.navigationTitle : nil,
+            focusedItemID: $focusedItemID,
+            isScrollTargetLayout: true
         ) { item in
             PlexItemContextMenuContent(
                 item: item,

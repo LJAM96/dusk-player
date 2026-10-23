@@ -151,3 +151,10 @@ struct PlexLibraryFilterValue: Codable, Sendable, Hashable, Identifiable {
     let title: String
     let type: String?
 }
+
+/// One `firstCharacter` row: titles whose sort title starts with `key`
+/// ("#" for digits and symbols).
+struct PlexFirstCharacter: Decodable, Sendable, Hashable {
+    let key: String
+    let size: Int
+}
