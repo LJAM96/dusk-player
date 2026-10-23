@@ -37,6 +37,9 @@ struct PlexMediaDetails: Decodable, Sendable, Identifiable {
     let art: String?
     let clearLogo: String?
     let contentRating: String?
+    /// The extra Plex features for the title (`/library/metadata/{key}`), its
+    /// main trailer when it has one.
+    let primaryExtraKey: String?
 
     // Ratings
     let rating: Double?
@@ -79,7 +82,7 @@ struct PlexMediaDetails: Decodable, Sendable, Identifiable {
 
     enum CodingKeys: String, CodingKey {
         case ratingKey, key, type, subtype, librarySectionID, title, editionTitle, summary, year, guid
-        case duration, viewOffset, viewCount, thumb, art, clearLogo, contentRating
+        case duration, viewOffset, viewCount, thumb, art, clearLogo, contentRating, primaryExtraKey
         case rating, audienceRating, studio, originallyAvailableAt
         case childCount, leafCount, viewedLeafCount
         case index, parentIndex, parentRatingKey, parentThumb, grandparentRatingKey, grandparentTitle, grandparentThumb
@@ -118,6 +121,7 @@ struct PlexMediaDetails: Decodable, Sendable, Identifiable {
         art = try container.decodeIfPresent(String.self, forKey: .art)
         clearLogo = try container.decodePlexImageURLIfPresent(type: "clearLogo", explicitKey: .clearLogo, arrayKey: .images)
         contentRating = try container.decodeIfPresent(String.self, forKey: .contentRating)
+        primaryExtraKey = try? container.decodeIfPresent(String.self, forKey: .primaryExtraKey)
         rating = try container.decodeIfPresent(Double.self, forKey: .rating)
         audienceRating = try container.decodeIfPresent(Double.self, forKey: .audienceRating)
         studio = try container.decodeIfPresent(String.self, forKey: .studio)

@@ -12,6 +12,8 @@ struct SeriesDetailView: View {
     @Environment(\.scenePhase) private var scenePhase
     @State private var viewModel: SeriesDetailViewModel
     @State private var focusedEpisodeKey: String?
+    /// The show's extras, shared by its Extras row and the hero's Trailer button.
+    @State private var showExtras = DetailExtrasModel()
     @State private var episodeFocusTask: Task<Void, Never>?
     /// Set when the player closes on a later episode than it opened with (Up
     /// Next / Next Episode): the row scrolls to that card and, if the run was
@@ -160,7 +162,8 @@ struct SeriesDetailView: View {
 
                     DetailExtrasShelf(
                         itemID: viewModel.show?.details?.id,
-                        ownerTitle: viewModel.show?.details?.title
+                        ownerTitle: viewModel.show?.details?.title,
+                        model: showExtras
                     )
 
                     // The show's collections, not the season's: Plex tags the show.
@@ -359,6 +362,12 @@ struct SeriesDetailView: View {
                     }
                 }
             }
+
+            DetailTrailerHeroButton(
+                model: showExtras,
+                primaryExtraKey: viewModel.show?.details?.primaryExtraKey,
+                ownerTitle: viewModel.show?.details?.title
+            )
 
             Button {
                 Task { await viewModel.toggleSeasonWatched() }

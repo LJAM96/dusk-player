@@ -35,6 +35,35 @@ final class DetailExtrasModel {
     func subtitle(for item: PlexItem) -> String? {
         extras.first { $0.id == item.id }?.cardSubtitle
     }
+
+    /// The trailer the hero's Trailer button plays: the one Plex names as the
+    /// title's primary extra, else the first trailer in Plex's order.
+    func trailer(primaryExtraKey: String?) -> PlexExtra? {
+        let trailers = extras.filter { $0.kind == .trailer }
+        if let primaryExtraKey,
+           let primary = trailers.first(where: { primaryExtraKey.hasSuffix("/\($0.item.ratingKey)") }) {
+            return primary
+        }
+        return trailers.first
+    }
+
+    func play(_ item: PlexItem, ownerTitle: String?, playback: PlaybackCoordinator) {
+        let placeholder = PlaybackPlaceholder(
+            title: item.title,
+            subtitle: ownerTitle ?? subtitle(for: item),
+            posterPath: item.preferredPosterPath,
+            backdropPath: item.art ?? item.thumb,
+            serverID: item.serverID
+        )
+        Task {
+            await playback.play(
+                id: item.id,
+                resumeOffsetMilliseconds: item.viewOffset,
+                resumeOffsetDurationMilliseconds: item.duration,
+                placeholder: placeholder
+            )
+        }
+    }
 }
 
 /// The 16:9 "Extras" row of a detail page: the title's trailers, featurettes,
@@ -53,7 +82,27 @@ struct DetailExtrasShelf: View {
     var bottomPadding: CGFloat = 0
     var loadDelay: Duration = .zero
 
-    @State private var model = DetailExtrasModel()
+    @State private var model: DetailExtrasModel
+
+    /// - Parameter model: pass the page's own model when its hero also reads
+    ///   the extras (the Trailer button); the shelf still drives the load.
+    init(
+        itemID: PlexItemID?,
+        title: String = "Extras",
+        ownerTitle: String? = nil,
+        topPadding: CGFloat = 40,
+        bottomPadding: CGFloat = 0,
+        loadDelay: Duration = .zero,
+        model: DetailExtrasModel? = nil
+    ) {
+        self.itemID = itemID
+        self.title = title
+        self.ownerTitle = ownerTitle
+        self.topPadding = topPadding
+        self.bottomPadding = bottomPadding
+        self.loadDelay = loadDelay
+        _model = State(initialValue: model ?? DetailExtrasModel())
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -86,20 +135,28 @@ struct DetailExtrasShelf: View {
     }
 
     private func play(_ item: PlexItem) {
-        let placeholder = PlaybackPlaceholder(
-            title: item.title,
-            subtitle: ownerTitle ?? model.subtitle(for: item),
-            posterPath: item.preferredPosterPath,
-            backdropPath: item.art ?? item.thumb,
-            serverID: item.serverID
-        )
-        Task {
-            await playback.play(
-                id: item.id,
-                resumeOffsetMilliseconds: item.viewOffset,
-                resumeOffsetDurationMilliseconds: item.duration,
-                placeholder: placeholder
-            )
+        model.play(item, ownerTitle: ownerTitle, playback: playback)
+    }
+}
+
+/// The hero's Trailer action: an icon-only secondary button that plays the
+/// title's trailer extra, absent while the extras load or when there is none.
+struct DetailTrailerHeroButton: View {
+    @Environment(PlaybackCoordinator.self) private var playback
+
+    let model: DetailExtrasModel
+    let primaryExtraKey: String?
+    let ownerTitle: String?
+
+    var body: some View {
+        if let trailer = model.trailer(primaryExtraKey: primaryExtraKey) {
+            Button {
+                model.play(trailer.item, ownerTitle: ownerTitle, playback: playback)
+            } label: {
+                DetailHeroSecondaryIconLabel(systemImage: "movieclapper")
+            }
+            .detailHeroNativeSecondaryButtonStyle()
+            .accessibilityLabel("Play Trailer")
         }
     }
 }

@@ -871,6 +871,12 @@ in Dusk. Read this with `docs/codebase-map.md`, `STYLE.md`, and `docs/data-and-p
   "<Season> Extras" and the show's "Extras" under the season summary, and "Episode
   Extras" for the focused episode above Episode Cast (400 ms load delay so zapping the
   episode row does not fetch every card).
+- The hero **Trailer** action (`DetailTrailerHeroButton`, icon-only `movieclapper`
+  secondary right after Play) plays the title's trailer extra: the extra Plex names as
+  `primaryExtraKey`, else the first `extraType` 1. It reads the same `DetailExtrasModel`
+  the page's Extras row loads (passed in via `DetailExtrasShelf(model:)`), so it costs
+  no request and is absent until extras load or when there is no trailer. Movie pages
+  and show pages (iOS `ShowDetailView`, tvOS `SeriesDetailView` with the show's extras).
 - Detail screens use hidden inline navigation bars over hero artwork. Keep
   `.toolbarColorScheme(.dark, for: .navigationBar)` and hidden toolbar backgrounds unless
   the screen is no longer hero-led.

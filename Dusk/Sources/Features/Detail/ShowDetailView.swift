@@ -8,6 +8,7 @@ struct ShowDetailView: View {
     @Environment(\.horizontalSizeClass) private var sizeClass
     @Environment(\.scenePhase) private var scenePhase
     @State private var viewModel: ShowDetailViewModel
+    @State private var extras = DetailExtrasModel()
 
     private let horizontalPadding: CGFloat = DuskPosterMetrics.detailHorizontalPadding
     private let gridSpacing: CGFloat = DuskPosterMetrics.detailGridSpacing
@@ -93,7 +94,7 @@ struct ShowDetailView: View {
                     seasonsSection(width: geometry.size.width)
                         .padding(.top, 40)
 
-                    DetailExtrasShelf(itemID: details.id, ownerTitle: details.title)
+                    DetailExtrasShelf(itemID: details.id, ownerTitle: details.title, model: extras)
 
                     DetailCollectionShelves(
                         itemID: details.id,
@@ -217,6 +218,11 @@ struct ShowDetailView: View {
             playButton()
 
             HStack(spacing: detailHeroActionSpacing) {
+                DetailTrailerHeroButton(
+                    model: extras,
+                    primaryExtraKey: viewModel.details?.primaryExtraKey,
+                    ownerTitle: viewModel.details?.title
+                )
                 downloadButton()
                 watchedButton()
                 AddToPlaylistHeroButton(target: viewModel.details.flatMap(AddToPlaylistTarget.init(details:)))

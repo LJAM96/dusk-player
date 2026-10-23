@@ -9,6 +9,7 @@ struct MovieDetailView: View {
     @Environment(UserPreferences.self) private var preferences
     @State private var viewModel: MovieDetailViewModel
     @State private var showSubtitleSearch = false
+    @State private var extras = DetailExtrasModel()
 
     private let horizontalPadding: CGFloat = DuskPosterMetrics.detailHorizontalPadding
 
@@ -112,7 +113,7 @@ struct MovieDetailView: View {
                             .padding(.horizontal, horizontalPadding)
                             .padding(.top, 24)
                     }
-                    DetailExtrasShelf(itemID: details.id, ownerTitle: details.title)
+                    DetailExtrasShelf(itemID: details.id, ownerTitle: details.title, model: extras)
                     if let roles = details.roles, !roles.isEmpty {
                         DetailCastSection(
                             roles: roles,
@@ -248,6 +249,7 @@ struct MovieDetailView: View {
         #if os(tvOS)
         HStack(spacing: detailHeroActionSpacing) {
             playButton(details)
+            trailerButton(details)
             downloadButton(details)
             subtitleSearchButton()
             watchedButton()
@@ -259,6 +261,7 @@ struct MovieDetailView: View {
             playButton(details)
 
             HStack(spacing: detailHeroActionSpacing) {
+                trailerButton(details)
                 downloadButton(details)
                 watchedButton()
                 AddToPlaylistHeroButton(target: AddToPlaylistTarget(details: details))
@@ -313,6 +316,10 @@ struct MovieDetailView: View {
             }
             #endif
         }
+    }
+
+    private func trailerButton(_ details: PlexMediaDetails) -> some View {
+        DetailTrailerHeroButton(model: extras, primaryExtraKey: details.primaryExtraKey, ownerTitle: details.title)
     }
 
     private func downloadButton(_ details: PlexMediaDetails) -> some View {
