@@ -2294,6 +2294,16 @@ Plex clients do. There is no app setting: the server decides.
   continuous play, the iOS Episode Buttons (`playerEpisodeButtonsEnabled`,
   default off; no tvOS toggle) and advanced playback controls
   (`playerAdvancedControlsEnabled`, default off, both platforms).
+- `alwaysPlayInLandscape` (default on; "Always Play in Landscape" under
+  Playback Behavior, iPhone only). While that cover is up, the player's
+  hosting controller reports `.landscape` and the window scene requests the
+  landscape side that matches the phone's physical orientation
+  (`PlayerLandscapeOrientation`), including with Portrait Orientation Lock on.
+  Turning the phone flips between landscape left and right. Closing the player
+  restores the interface orientation from before it opened. Off leaves rotation
+  to the system. iPad and tvOS do not show the setting and do not force one.
+  The preference default is `PlayerLandscapePreferenceTests`. A silent
+  simulator check (no playback) is `PlayerLandscapeOrientationTests`.
 - New installs default intro auto-skip to always except episode 1 of each
   season; existing stored intro-skip preferences are preserved.
 - `forceAVPlayer` and `forceVLCKit` are mutually exclusive in their setters.

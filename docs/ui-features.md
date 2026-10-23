@@ -1052,6 +1052,10 @@ in Dusk. Read this with `docs/codebase-map.md`, `STYLE.md`, and `docs/data-and-p
   transcoding, and must not alter startup quality. Its per-platform default
   lives in `VideoEnhancementMode.defaultForPlatform` — Auto on Apple TV, Off on
   battery-powered devices.
+- `alwaysPlayInLandscape` ("Always Play in Landscape", Playback Behavior,
+  iPhone only, default on) forces the player into landscape, including under
+  Portrait Orientation Lock. The toggle is hidden on iPad. tvOS has no row.
+  Behavior is in `playback.md`.
 - Playback Defaults › Audio & Subtitles (`AudioSubtitleSettingsView`, a pushed
   page on both platforms) holds every track-language setting: Audio › Language
   (`defaultAudioLanguage`, "" = Original), Subtitles › Show Subtitles

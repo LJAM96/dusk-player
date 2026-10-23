@@ -71,6 +71,21 @@ final class DuskAppDelegate: NSObject, UIApplicationDelegate {
     ) {
         DownloadBackgroundSessionRegistry.setCompletionHandler(completionHandler, for: identifier)
     }
+
+    /// Matches Info-iOS.plist until the iPhone player forces landscape. The
+    /// player's hosting controller narrows to `.landscape` at the same time.
+    func application(
+        _ application: UIApplication,
+        supportedInterfaceOrientationsFor window: UIWindow?
+    ) -> UIInterfaceOrientationMask {
+        if let forced = PlayerLandscapeApplicationMask.forced {
+            return forced
+        }
+        if UIDevice.current.userInterfaceIdiom == .pad {
+            return .all
+        }
+        return .allButUpsideDown
+    }
 }
 #endif
 

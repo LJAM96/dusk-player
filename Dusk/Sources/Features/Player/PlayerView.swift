@@ -242,6 +242,7 @@ struct PlayerView: View {
         // rebuilt with a fresh `.id` each time). See
         // `PlaybackCoordinator.isIdleTimerSuppressed`.
         .playerIdleTimerDisabled(playback.isIdleTimerSuppressed)
+        .modifier(PlayerPhoneLandscapeModifier())
         #endif
         .playerSharePlayPresentation(isPlayer: true)
     }

@@ -28,6 +28,7 @@ final class UserPreferences {
         static let playerDoubleTapSeekEnabled = "playerDoubleTapSeekEnabled"
         static let playerEpisodeButtonsEnabled = "playerEpisodeButtonsEnabled"
         static let playerAdvancedControlsEnabled = "playerAdvancedControlsEnabled"
+        static let alwaysPlayInLandscape = "alwaysPlayInLandscape"
         static let playerDoubleTapForwardInterval = "playerDoubleTapForwardInterval"
         static let playerDoubleTapBackwardInterval = "playerDoubleTapBackwardInterval"
         static let playerAspectFillPortrait = "playerAspectFillPortrait"
@@ -146,6 +147,13 @@ final class UserPreferences {
     /// only reachable while this is on.
     var playerAdvancedControlsEnabled: Bool {
         didSet { UserDefaults.standard.set(playerAdvancedControlsEnabled, forKey: Keys.playerAdvancedControlsEnabled) }
+    }
+
+    /// iPhone player opens in landscape even when Portrait Orientation Lock is
+    /// on, and follows the phone between landscape left and right. Off leaves
+    /// rotation to the system. iPad and tvOS ignore it.
+    var alwaysPlayInLandscape: Bool {
+        didSet { UserDefaults.standard.set(alwaysPlayInLandscape, forKey: Keys.alwaysPlayInLandscape) }
     }
 
     /// Jump interval for double-tapping the right side of the player.
@@ -452,6 +460,7 @@ final class UserPreferences {
         let playerDoubleTapSeekEnabled = defaults.object(forKey: Keys.playerDoubleTapSeekEnabled) as? Bool ?? true
         let playerEpisodeButtonsEnabled = defaults.bool(forKey: Keys.playerEpisodeButtonsEnabled)
         let playerAdvancedControlsEnabled = defaults.bool(forKey: Keys.playerAdvancedControlsEnabled)
+        let alwaysPlayInLandscape = defaults.object(forKey: Keys.alwaysPlayInLandscape) as? Bool ?? true
         let playerDoubleTapForwardInterval = Self.storedSeekInterval(
             forKey: Keys.playerDoubleTapForwardInterval,
             defaults: defaults,
@@ -526,6 +535,7 @@ final class UserPreferences {
         self.playerDoubleTapSeekEnabled = playerDoubleTapSeekEnabled
         self.playerEpisodeButtonsEnabled = playerEpisodeButtonsEnabled
         self.playerAdvancedControlsEnabled = playerAdvancedControlsEnabled
+        self.alwaysPlayInLandscape = alwaysPlayInLandscape
         self.playerDoubleTapForwardInterval = playerDoubleTapForwardInterval
         self.playerDoubleTapBackwardInterval = playerDoubleTapBackwardInterval
         self.playerAspectFillPortrait = playerAspectFillPortrait

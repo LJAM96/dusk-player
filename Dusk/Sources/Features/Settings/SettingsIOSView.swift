@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 
 #if !os(tvOS)
 struct SettingsIOSView: View {
@@ -255,6 +256,11 @@ struct SettingsIOSView: View {
             .listRowBackground(Color.duskSurface)
 
             Section {
+                if UIDevice.current.userInterfaceIdiom == .phone {
+                    Toggle("Always Play in Landscape", isOn: $preferences.alwaysPlayInLandscape)
+                        .foregroundStyle(Color.duskTextPrimary)
+                }
+
                 Picker("Auto-Skip Intros", selection: $preferences.autoSkipIntroMode) {
                     ForEach(AutoSkipIntroMode.allCases) { mode in
                         Text(mode.displayName).tag(mode)
