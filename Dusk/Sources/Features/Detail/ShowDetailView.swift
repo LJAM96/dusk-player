@@ -9,6 +9,7 @@ struct ShowDetailView: View {
     @Environment(\.scenePhase) private var scenePhase
     @State private var viewModel: ShowDetailViewModel
     @State private var extras = DetailExtrasModel()
+    @State private var userRating = DetailUserRatingModel()
 
     private let horizontalPadding: CGFloat = DuskPosterMetrics.detailHorizontalPadding
     private let gridSpacing: CGFloat = DuskPosterMetrics.detailGridSpacing
@@ -52,6 +53,9 @@ struct ShowDetailView: View {
         .toolbarBackground(.hidden, for: .navigationBar)
         .task {
             await viewModel.load()
+        }
+        .onChange(of: viewModel.details?.userRating, initial: true) { _, rating in
+            userRating.sync(rating)
         }
         .onChange(of: playback.showPlayer) { _, isShowing in
             if !isShowing {
@@ -174,40 +178,12 @@ struct ShowDetailView: View {
                 .foregroundStyle(Color.primary.opacity(0.72))
         }
 
-        if let rating = details.rating {
-            HStack(spacing: 12) {
-                ratingBadge(
-                    icon: "star.fill",
-                    value: String(format: "%.1f", rating),
-                    color: .yellow
-                )
-
-                if let audience = details.audienceRating {
-                    ratingBadge(
-                        icon: "person.fill",
-                        value: String(format: "%.0f%%", audience * 10),
-                        color: Color.primary.opacity(0.72)
-                    )
-                }
-            }
-        }
+        DetailRatingsLine(ratings: PlexRating.sources(for: details), userRating: userRating.value)
 
         if let studio = details.studio {
             Text(studio)
                 .font(DuskFont.caption(ios: .caption))
                 .foregroundStyle(Color.primary.opacity(0.72))
-        }
-    }
-
-    private func ratingBadge(icon: String, value: String, color: Color) -> some View {
-        HStack(spacing: 4) {
-            Image(systemName: icon)
-                .font(DuskFont.glyphSmall(ios: .caption2))
-                .foregroundStyle(color)
-
-            Text(value)
-                .font(DuskFont.metadata(ios: .subheadline).monospacedDigit())
-                .foregroundStyle(Color.primary.opacity(0.84))
         }
     }
 
@@ -225,6 +201,9 @@ struct ShowDetailView: View {
                 )
                 downloadButton()
                 watchedButton()
+                if let id = viewModel.details?.id {
+                    DetailRateHeroButton(model: userRating, id: id)
+                }
                 AddToPlaylistHeroButton(target: viewModel.details.flatMap(AddToPlaylistTarget.init(details:)))
             }
         }

@@ -10,6 +10,7 @@ struct MovieDetailView: View {
     @State private var viewModel: MovieDetailViewModel
     @State private var showSubtitleSearch = false
     @State private var extras = DetailExtrasModel()
+    @State private var userRating = DetailUserRatingModel()
 
     private let horizontalPadding: CGFloat = DuskPosterMetrics.detailHorizontalPadding
 
@@ -52,6 +53,9 @@ struct MovieDetailView: View {
         .toolbarBackground(.hidden, for: .navigationBar)
         .task {
             await viewModel.loadDetails()
+        }
+        .onChange(of: viewModel.details?.userRating, initial: true) { _, rating in
+            userRating.sync(rating)
         }
         .onChange(of: playback.showPlayer) { _, isShowing in
             if !isShowing {
@@ -201,22 +205,7 @@ struct MovieDetailView: View {
                 .foregroundStyle(Color.primary.opacity(0.72))
         }
 
-        if let rating = details.rating {
-            HStack(spacing: 12) {
-                ratingBadge(
-                    icon: "star.fill",
-                    value: String(format: "%.1f", rating),
-                    color: .yellow
-                )
-                if let audience = details.audienceRating {
-                    ratingBadge(
-                        icon: "person.fill",
-                        value: String(format: "%.0f%%", audience * 10),
-                        color: Color.primary.opacity(0.72)
-                    )
-                }
-            }
-        }
+        DetailRatingsLine(ratings: PlexRating.sources(for: details), userRating: userRating.value)
 
         if let director = viewModel.directorText {
             Text("Directed by \(director)")
@@ -231,17 +220,6 @@ struct MovieDetailView: View {
         }
     }
 
-    private func ratingBadge(icon: String, value: String, color: Color) -> some View {
-        HStack(spacing: 4) {
-            Image(systemName: icon)
-                .font(DuskFont.glyphSmall(ios: .caption2))
-                .foregroundStyle(color)
-            Text(value)
-                .font(DuskFont.metadata(ios: .subheadline).monospacedDigit())
-                .foregroundStyle(Color.primary.opacity(0.84))
-        }
-    }
-
     // MARK: - Actions
 
     @ViewBuilder
@@ -253,6 +231,7 @@ struct MovieDetailView: View {
             downloadButton(details)
             subtitleSearchButton()
             watchedButton()
+            DetailRateHeroButton(model: userRating, id: details.id)
             AddToPlaylistHeroButton(target: AddToPlaylistTarget(details: details))
         }
         #else
@@ -264,6 +243,7 @@ struct MovieDetailView: View {
                 trailerButton(details)
                 downloadButton(details)
                 watchedButton()
+                DetailRateHeroButton(model: userRating, id: details.id)
                 AddToPlaylistHeroButton(target: AddToPlaylistTarget(details: details))
             }
         }

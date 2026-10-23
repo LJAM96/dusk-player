@@ -928,6 +928,16 @@ in Dusk. Read this with `docs/codebase-map.md`, `STYLE.md`, and `docs/data-and-p
   the page's Extras row loads (passed in via `DetailExtrasShelf(model:)`), so it costs
   no request and is absent until extras load or when there is no trailer. Movie pages
   and show pages (iOS `ShowDetailView`, tvOS `SeriesDetailView` with the show's extras).
+- **Ratings** (`DetailRatings.swift`): the hero metadata carries `DetailRatingsLine` —
+  the user's own stars (system yellow, half stars) then each source from Plex's
+  `Rating` array (`PlexRating.sources`: IMDb 6.4, Rotten Tomatoes / RT Audience %,
+  TMDB %, TVDB; falls back to `rating`/`ratingImage` + `audienceRating`/
+  `audienceRatingImage`). Sources are text labels, not logos (Dusk ships no
+  third-party brand marks). `DetailRateHeroButton` is an icon-only `star` menu
+  (1–5 stars, Clear) that writes `PUT /:/rate` (`rating` 0–10, `-1` clears) with an
+  optimistic `DetailUserRatingModel`. Movie pages (all platforms) and the iOS show page
+  show both; the tvOS series page only has the Rate action (its hero box is
+  episode-sized).
 - Detail screens use hidden inline navigation bars over hero artwork. Keep
   `.toolbarColorScheme(.dark, for: .navigationBar)` and hidden toolbar backgrounds unless
   the screen is no longer hero-led.

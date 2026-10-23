@@ -44,6 +44,14 @@ struct PlexMediaDetails: Decodable, Sendable, Identifiable {
     // Ratings
     let rating: Double?
     let audienceRating: Double?
+    /// Where `rating` / `audienceRating` come from (`rottentomatoes://image.rating.ripe`).
+    let ratingImage: String?
+    let audienceRatingImage: String?
+    /// The signed-in user's own rating, 0–10 (Plex stores half stars).
+    let userRating: Double?
+    /// Every source the agent found (IMDb, Rotten Tomatoes, TMDB, …); newer
+    /// servers only. See `PlexRating.sources(for:)`.
+    let ratings: [PlexRating]
 
     // Production
     let studio: String?
@@ -83,7 +91,7 @@ struct PlexMediaDetails: Decodable, Sendable, Identifiable {
     enum CodingKeys: String, CodingKey {
         case ratingKey, key, type, subtype, librarySectionID, title, editionTitle, summary, year, guid
         case duration, viewOffset, viewCount, thumb, art, clearLogo, contentRating, primaryExtraKey
-        case rating, audienceRating, studio, originallyAvailableAt
+        case rating, audienceRating, ratingImage, audienceRatingImage, userRating, studio, originallyAvailableAt
         case childCount, leafCount, viewedLeafCount
         case index, parentIndex, parentRatingKey, parentThumb, grandparentRatingKey, grandparentTitle, grandparentThumb
         case genres = "Genre"
@@ -95,6 +103,7 @@ struct PlexMediaDetails: Decodable, Sendable, Identifiable {
         case markers = "Marker"
         case media = "Media"
         case images = "Image"
+        case ratings = "Rating"
     }
 
     init(from decoder: Decoder) throws {
@@ -124,6 +133,10 @@ struct PlexMediaDetails: Decodable, Sendable, Identifiable {
         primaryExtraKey = try? container.decodeIfPresent(String.self, forKey: .primaryExtraKey)
         rating = try container.decodeIfPresent(Double.self, forKey: .rating)
         audienceRating = try container.decodeIfPresent(Double.self, forKey: .audienceRating)
+        ratingImage = try? container.decodeIfPresent(String.self, forKey: .ratingImage)
+        audienceRatingImage = try? container.decodeIfPresent(String.self, forKey: .audienceRatingImage)
+        userRating = try? container.decodeIfPresent(Double.self, forKey: .userRating)
+        ratings = (try? container.decodeIfPresent([PlexRating].self, forKey: .ratings)) ?? []
         studio = try container.decodeIfPresent(String.self, forKey: .studio)
         originallyAvailableAt = try container.decodeIfPresent(String.self, forKey: .originallyAvailableAt)
         childCount = try container.decodeIfPresent(Int.self, forKey: .childCount)

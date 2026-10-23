@@ -14,6 +14,7 @@ struct SeriesDetailView: View {
     @State private var focusedEpisodeKey: String?
     /// The show's extras, shared by its Extras row and the hero's Trailer button.
     @State private var showExtras = DetailExtrasModel()
+    @State private var showRating = DetailUserRatingModel()
     @State private var episodeFocusTask: Task<Void, Never>?
     /// Set when the player closes on a later episode than it opened with (Up
     /// Next / Next Episode): the row scrolls to that card and, if the run was
@@ -376,6 +377,13 @@ struct SeriesDetailView: View {
             }
             .detailHeroNativeSecondaryButtonStyle()
             .accessibilityLabel(season.isSeasonWatched ? "Mark Season Unwatched" : "Mark Season Watched")
+
+            if let show = viewModel.show?.details {
+                DetailRateHeroButton(model: showRating, id: show.id)
+                    .onChange(of: show.userRating, initial: true) { _, rating in
+                        showRating.sync(rating)
+                    }
+            }
 
             AddToPlaylistHeroButton(
                 target: viewModel.show?.details.flatMap(AddToPlaylistTarget.init(details:))
