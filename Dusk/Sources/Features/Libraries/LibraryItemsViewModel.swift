@@ -170,7 +170,7 @@ private struct LibraryItemsPage {
 private struct LibraryItemsQuery: Hashable {
     let genreValue: String?
     let sort: LibrarySortOption
-    let unwatchedOnly: Bool
+    let filters: LibraryFilterState
 }
 
 @MainActor
@@ -196,7 +196,13 @@ final class LibraryItemsViewModel {
     private(set) var selectedSort: LibrarySortOption = .titleAscending
     /// Remembered per library, so it also applies to the library's genre and
     /// collection grids.
-    private(set) var showsUnwatchedOnly: Bool
+    var showsUnwatchedOnly: Bool { filterState.watchStatus == .unwatched }
+    /// The Filters sheet's choices plus the watch state (whose Unwatched value
+    /// is remembered per library).
+    private(set) var filterState: LibraryFilterState
+    /// The Filters sheet's fields, from the section's `/filters`.
+    private(set) var availableFilterFields: [LibraryFilterField] = []
+    @ObservationIgnored private var filterValueCache: [String: [LibraryFilterChoice]] = [:]
     /// Whether the library has collections to browse (and has not switched
     /// them off), which is what puts the Collections chip on the screen.
     private(set) var hasCollections = false
@@ -251,7 +257,9 @@ final class LibraryItemsViewModel {
         self.selectedSort = sortStore.sort(for: library)
         self.sortStore = sortStore
         self.unwatchedFilterStore = unwatchedFilterStore
-        self.showsUnwatchedOnly = unwatchedFilterStore.isEnabled(forLibraryID: library.id)
+        self.filterState = LibraryFilterState(
+            watchStatus: unwatchedFilterStore.isEnabled(forLibraryID: library.id) ? .unwatched : .all
+        )
     }
 
     /// Every fetch on this screen is scoped to the library's own server.
@@ -284,7 +292,8 @@ final class LibraryItemsViewModel {
     }
 
     var showsBrowseControls: Bool {
-        !items.isEmpty || selectedGenre != .all || showsUnwatchedOnly || availableGenres.count > 1 || hasCollections
+        !items.isEmpty || selectedGenre != .all || !filterState.isEmpty || availableGenres.count > 1
+            || hasCollections || !availableFilterFields.isEmpty
     }
 
     var emptyStateSystemImage: String {
@@ -296,6 +305,9 @@ final class LibraryItemsViewModel {
     }
 
     var emptyStateTitle: String {
+        if filterState.hasFieldFilters || ![.all, .unwatched].contains(filterState.watchStatus) {
+            return "No matching titles"
+        }
         if showsUnwatchedOnly {
             return selectedGenre == .all ? "You're all caught up" : "No unwatched titles"
         }
@@ -304,6 +316,9 @@ final class LibraryItemsViewModel {
     }
 
     var emptyStateMessage: String? {
+        if filterState.hasFieldFilters || ![.all, .unwatched].contains(filterState.watchStatus) {
+            return "Try other filters, or reset them to see everything."
+        }
         if showsUnwatchedOnly {
             return selectedGenre == .all
                 ? "Everything here has been watched. Turn off Unwatched to see it all."
@@ -466,9 +481,41 @@ final class LibraryItemsViewModel {
 
     func setShowsUnwatchedOnly(_ unwatchedOnly: Bool) async {
         guard showsUnwatchedOnly != unwatchedOnly else { return }
-        showsUnwatchedOnly = unwatchedOnly
-        unwatchedFilterStore.setEnabled(unwatchedOnly, forLibraryID: library.id)
+        var state = filterState
+        state.watchStatus = unwatchedOnly ? .unwatched : .all
+        await applyFilters(state)
+    }
+
+    var watchStatusOptions: [LibraryWatchStatus] {
+        LibraryWatchStatus.options(for: library.libraryType)
+    }
+
+    func applyFilters(_ state: LibraryFilterState) async {
+        guard state != filterState else { return }
+        if (state.watchStatus == .unwatched) != showsUnwatchedOnly {
+            unwatchedFilterStore.setEnabled(state.watchStatus == .unwatched, forLibraryID: library.id)
+        }
+        filterState = state
         await reloadItems()
+    }
+
+    /// Clears every filter, the remembered Unwatched choice included. Genre
+    /// has its own menu and stays.
+    func resetFilters() async {
+        await applyFilters(LibraryFilterState())
+    }
+
+    /// The values a field offers, sorted as Plex lists them (decades newest
+    /// first, names alphabetically). Cached for the screen.
+    func filterValues(for field: LibraryFilterField) async -> [LibraryFilterChoice] {
+        guard case .values(let path) = field.kind else { return [] }
+        if let cached = filterValueCache[field.parameter] { return cached }
+        guard let values = try? await plexService.getLibraryFilterValues(path: path, serverID: serverID) else {
+            return []
+        }
+        let choices = values.map(LibraryFilterChoice.init)
+        filterValueCache[field.parameter] = choices
+        return choices
     }
 
     func setWatched(_ watched: Bool, for item: PlexItem) async {
@@ -529,7 +576,7 @@ final class LibraryItemsViewModel {
         LibraryItemsQuery(
             genreValue: selectedGenre.value,
             sort: selectedSort,
-            unwatchedOnly: showsUnwatchedOnly
+            filters: filterState
         )
     }
 
@@ -558,12 +605,13 @@ final class LibraryItemsViewModel {
         var filters = LibraryUnwatchedFilter.serverFilters(
             libraryType: library.libraryType,
             collectionKey: collection?.key,
-            unwatchedOnly: query.unwatchedOnly,
+            unwatchedOnly: false,
             genreValue: includingGenre ? query.genreValue : nil
         )
+        filters.merge(query.filters.serverFilters(libraryType: library.libraryType)) { _, new in new }
         // Only the plain browse folds titles into their collections, like
         // Plex Web: a filtered grid lists the matching titles themselves.
-        if collectionMode == .hideItems, query.genreValue == nil, !query.unwatchedOnly {
+        if collectionMode == .hideItems, query.genreValue == nil, query.filters.isEmpty {
             filters["includeCollections"] = "1"
         }
         return filters
@@ -649,6 +697,17 @@ final class LibraryItemsViewModel {
     private func loadBrowseOptionsIfNeeded() async {
         guard !hasLoadedBrowseOptions else { return }
         hasLoadedBrowseOptions = true
+
+        async let filterFields = try? plexService.getLibraryFilters(sectionId: library.key, serverID: serverID)
+        await loadGenreOptions()
+        // A video library's collections are its channels, browsed through
+        // their own rows; a collection grid is one already.
+        if let filters = await filterFields {
+            availableFilterFields = LibraryFilterField.fields(from: filters, includesCollection: supportsCollections)
+        }
+    }
+
+    private func loadGenreOptions() async {
 
         do {
             var loadedGenres = try await LibraryGenreSupport.loadGenreOptions(

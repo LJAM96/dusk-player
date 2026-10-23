@@ -12,6 +12,7 @@ struct LibraryItemsView: View {
     /// The latest A–Z jump; a newer one (scrubbing) supersedes it.
     @State private var jumpTask: Task<Void, Never>?
     @State private var isJumping = false
+    @State private var showsFilters = false
     @State private var scrollPosition = ScrollPosition()
     @State private var prependAnchor = PrependAnchor()
 
@@ -74,6 +75,17 @@ struct LibraryItemsView: View {
         }
         .duskNavigationTitle(viewModel.navigationTitle)
         .duskNavigationBarTitleDisplayModeLarge()
+        #if os(tvOS)
+        // A tvOS sheet is a small centred card; the filter lists need the room.
+        .fullScreenCover(isPresented: $showsFilters) {
+            LibraryFiltersSheet(viewModel: viewModel) { showsFilters = false }
+                .background(Color.duskBackground.ignoresSafeArea())
+        }
+        #else
+        .sheet(isPresented: $showsFilters) {
+            LibraryFiltersSheet(viewModel: viewModel) { showsFilters = false }
+        }
+        #endif
         .task {
             await viewModel.loadItems()
         }
@@ -270,6 +282,14 @@ struct LibraryItemsView: View {
 
                 unwatchedToggle
 
+                if !viewModel.availableFilterFields.isEmpty || !viewModel.filterState.isEmpty {
+                    filtersChip
+                }
+
+                if !viewModel.filterState.isEmpty {
+                    clearFiltersChip
+                }
+
                 sortMenu
 
                 #if os(tvOS)
@@ -403,6 +423,60 @@ struct LibraryItemsView: View {
                 Text(title)
             }
         }
+    }
+
+    /// Opens the Filters sheet. With filters on it inverts like the
+    /// Unwatched chip and counts them.
+    private var filtersChip: some View {
+        let count = viewModel.filterState.activeCount
+        let isOn = count > 0
+        return Button {
+            showsFilters = true
+        } label: {
+            HStack(spacing: 10) {
+                Image(systemName: "slider.horizontal.3")
+                    .font(DuskFont.glyphMedium(ios: .headline))
+                    .foregroundStyle(isOn ? Color.duskBackground : Color.duskTextSecondary)
+
+                Text(isOn ? "Filters · \(count)" : "Filters")
+                    .font(DuskFont.buttonLabel(ios: .subheadline.weight(.medium)).monospacedDigit())
+                    .foregroundStyle(isOn ? Color.duskBackground : Color.duskTextPrimary)
+                    .lineLimit(1)
+            }
+            .padding(.horizontal, 14)
+            .padding(.vertical, 10)
+            .background(
+                RoundedRectangle(cornerRadius: controlCornerRadius, style: .continuous)
+                    .fill(isOn ? Color.duskTextPrimary : Color.duskSurface)
+            )
+            .overlay {
+                RoundedRectangle(cornerRadius: controlCornerRadius, style: .continuous)
+                    .stroke(isOn ? Color.clear : Color.duskTextSecondary.opacity(0.18), lineWidth: 1)
+            }
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel("Filters")
+            .accessibilityValue(isOn ? "\(count) on" : "")
+            .duskTVOSFocusEffectShape(RoundedRectangle(cornerRadius: controlCornerRadius, style: .continuous))
+        }
+        .duskSuppressTVOSButtonChrome()
+    }
+
+    /// One tap back to the whole library (genre aside, which has its own menu).
+    private var clearFiltersChip: some View {
+        Button {
+            Task { await viewModel.resetFilters() }
+        } label: {
+            Image(systemName: "xmark")
+                .font(DuskFont.glyphSmall(ios: .subheadline.weight(.semibold)))
+                .foregroundStyle(Color.duskTextSecondary)
+                .frame(minWidth: 20, minHeight: 20)
+                .padding(10)
+                .background(Circle().fill(Color.duskSurface))
+                .overlay { Circle().stroke(Color.duskTextSecondary.opacity(0.18), lineWidth: 1) }
+                .duskTVOSFocusEffectShape(Circle())
+        }
+        .duskSuppressTVOSButtonChrome()
+        .accessibilityLabel("Clear Filters")
     }
 
     /// A filter chip rather than a menu: one tap (one click on tvOS) flips it.

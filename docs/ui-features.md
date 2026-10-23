@@ -772,6 +772,19 @@ in Dusk. Read this with `docs/codebase-map.md`, `STYLE.md`, and `docs/data-and-p
   `unwatched=1` for movie/video sections (in-progress titles stay) and
   `unwatchedLeaves=1` for shows (listed while any episode is unwatched). Active = inverted
   `TextPrimary` fill with a filled checkmark (STYLE.md selected treatment).
+- **Filters** chip (after Unwatched; inverted with a count when on, plus an `xmark`
+  chip that resets) opens `LibraryFiltersSheet` (iOS sheet; tvOS full-screen cover
+  built from the `TVSettings*` rows, because a plain `List` there shows no focus).
+  `LibraryFilterState` = watch status (All/Unwatched/In Progress/Watched; shows have no
+  In Progress) + one value per field + boolean toggles, ANDed. Fields are the ones in
+  `LibraryFilterField.offered` that the section's `/filters` lists (decade, year,
+  content rating, resolution, HDR, Dolby Vision, audio language, studio, network,
+  collection, director, actor); values come from the filter's own key path, cached per
+  screen, searchable past 20. Edits apply once on Done. Unwatched stays the remembered
+  one-tap chip (`watchStatus == .unwatched`); everything else lasts for the screen.
+  Plex percent-encodes some value keys (`Not%20Rated`), so `LibraryFilterChoice`
+  decodes them before they go back into a query. Watched = `unwatched=0` /
+  `unwatchedLeaves=0`. Any filter turns off `includeCollections` folding.
 - `LibraryItemsViewModel` uses a `queryGeneration` guard so stale async page loads do
   not mutate current results. Preserve this pattern when adding filters.
 - **A–Z jump** (title sorts only, not Videos libraries or a locally matched genre):
