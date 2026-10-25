@@ -9,9 +9,10 @@ import Foundation
 ///   `homeSettings.hubs`): hidden there means hidden here, and otherwise the
 ///   row follows the nearest row before it in Plex's list that Home also
 ///   shows. With none of those before it, it leads the hubs.
-/// - Otherwise it goes after the first Recently Added rows (at most two in a
-///   row), no lower than the fourth row: near the top without pushing new
-///   arrivals down.
+/// - Otherwise it goes after the last Recently Added hub. Those rows lead
+///   each library block, so this sits after every library's Recently Added.
+///   With none, it goes after the Plex hubs, before Dusk's personalized
+///   shelves.
 ///
 /// Hubs are already in the account's library order (`HomeHubArrangement`),
 /// so anchoring to a hub follows Library Order too.
@@ -31,20 +32,13 @@ enum HomeWatchlistPlacement {
         return defaultIndex(in: hubs)
     }
 
-    static let defaultMaxIndex = 3
-
+    /// Index in `hubs` the row is inserted before. `hubs.count` is after every
+    /// Plex hub (and before the personalized shelves, which are not in `hubs`).
     static func defaultIndex(in hubs: [PlexHub]) -> Int {
-        guard !hubs.isEmpty else { return 0 }
-        guard let recentlyAdded = hubs.firstIndex(where: isRecentlyAdded) else {
-            return 1
+        guard let lastRecentlyAdded = hubs.lastIndex(where: isRecentlyAdded) else {
+            return hubs.count
         }
-        // Past the first two Recently Added rows when they follow each other
-        // (Movies, then TV on a default PMS Home).
-        var end = recentlyAdded + 1
-        if end < hubs.count, isRecentlyAdded(hubs[end]) {
-            end += 1
-        }
-        return min(end, defaultMaxIndex)
+        return lastRecentlyAdded + 1
     }
 
     private static func isRecentlyAdded(_ hub: PlexHub) -> Bool {

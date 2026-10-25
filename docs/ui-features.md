@@ -1056,9 +1056,10 @@ in Dusk. Read this with `docs/codebase-map.md`, `STYLE.md`, and `docs/data-and-p
   Watchlist leave no row, spinner or error.
 - Placement (`HomeWatchlistPlacement`, tested): Plex Web's customized Home layout
   wins (hidden there = hidden here, otherwise after the nearest preceding Plex row Home
-  also shows); default is after the first Recently Added rows (max two in a row), never
-  below the fourth hub. Always under the hero / compact Continue Watching / Live TV.
-  Hubs already follow Library Order; Personalized Shelves are unrelated (Plex's row).
+  also shows). Otherwise the row goes after the last Recently Added hub of every
+  library block. With no Recently Added rows it goes after the Plex hubs, before
+  Dusk's personalized shelves. Always under the hero / compact Continue Watching /
+  Live TV. Hubs already follow Library Order.
 - A title on a connected server is its server item (normal detail page, progress,
   watched mark, card context menu). One that is not opens `.watchlistItem`
   (`WatchlistItemDetailView`): Seerr's page (Request + bookmark) when Seerr is
