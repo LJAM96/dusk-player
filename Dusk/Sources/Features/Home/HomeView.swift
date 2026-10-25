@@ -92,6 +92,7 @@ struct HomeView: View {
                 Task { await liveTVViewModel.loadNowPlaying(force: true) }
             }
             .refreshable {
+                viewModel?.refreshWatchlist(force: true)
                 await viewModel?.load(maxRecentlyAddedItems: recentlyAddedInlineItemLimit)
             }
             .duskAppNavigationDestinations()

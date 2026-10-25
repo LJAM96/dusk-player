@@ -70,6 +70,9 @@ final class PlexService {
     /// `PlexService+Playlists`.
     let playlists = PlaylistStore()
 
+    /// The account's Plex Watchlist (plex.tv). See `PlexService+Watchlist`.
+    let watchlist = WatchlistStore()
+
     /// Every server this account can use and the live session with each one.
     /// Everything that talks to a server resolves through here.
     let pool = ServerPool()
@@ -300,6 +303,7 @@ final class PlexService {
     func tearDownServerSessions(forgetServers: Bool = false) {
         libraryOrder.invalidate()
         playlists.reset()
+        watchlist.reset()
         // Rating keys only mean something for the account that fetched them.
         alternates.reset()
         for task in serverRecoveryTasks.values {

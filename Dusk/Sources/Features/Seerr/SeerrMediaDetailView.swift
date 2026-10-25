@@ -6,13 +6,22 @@ struct SeerrMediaDetailView: View {
     @State private var viewModel: SeerrMediaDetailViewModel
 
     private let horizontalPadding = DuskPosterMetrics.detailHorizontalPadding
+    /// Set when the page stands in for a Plex Watchlist title: the hero then
+    /// also carries its bookmark.
+    private let watchlistEntry: PlexWatchlistEntry?
 
-    init(mediaType: SeerrMediaType, mediaID: Int, service: SeerrService) {
+    init(
+        mediaType: SeerrMediaType,
+        mediaID: Int,
+        service: SeerrService,
+        watchlistEntry: PlexWatchlistEntry? = nil
+    ) {
         _viewModel = State(initialValue: SeerrMediaDetailViewModel(
             mediaType: mediaType,
             mediaID: mediaID,
             service: service
         ))
+        self.watchlistEntry = watchlistEntry
     }
 
     var body: some View {
@@ -176,38 +185,42 @@ struct SeerrMediaDetailView: View {
                 }
             }
         } actions: {
-            if viewModel.canRequest {
-                Button {
-                    viewModel.showsRequestConfirmation = true
-                } label: {
-                    DetailHeroPrimaryActionButtonLabel(
+            HStack(spacing: detailHeroActionSpacing) {
+                if viewModel.canRequest {
+                    Button {
+                        viewModel.showsRequestConfirmation = true
+                    } label: {
+                        DetailHeroPrimaryActionButtonLabel(
+                            title: viewModel.requestButtonTitle,
+                            systemImage: "paperplane.fill",
+                            fillsWidth: usesFullWidthDetailActionButtons(for: sizeClass)
+                        )
+                    }
+                    .detailHeroNativePrimaryButtonStyle()
+                    .disabled(viewModel.isRequesting)
+                    .confirmationDialog(
+                        viewModel.mediaType == .movie
+                            ? "Request this movie?"
+                            : "Request missing seasons?",
+                        isPresented: $viewModel.showsRequestConfirmation,
+                        titleVisibility: .visible
+                    ) {
+                        Button("Request") {
+                            Task { await viewModel.request() }
+                        }
+                        Button("Cancel", role: .cancel) {}
+                    } message: {
+                        Text("The request will be sent to Seerr as \(viewModel.title).")
+                    }
+                } else {
+                    DetailHeroStatusActionLabel(
                         title: viewModel.requestButtonTitle,
-                        systemImage: "paperplane.fill",
+                        systemImage: viewModel.requestState.systemImage,
                         fillsWidth: usesFullWidthDetailActionButtons(for: sizeClass)
                     )
                 }
-                .detailHeroNativePrimaryButtonStyle()
-                .disabled(viewModel.isRequesting)
-                .confirmationDialog(
-                    viewModel.mediaType == .movie
-                        ? "Request this movie?"
-                        : "Request missing seasons?",
-                    isPresented: $viewModel.showsRequestConfirmation,
-                    titleVisibility: .visible
-                ) {
-                    Button("Request") {
-                        Task { await viewModel.request() }
-                    }
-                    Button("Cancel", role: .cancel) {}
-                } message: {
-                    Text("The request will be sent to Seerr as \(viewModel.title).")
-                }
-            } else {
-                DetailHeroStatusActionLabel(
-                    title: viewModel.requestButtonTitle,
-                    systemImage: viewModel.requestState.systemImage,
-                    fillsWidth: usesFullWidthDetailActionButtons(for: sizeClass)
-                )
+
+                WatchlistHeroButton(entry: watchlistEntry)
             }
         }
     }

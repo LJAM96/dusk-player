@@ -111,8 +111,16 @@ struct HomeIOSView: View {
                             LiveTVHomeShelf(viewModel: liveTVViewModel, play: playLiveTV)
                         }
 
-                        ForEach(viewModel.hubs) { hub in
+                        let watchlistIndex = viewModel.watchlistIndex
+                        ForEach(Array(viewModel.hubs.enumerated()), id: \.element.id) { index, hub in
+                            if index == watchlistIndex {
+                                watchlistShelf
+                            }
                             hubSection(hub)
+                        }
+
+                        if let watchlistIndex, watchlistIndex >= viewModel.hubs.count {
+                            watchlistShelf
                         }
 
                         ForEach(viewModel.personalizedShelves) { shelf in
@@ -135,6 +143,12 @@ struct HomeIOSView: View {
         .task(id: LiveTVShelfLoadKey(isShown: showsLiveTV, providerID: liveTVViewModel.provider?.id)) {
             guard showsLiveTV else { return }
             await liveTVViewModel.loadNowPlaying(force: true)
+        }
+    }
+
+    private var watchlistShelf: some View {
+        HomeWatchlistShelf(viewModel: viewModel) { item, watched in
+            Task { await viewModel.setWatched(watched, for: item) }
         }
     }
 

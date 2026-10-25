@@ -1048,6 +1048,27 @@ in Dusk. Read this with `docs/codebase-map.md`, `STYLE.md`, and `docs/data-and-p
   live seek bar shows LIVE or the time behind live and provides Go Live; all
   forward movement is clamped to the HLS edge.
 
+## Watchlist
+
+- No tab or destination: the Plex Watchlist is one Home row, "Watchlist"
+  (`HomeWatchlistShelf`, both shells), in Plex's order (newest first). It renders
+  only with at least one title: empty, plex.tv failing, or a profile without a
+  Watchlist leave no row, spinner or error.
+- Placement (`HomeWatchlistPlacement`, tested): Plex Web's customized Home layout
+  wins (hidden there = hidden here, otherwise after the nearest preceding Plex row Home
+  also shows); default is after the first Recently Added rows (max two in a row), never
+  below the fourth hub. Always under the hero / compact Continue Watching / Live TV.
+  Hubs already follow Library Order; Personalized Shelves are unrelated (Plex's row).
+- A title on a connected server is its server item (normal detail page, progress,
+  watched mark, card context menu). One that is not opens `.watchlistItem`
+  (`WatchlistItemDetailView`): Seerr's page (Request + bookmark) when Seerr is
+  connected and Plex has a TMDB id, otherwise a light page from Plex metadata with
+  "Not on your Plex servers · <streaming services>" and Remove/Add in the primary slot.
+- Bookmark (`WatchlistHeroButton`, `bookmark`/`bookmark.fill`, icon-only) on movie and
+  show pages (iOS movie/show, tvOS movie/series) and the Seerr stand-in page; "Add
+  to/Remove from Watchlist" in `PlexItemContextMenuContent` for movies/shows with a
+  `plex://` guid. Optimistic with rollback; the hero shows an alert on failure.
+
 ## Playlists
 
 - A data-driven destination like Live TV: `PlexLibraryType.playlists` joins the

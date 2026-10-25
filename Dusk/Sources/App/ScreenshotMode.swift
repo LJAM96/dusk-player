@@ -44,6 +44,12 @@ enum ScreenshotMode {
         return defaults.string(forKey: Key.plexTV)?.nilIfEmpty
     }
 
+    /// Replacement for `https://discover.provider.plex.tv` (the Watchlist):
+    /// the mock's `/discover` prefix.
+    static var discoverBase: String? {
+        plexTVBase.map { "\($0)/discover" }
+    }
+
     static var searchQuery: String? {
         guard isActive, screen == .search else { return nil }
         return defaults.string(forKey: Key.search)?.nilIfEmpty

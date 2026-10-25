@@ -233,6 +233,7 @@ struct MovieDetailView: View {
             watchedButton()
             DetailRateHeroButton(model: userRating, id: details.id)
             AddToPlaylistHeroButton(target: AddToPlaylistTarget(details: details))
+            WatchlistHeroButton(entry: PlexWatchlistEntry(details: details))
         }
         #else
         // Primary fills the stack width; secondary row is centered beneath it.
@@ -245,6 +246,7 @@ struct MovieDetailView: View {
                 watchedButton()
                 DetailRateHeroButton(model: userRating, id: details.id)
                 AddToPlaylistHeroButton(target: AddToPlaylistTarget(details: details))
+                WatchlistHeroButton(entry: PlexWatchlistEntry(details: details))
             }
         }
         .detailHeroActionStackFrame(isCompactPhone: usesFullWidthActionButtons)

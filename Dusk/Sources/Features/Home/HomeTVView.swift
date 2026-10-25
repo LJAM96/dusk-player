@@ -136,6 +136,7 @@ struct HomeTVView: View {
     private var hasContentBelowHero: Bool {
         showsLiveTV
             || !viewModel.hubs.isEmpty
+            || !viewModel.watchlistEntries.isEmpty
             || viewModel.personalizedShelves.contains { !$0.items.isEmpty }
     }
 
@@ -444,10 +445,16 @@ struct HomeTVView: View {
             return .liveTV
         }
 
-        if let hub = viewModel.hubs.first(where: { hub in
+        let firstHubIndex = viewModel.hubs.firstIndex { hub in
             !viewModel.inlineItems(in: hub, maxRecentlyAddedItems: recentlyAddedInlineItemLimit).isEmpty
-        }) {
-            return .hub(hub.id)
+        }
+        if let watchlistIndex = viewModel.watchlistIndex,
+           watchlistIndex <= (firstHubIndex ?? viewModel.hubs.count) {
+            return .watchlist
+        }
+
+        if let firstHubIndex {
+            return .hub(viewModel.hubs[firstHubIndex].id)
         }
 
         if let shelf = viewModel.personalizedShelves.first(where: { !$0.items.isEmpty }) {
@@ -485,7 +492,12 @@ struct HomeTVView: View {
                 .homeTVShelfFocus(focus(.liveTV))
         }
 
-        ForEach(viewModel.hubs) { hub in
+        let watchlistIndex = viewModel.watchlistIndex
+        ForEach(Array(viewModel.hubs.enumerated()), id: \.element.id) { index, hub in
+            if index == watchlistIndex {
+                watchlistShelf(focus: focus(.watchlist))
+            }
+
             let items = viewModel.inlineItems(
                 in: hub,
                 maxRecentlyAddedItems: recentlyAddedInlineItemLimit
@@ -524,6 +536,10 @@ struct HomeTVView: View {
             }
         }
 
+        if let watchlistIndex, watchlistIndex >= viewModel.hubs.count {
+            watchlistShelf(focus: focus(.watchlist))
+        }
+
         ForEach(viewModel.personalizedShelves) { shelf in
             if !shelf.items.isEmpty {
                 PlexItemPosterCarouselSection(
@@ -551,6 +567,13 @@ struct HomeTVView: View {
                 .homeTVShelfFocus(focus(.personalized(shelf.id)))
             }
         }
+    }
+
+    private func watchlistShelf(focus: HomeTVShelfFocus) -> some View {
+        HomeWatchlistShelf(viewModel: viewModel) { item, watched in
+            Task { await viewModel.setWatched(watched, for: item) }
+        }
+        .homeTVShelfFocus(focus)
     }
 
     /// The bottom-centre "More ⌄" affordance. tvOS only; the hero is not
@@ -885,6 +908,7 @@ private enum HomeTVShelfID: Hashable {
     case continueWatching
     case liveTV
     case hub(AnyHashable)
+    case watchlist
     case personalized(AnyHashable)
 }
 

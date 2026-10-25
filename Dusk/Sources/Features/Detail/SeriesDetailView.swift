@@ -405,6 +405,8 @@ struct SeriesDetailView: View {
             AddToPlaylistHeroButton(
                 target: viewModel.show?.details.flatMap(AddToPlaylistTarget.init(details:))
             )
+
+            WatchlistHeroButton(entry: viewModel.show?.details.flatMap(PlexWatchlistEntry.init(details:)))
         }
     }
 

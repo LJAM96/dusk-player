@@ -30,6 +30,9 @@ enum AppNavigationRoute: Hashable {
     case person(PlexPersonReference, serverID: String?)
     case seerrMedia(type: SeerrMediaType, id: Int)
     case seerrSeason(tvID: Int, seasonNumber: Int)
+    /// A Plex Watchlist title on none of the connected servers (one that is
+    /// opens as `.media`). See `WatchlistItemDetailView`.
+    case watchlistItem(PlexWatchlistEntry)
     /// Library Order, reached from the library tabs.
     case libraryOrder
     #if DEBUG
@@ -155,6 +158,8 @@ struct AppNavigationDestinationView: View {
                 seasonNumber: seasonNumber,
                 service: seerrService
             )
+        case let .watchlistItem(entry):
+            WatchlistItemDetailView(entry: entry, plexService: plexService)
         case .libraryOrder:
             LibraryOrderSettingsView()
         #if DEBUG

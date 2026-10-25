@@ -196,6 +196,7 @@ final class HomeViewModel {
         loadGeneration += 1
         let generation = loadGeneration
         let currentMaxRecentlyAddedItems = self.maxRecentlyAddedItems
+        refreshWatchlist()
         recentlyAddedExpansionTask?.cancel()
         personalizedShelvesTask?.cancel()
         loadTask?.cancel()
@@ -544,6 +545,32 @@ final class HomeViewModel {
         #if os(tvOS)
         TopShelfPublisher.shared.publish(continueWatching: newContinueWatching, plexService: plexService)
         #endif
+    }
+
+    // MARK: - Watchlist
+
+    /// The Watchlist row's titles. Empty unless plex.tv answered with some:
+    /// a failed or missing Watchlist is no row, never an error or a spinner.
+    var watchlistEntries: [PlexWatchlistEntry] {
+        plexService.watchlist.isLoaded ? plexService.watchlist.entries : []
+    }
+
+    /// Where the row goes among `hubs` (`HomeWatchlistPlacement`); nil when
+    /// there is no row.
+    var watchlistIndex: Int? {
+        guard !watchlistEntries.isEmpty else { return nil }
+        return HomeWatchlistPlacement.index(in: hubs, plexHomeHubs: plexService.watchlist.homeHubs)
+    }
+
+    func watchlistMatch(for entry: PlexWatchlistEntry) -> PlexItem? {
+        plexService.watchlist.match(for: entry)
+    }
+
+    /// Runs beside Home's own load and never holds its first paint: the row
+    /// folds in whenever plex.tv answers. `force` is pull-to-refresh.
+    func refreshWatchlist(force: Bool = false) {
+        let service = plexService
+        Task { await service.loadWatchlist(force: force) }
     }
 
     func setWatched(_ watched: Bool, for item: PlexItem) async {

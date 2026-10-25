@@ -31,6 +31,7 @@ Dusk/Sources
     Player/            Full-screen playback UI and coordinator
     Downloads/         Downloads screen and download controls
     Playlists/         Playlists tab, playlist page, Add to Playlist sheet
+    Watchlist/         Plex Watchlist bookmark/menu actions, off-server title page
     Search/            Search view and view model
     Settings/          Preferences, server priority, and account settings
     Supporter/         Supporter tier: StoreKit store, sheet, prompt, app icons
@@ -264,6 +265,14 @@ Playlists:
 - Playback goes through `PlaybackCoordinator.playQueue` with a
   `PlaybackQueue` (`Features/Player/PlaybackQueue.swift`); lists that play
   through carry a `PlaybackListContext` in their route.
+
+Watchlist:
+
+- `PlexService.watchlist` (`WatchlistStore`) is the account's Plex Watchlist and its
+  server matches; `PlexService+Watchlist` loads/edits it (plex.tv Discover).
+- Home's row is `Home/HomeWatchlistShelf` placed by `HomeWatchlistPlacement`;
+  `Features/Watchlist` has the bookmark/menu actions and the off-server page.
+  See `docs/ui-features.md` → "Watchlist".
 
 Search and Seerr:
 

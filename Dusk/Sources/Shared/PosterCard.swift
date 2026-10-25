@@ -393,6 +393,8 @@ struct PlexItemContextMenuContent: View {
         if showsAddToPlaylist {
             AddToPlaylistMenuButton(target: AddToPlaylistTarget(item: item))
         }
+
+        WatchlistMenuButton(item: item)
     }
 }
 

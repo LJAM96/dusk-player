@@ -571,6 +571,35 @@ File: `PlexService+Playback.swift`.
   engines do not use `PlexService` request headers.
 - Never log raw playback URLs; use `sanitizedPlaybackURLString(for:)`.
 
+## Plex Watchlist (plex.tv Discover)
+File: `PlexService+Watchlist.swift`, models `Models/PlexWatchlist.swift`
+(`PlexWatchlistEntry`, `PlexWatchlistAvailability`, `PlexHomeHubSetting`), shared
+state `PlexService/WatchlistStore.swift` (`plexService.watchlist`).
+- Account-level, on `https://discover.provider.plex.tv` (`PlexService.discoverBase`,
+  the mock's `/discover` prefix in screenshot mode), with the active profile's token.
+  Verified on a real account 2026-10-25: `GET /library/sections/watchlist/all?sort=watchlistedAt:desc`
+  (paged, `totalSize`), `PUT /actions/addToWatchlist|removeFromWatchlist?ratingKey=`
+  (idempotent, 200 + empty container), `GET /library/metadata/{rk}` (has the `Guid`
+  array: tmdb/imdb/tvdb), `GET /library/metadata/{rk}/availabilities` (`Availability[]`
+  with `title`, `offerType` subscription/buy/…).
+- The discover `ratingKey` is the hex id that ends a modern item's `plex://movie|show/…`
+  guid, so adding a server item needs no lookup. Legacy-agent / `local://` items have
+  none and get no bookmark (`PlexWatchlistEntry.discoverRatingKey`).
+- Matching to servers: `GET /library/all?guid=plex://…` per title per connected
+  server, 4 at a time, skipping hidden libraries; the highest-priority server wins.
+  Misses are cached 30 min per server, hits are re-read every load (progress). No
+  tmdb/title fallback for legacy-agent libraries yet.
+- Loads beside Home (never gating its first paint), reused for 2 min unless forced
+  (pull-to-refresh, an add without a known server item). A running load is only
+  joined for the same server set: one started before a server connected cannot match.
+- Failure is quiet: `.unavailable` = no Home row, no bookmark. Discover calls never
+  trigger the fresh-auth retry (a 401 there is "no Watchlist for this profile").
+- **plex.tv keeps the `experience` setting per `X-Plex-Product`.** Dusk's own copy
+  (product "Dusk") holds only the sidebar; Plex Web's holds `homeSettings.hubs`
+  (`hubIdentifier`, `server.machineIdentifier`, `isHidden`, `hasCustomizations`). The
+  Watchlist reads Plex Web's copy for Home placement; Plex's watchlist row is
+  `home.watchlist`.
+
 ## Playlists
 File: `PlexService+Playlists.swift`, models `Models/PlexPlaylist.swift`
 (`PlexPlaylist`, `PlexPlaylistEntry`, `PlexPlaylistAddResult`), shared state
