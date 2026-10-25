@@ -21,6 +21,11 @@ struct SeriesDetailView: View {
     /// started from the row, focus moves onto it. Cleared once the card took it.
     @State private var episodeFollowRequest: EpisodeFollowRequest?
     @State private var playbackStartedFromEpisodeRow = false
+    /// Pins the page's first focus, and Down from the banner synopsis, to Play.
+    /// The synopsis sits above the actions and is focusable when truncated, so
+    /// geometry alone would open the page on it and drop Down onto whichever
+    /// action is nearest its centre.
+    @FocusState private var focusesPlay: Bool
 
     private let horizontalPadding: CGFloat = DuskPosterMetrics.detailHorizontalPadding
     /// The pills and the plain "Episodes" header share one fixed-height slot, so
@@ -149,7 +154,7 @@ struct SeriesDetailView: View {
                         .focusSection()
 
                     if let summary = details.summary, !summary.isEmpty {
-                        ExpandableSummaryText(text: summary)
+                        ExpandableSummaryText(text: summary, title: details.title)
                             .padding(.horizontal, horizontalPadding)
                             .padding(.top, 32)
                             .focusSection()
@@ -192,6 +197,7 @@ struct SeriesDetailView: View {
                 }
                 .padding(.top, -geometry.safeAreaInsets.top)
                 .frame(width: geometry.size.width, alignment: .topLeading)
+                .defaultFocus($focusesPlay, true)
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
             .scrollIndicators(.hidden)
@@ -293,21 +299,31 @@ struct SeriesDetailView: View {
                             .lineLimit(1)
                     }
 
+                    // Focusable above the Play button when cut off; Select
+                    // shows the whole synopsis.
                     if let summary = episode.summary, !summary.isEmpty {
-                        Text(summary)
-                            .font(DuskFont.TV.caption)
-                            .foregroundStyle(Color.primary.opacity(0.76))
-                            .lineSpacing(3)
-                            .lineLimit(2)
-                            .frame(maxWidth: 720, alignment: .leading)
+                        ExpandableSummaryText(
+                            text: summary,
+                            title: episode.title,
+                            collapsedLineLimit: 2,
+                            font: DuskFont.TV.caption,
+                            lineSpacing: 3
+                        )
+                        .frame(maxWidth: 720, alignment: .leading)
+                        .onMoveCommand { direction in
+                            if direction == .down {
+                                focusesPlay = true
+                            }
+                        }
                     }
                 }
             } else {
                 seasonTagline(season, details: details)
             }
         }
+        // Not clipped: the summary's focus platter overhangs the band. The
+        // line limits keep the text itself inside it.
         .frame(height: episodeHeroMetadataHeight, alignment: .topLeading)
-        .clipped()
         .transaction { transaction in
             transaction.disablesAnimations = true
         }
@@ -351,6 +367,7 @@ struct SeriesDetailView: View {
                 )
             }
             .detailHeroNativePrimaryButtonStyle()
+            .focused($focusesPlay)
             .contextMenu {
                 PlayVersionContextMenu(versions: focusedEpisodeVersions(in: season)) { version in
                     Task {

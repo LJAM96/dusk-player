@@ -897,6 +897,20 @@ in Dusk. Read this with `docs/codebase-map.md`, `STYLE.md`, and `docs/data-and-p
   `detailHeroContentAlignment(for:)` / `detailHeroTextAlignment(for:)` to center
   hero text on iPhone, and `detailShowsSynopsisBelowHero(for:)` to drop the
   below-hero synopsis section on iPad (the hero's right column shows it there).
+- Clamped synopses go through `ExpandableSummaryText` (`DetailSummaryText.swift`),
+  which measures whether the text is really cut off. tvOS: the text itself is
+  the control (TV-app style) and is focusable **only while truncated** (a
+  disabled button, so text that fits never enters the focus chain); focus shows
+  a neutral platter that overhangs the text, Select opens `SummaryFullTextView`
+  as a full-screen cover over the blurred page, Menu closes it and focus returns
+  to the text. iOS: Show More/Show Less or a tap on the text expands in place;
+  with `allowsExpansion: false` (iPad hero, iPhone episode page) a tap opens the
+  full text in a detented sheet. Pass `title` so the full-text view is headed.
+- tvOS series banner: the focused episode's 2-line synopsis is an
+  `ExpandableSummaryText` above the action row. Because it sits above Play,
+  `SeriesDetailView` pins first focus to Play (`defaultFocus`) and routes Down
+  from the synopsis to Play (`onMoveCommand`); without that the page opens on
+  the synopsis and Down lands on whichever action is nearest its centre.
 - Detail hero actions share one button system across all platforms (see
   `STYLE.md` §3.3). The primary uses `detailHeroNativePrimaryButtonStyle()` —
   prominent, `Color.primary`-tinted Liquid Glass for contrast (dark-on-light /

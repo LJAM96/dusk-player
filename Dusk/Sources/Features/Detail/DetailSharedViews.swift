@@ -434,6 +434,7 @@ struct DetailHeroSection<Supertitle: View, Subtitle: View, Actions: View>: View 
         if let descriptionText, !descriptionText.isEmpty {
             ExpandableSummaryText(
                 text: descriptionText,
+                title: title,
                 collapsedLineLimit: 8,
                 allowsExpansion: false
             )
@@ -912,94 +913,5 @@ struct DetailCastSection: View {
         #if os(tvOS)
         .focusSection()
         #endif
-    }
-}
-
-struct ExpandableSummaryText: View {
-    /// Default collapsed height of a synopsis block. tvOS fits one extra line in
-    /// the same space now that the prose is 27pt rather than 29pt.
-    static var defaultCollapsedLineLimit: Int {
-        #if os(tvOS)
-        10
-        #else
-        9
-        #endif
-    }
-
-    let text: String
-    var collapsedLineLimit = ExpandableSummaryText.defaultCollapsedLineLimit
-    var foregroundStyle = Color.primary.opacity(0.76)
-    var allowsExpansion = true
-
-    @State private var isExpanded = false
-    @State private var collapsedHeight: CGFloat = 0
-    @State private var expandedHeight: CGFloat = 0
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text(text)
-                // Must stay identical to `measurementText` below, or the
-                // expand/collapse height comparison stops matching the real text.
-                .font(DuskFont.body(ios: .body))
-                .foregroundStyle(foregroundStyle)
-                .lineSpacing(4)
-                .lineLimit(isExpanded ? nil : collapsedLineLimit)
-                .truncationMode(.tail)
-                .overlay(alignment: .topLeading) {
-                    ZStack {
-                        measurementText(lineLimit: collapsedLineLimit) { height in
-                            collapsedHeight = height
-                        }
-
-                        measurementText(lineLimit: nil) { height in
-                            expandedHeight = height
-                        }
-                    }
-                    .hidden()
-                    .allowsHitTesting(false)
-                }
-
-            if allowsExpansion, isExpandable {
-                Button(isExpanded ? "Show Less" : "Show More") {
-                    isExpanded.toggle()
-                }
-                .font(DuskFont.buttonLabel(ios: .subheadline.weight(.semibold)))
-                #if os(tvOS)
-                .buttonStyle(.glass)
-                .buttonBorderShape(.capsule)
-                #else
-                .foregroundStyle(Color.primary)
-                .buttonStyle(.plain)
-                #endif
-            }
-        }
-    }
-
-    private var isExpandable: Bool {
-        expandedHeight > collapsedHeight + 1
-    }
-
-    private func measurementText(
-        lineLimit: Int?,
-        onHeightChange: @escaping (CGFloat) -> Void
-    ) -> some View {
-        Text(text)
-            // Keep in lockstep with the visible text's font above.
-            .font(DuskFont.body(ios: .body))
-            .lineSpacing(4)
-            .lineLimit(lineLimit)
-            .truncationMode(.tail)
-            .fixedSize(horizontal: false, vertical: true)
-            .background {
-                GeometryReader { proxy in
-                    Color.clear
-                        .onAppear {
-                            onHeightChange(proxy.size.height)
-                        }
-                        .onChange(of: proxy.size.height) { _, newHeight in
-                            onHeightChange(newHeight)
-                        }
-                }
-            }
     }
 }

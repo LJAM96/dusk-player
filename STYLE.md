@@ -182,7 +182,9 @@ colour (no filled badge), the neutral white-on-dark progress bar of
 watched **season** also gets its unwatched-episode count as the system
 `N.circle.fill` symbol in the checkmark's slot, at its size and colour
 (`UnwatchedCountBadge`), so it never adds clutter. "Show More"
-is a `.glass` button on tvOS and plain `primary` text on iOS.
+is plain `primary` text on iOS; tvOS has no Show More button: a truncated
+synopsis is itself focusable (neutral platter, no tint) and Select opens the
+full text.
 
 **Home cinematic hero button.**
 

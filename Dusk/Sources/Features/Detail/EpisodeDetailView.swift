@@ -76,6 +76,7 @@ struct EpisodeDetailView: View {
                     if detailShowsSynopsisBelowHero(for: sizeClass), let summary = details.summary, !summary.isEmpty {
                         ExpandableSummaryText(
                             text: summary,
+                            title: details.title,
                             collapsedLineLimit: 2,
                             foregroundStyle: Color.primary.opacity(0.78),
                             allowsExpansion: false
