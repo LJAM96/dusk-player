@@ -297,6 +297,9 @@ struct SettingsIOSView: View {
                 Toggle("Episode Buttons", isOn: $preferences.playerEpisodeButtonsEnabled)
                     .foregroundStyle(Color.duskTextPrimary)
 
+                Toggle("Generate Scrub Previews", isOn: $preferences.generatedScrubPreviewsEnabled)
+                    .foregroundStyle(Color.duskTextPrimary)
+
                 Toggle("Double-Tap to Seek", isOn: $preferences.playerDoubleTapSeekEnabled)
                     .foregroundStyle(Color.duskTextPrimary)
 

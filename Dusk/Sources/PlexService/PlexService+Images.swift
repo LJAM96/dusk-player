@@ -85,6 +85,14 @@ extension PlexService {
         }
     }
 
+    /// The file URL `ScrubPreviewGenerator` reads preview frames from, or nil
+    /// when generating them would compete with playback for a relay's few
+    /// megabits.
+    func generatedScrubPreviewURL(for part: PlexMediaPart, serverID: String? = nil) -> URL? {
+        guard let connection = pool.connection(for: serverID), !connection.isRelay else { return nil }
+        return directPlayURL(for: part, serverID: serverID)
+    }
+
     /// The connected server an artwork URL points at, matched on scheme, host,
     /// and port.
     ///

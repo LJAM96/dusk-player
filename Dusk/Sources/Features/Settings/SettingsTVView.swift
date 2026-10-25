@@ -184,6 +184,13 @@ struct SettingsTVView: View {
 
                     tvRowDivider
 
+                    TVSettingsToggleRow(
+                        title: "Generate Scrub Previews",
+                        isOn: $preferences.generatedScrubPreviewsEnabled
+                    )
+
+                    tvRowDivider
+
                     TVSettingsToggleRow(title: "Continuous Play", isOn: $preferences.continuousPlayEnabled)
 
                     if preferences.continuousPlayEnabled {

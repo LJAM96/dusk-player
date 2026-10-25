@@ -156,7 +156,7 @@ struct PlayerTimeStatusView: View {
 struct PlayerSeekBar: View {
     let viewModel: PlayerViewModel
     let isInteractive: Bool
-    let scrubPreviewSource: PlexScrubPreviewSource?
+    let scrubPreviewSource: PlayerScrubPreviews?
     let progressPosition: TimeInterval?
 
     private let trackHeight: CGFloat = 8
@@ -164,7 +164,7 @@ struct PlayerSeekBar: View {
     init(
         viewModel: PlayerViewModel,
         isInteractive: Bool,
-        scrubPreviewSource: PlexScrubPreviewSource? = nil,
+        scrubPreviewSource: PlayerScrubPreviews? = nil,
         progressPosition: TimeInterval? = nil
     ) {
         self.viewModel = viewModel
@@ -340,8 +340,46 @@ struct PlayerLiveClockBubble: View {
     }
 }
 
+/// Where the scrubber's preview pictures come from: Plex's pre-generated
+/// index when the server has one, otherwise frames decoded from the file on
+/// demand (`ScrubPreviewGenerator`).
+enum PlayerScrubPreviews {
+    case plexIndex(PlexScrubPreviewSource)
+    case generated(ScrubPreviewGenerator)
+
+    @MainActor
+    var isAvailable: Bool {
+        switch self {
+        case let .plexIndex(source): source.isAvailable
+        case let .generated(generator): generator.isAvailable
+        }
+    }
+
+    @MainActor
+    func imageData(at position: TimeInterval) -> Data? {
+        switch self {
+        case let .plexIndex(source): source.frame(at: position)?.imageData
+        case let .generated(generator): generator.imageData(at: position)
+        }
+    }
+
+    @MainActor
+    fileprivate func requestFrame(at position: TimeInterval) {
+        if case let .generated(generator) = self {
+            generator.requestFrame(at: position)
+        }
+    }
+
+    /// Generated previews show an empty frame with the time until the first
+    /// picture is decoded, so the popup does not pop in late.
+    fileprivate var showsPlaceholder: Bool {
+        if case .generated = self { return true }
+        return false
+    }
+}
+
 struct PlayerScrubPreviewPopup: View {
-    let source: PlexScrubPreviewSource
+    let source: PlayerScrubPreviews
     let position: TimeInterval
 
     #if os(tvOS)
@@ -353,19 +391,17 @@ struct PlayerScrubPreviewPopup: View {
     static let height: CGFloat = width / aspectRatio
     static let verticalPosition: CGFloat = -(height / 2 + 12)
 
-    private var frame: PlexScrubPreviewFrame? {
-        source.frame(at: position)
-    }
-
     var body: some View {
-        if let frame,
-           let image = UIImage(data: frame.imageData) {
+        let image = source.imageData(at: position).flatMap(UIImage.init(data:))
+        if image != nil || source.showsPlaceholder {
             ZStack(alignment: .bottom) {
-                Image(uiImage: image)
-                    .resizable()
-                    .scaledToFill()
-                    .frame(width: Self.width, height: Self.height)
-                    .clipped()
+                if let image {
+                    Image(uiImage: image)
+                        .resizable()
+                        .scaledToFill()
+                        .frame(width: Self.width, height: Self.height)
+                        .clipped()
+                }
 
                 Text(formattedTime(position))
                     .font(DuskFont.badge(ios: .caption2.weight(.semibold)).monospacedDigit())
@@ -384,6 +420,9 @@ struct PlayerScrubPreviewPopup: View {
             }
             .shadow(color: .black.opacity(0.42), radius: 18, y: 8)
             .allowsHitTesting(false)
+            .onChange(of: position, initial: true) { _, newPosition in
+                source.requestFrame(at: newPosition)
+            }
         }
     }
 

@@ -13,7 +13,7 @@ struct PlayerControlsOverlay: View {
     #endif
     let mediaDetails: PlexMediaDetails?
     let debugInfo: PlaybackDebugInfo?
-    let scrubPreviewSource: PlexScrubPreviewSource?
+    let scrubPreviewSource: PlayerScrubPreviews?
     let controlsTopSafeAreaInset: CGFloat
     let onDismiss: () -> Void
 

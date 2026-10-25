@@ -87,6 +87,22 @@ enum StreamResolver {
         "aac", "ac3", "eac3", "alac", "mp3", "flac",
     ]
 
+    /// Whether AVFoundation can decode scrub-preview frames straight from this
+    /// version's file (`ScrubPreviewGenerator`), whichever engine plays it. Only
+    /// MP4/MOV with H.264/HEVC video: AVFoundation cannot open MKV, and
+    /// Dolby Vision profile 5 has no base layer it could show without
+    /// reshaping. `container` overrides the media's own for local downloads,
+    /// which may have been transcoded into a different file.
+    static func canGenerateScrubPreviews(for media: PlexMedia, container: String? = nil) -> Bool {
+        guard let container = (container ?? media.parts.first?.container ?? media.container)?.lowercased(),
+              avContainers.contains(container),
+              let codec = media.videoCodec?.lowercased(),
+              codec == "h264" || codec == "hevc" else {
+            return false
+        }
+        return !isDolbyVisionProfile5(media)
+    }
+
     /// Subtitle codecs that AVPlayer can render natively (embedded or external text).
     private static let avSubtitleCodecs: Set<String> = [
         "tx3g", "mov_text",   // Embedded MP4 text tracks
