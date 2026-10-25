@@ -1805,31 +1805,8 @@ inspection can separately confirm AV1 video copy and retained PQ/HLG metadata.
   parts when available. iOS shows a thumbnail popup while dragging the seek
   bar; tvOS shows it above the grown playhead while scrubbing (see "tvOS Play
   Bar"). The playhead and thumbnail move during the swipe, but the video
-  position keeps tracking actual playback until Select commits.
-- **Generated scrub previews.** When Plex has no BIF for the part (or it is a
-  local download) and Settings › Playback Behavior › Generate Scrub Previews
-  is on (default), `PlayerScrubPreviews.generated` wraps a
-  `ScrubPreviewGenerator` (`Playback/`), which decodes frames on demand with
-  `AVAssetImageGenerator` on a separate `AVURLAsset` of the **original file**.
-  The session's HLS doesn't work for this, because AVFoundation can't pull
-  stills out of a stream. Eligibility is `StreamResolver.canGenerateScrubPreviews`:
-  MP4/MOV/M4V with H.264/HEVC, never Dolby Vision 5, whichever engine plays
-  it. A local download's own file extension decides, because it may be a
-  transcode. `PlexService.generatedScrubPreviewURL` refuses relay connections.
-  Each request snaps to the nearest keyframe (infinite tolerance), so a preview
-  costs one keyframe of byte-range reads and one decode at 480×270 (HDR comes
-  back tone mapped to SDR). One decode is in flight at a time and only the
-  newest position waits behind it. Positions are bucketed (runtime/400,
-  2–15 s) and cached as JPEG for the session. The popup triggers requests and
-  shows the last decoded frame until the new one lands. A codec or format
-  error, or three failures in a row, flips `isAvailable` off, and the bar falls
-  back to its plain time readout.
-  **Simulator trap:** the iOS/tvOS simulators report "Cannot Decode" for 10-bit
-  HEVC (HDR10/DV 4K), so those fall back there. The same request decodes on a
-  Mac in ~0.3 s; verify HDR previews on a device.
-  The native AVKit hooks don't apply here: the player is not
-  `AVPlayerViewController`. Even inside it, an `EXT-X-I-FRAME-STREAM-INF`
-  playlist only feeds HLS, and no public API puts images into its scrubber.
+  position keeps tracking actual playback until Select commits. If BIF loading
+  or parsing fails, the controls keep their existing no-preview behavior.
 - Intro auto-skip honors `AutoSkipIntroMode`: off, always, or always except
   episode 1 of a season. The episode check comes from the active
   `PlexMediaDetails.index`, so missing episode numbers are treated as not the

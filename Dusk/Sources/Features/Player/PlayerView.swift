@@ -516,7 +516,7 @@ private struct PlayerSessionView: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(\.scenePhase) private var scenePhase
     @State private var viewModel: PlayerViewModel
-    @State private var scrubPreviewSource: PlayerScrubPreviews?
+    @State private var scrubPreviewSource: PlexScrubPreviewSource?
     #if os(tvOS)
     /// Owns the tvOS HUD state machine for the whole session. Lives here, not
     /// in the overlay, because the remote bridge drives it while the HUD is
@@ -807,8 +807,8 @@ private struct PlayerSessionView: View {
                 selecting: playback.consumePendingExternalSubtitleStreamID()
             )
         }
-        .task(id: scrubPreviewTaskID) {
-            await loadScrubPreviewSource()
+        .task(id: scrubPreviewPartID) {
+            await loadScrubPreviewSource(partID: scrubPreviewPartID)
         }
         #if os(tvOS)
         // The HUD controller and `showControls` mirror each other: the
@@ -1080,17 +1080,13 @@ private struct PlayerSessionView: View {
             !playback.isAutomaticDirectPlayFallbackPending
     }
 
-    private struct ScrubPreviewTaskID: Equatable {
-        let partID: Int
-        let generatesPreviews: Bool
-    }
+    private var scrubPreviewPartID: Int? {
+        guard let debugInfo,
+              debugInfo.canLoadScrubPreviews else {
+            return nil
+        }
 
-    private var scrubPreviewTaskID: ScrubPreviewTaskID? {
-        guard let debugInfo else { return nil }
-        return ScrubPreviewTaskID(
-            partID: debugInfo.part.id,
-            generatesPreviews: preferences.generatedScrubPreviewsEnabled
-        )
+        return debugInfo.part.id
     }
 
     private func skipMarkerOverlay(_ marker: PlexMarker) -> some View {
@@ -1228,61 +1224,17 @@ private struct PlayerSessionView: View {
         dismiss()
     }
 
-    /// Plex's preview index when the server has one; otherwise frames decoded
-    /// from the file on demand, when the setting allows and AVFoundation can
-    /// read the file.
     @MainActor
-    private func loadScrubPreviewSource() async {
+    private func loadScrubPreviewSource(partID: Int?) async {
         scrubPreviewSource = nil
-        guard let debugInfo else { return }
+        guard let partID else { return }
 
-        if debugInfo.canLoadScrubPreviews,
-           let index = await plexService.scrubPreviewSource(
-               forPartID: debugInfo.part.id,
-               serverID: playback.activePlaybackServerID
-           ) {
-            guard !Task.isCancelled else { return }
-            scrubPreviewSource = .plexIndex(index)
-            return
-        }
-
-        guard !Task.isCancelled,
-              preferences.generatedScrubPreviewsEnabled,
-              let url = generatedScrubPreviewURL(for: debugInfo) else {
-            return
-        }
-        let durationMs = debugInfo.part.duration ?? debugInfo.media.duration
-        scrubPreviewSource = .generated(
-            ScrubPreviewGenerator(url: url, duration: durationMs.map { TimeInterval($0) / 1000 })
+        let source = await plexService.scrubPreviewSource(
+            forPartID: partID,
+            serverID: playback.activePlaybackServerID
         )
-    }
-
-    /// The original file, never the session's HLS: AVFoundation cannot pull
-    /// stills out of a stream. A local download may have been transcoded into
-    /// a different container, so its own file extension decides.
-    private func generatedScrubPreviewURL(for debugInfo: PlaybackDebugInfo) -> URL? {
-        switch debugInfo.decision {
-        case .liveTV:
-            return nil
-        case .localDownload:
-            let url = playbackSource.url
-            guard url.isFileURL,
-                  StreamResolver.canGenerateScrubPreviews(for: debugInfo.media, container: url.pathExtension) else {
-                return nil
-            }
-            return url
-        case .directPlay, .transcode, .serverStream, .spatialAudio, .airPlay:
-            guard StreamResolver.canGenerateScrubPreviews(
-                for: debugInfo.media,
-                container: debugInfo.part.container
-            ) else {
-                return nil
-            }
-            return plexService.generatedScrubPreviewURL(
-                for: debugInfo.part,
-                serverID: playback.activePlaybackServerID
-            )
-        }
+        guard !Task.isCancelled else { return }
+        scrubPreviewSource = source
     }
 
     @MainActor

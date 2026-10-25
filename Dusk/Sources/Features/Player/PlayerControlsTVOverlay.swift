@@ -17,7 +17,7 @@ struct PlayerControlsTVOverlay: View {
     let viewModel: PlayerViewModel
     let controller: PlayerTVHUDController
     let context: PlayerControlsContext
-    let scrubPreviewSource: PlayerScrubPreviews?
+    let scrubPreviewSource: PlexScrubPreviewSource?
 
     private var isScrubbing: Bool {
         controller.mode == .scrubbing

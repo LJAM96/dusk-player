@@ -6,7 +6,7 @@ struct PlayerControlsIOSOverlay: View {
 
     let viewModel: PlayerViewModel
     let context: PlayerControlsContext
-    let scrubPreviewSource: PlayerScrubPreviews?
+    let scrubPreviewSource: PlexScrubPreviewSource?
     let controlsTopSafeAreaInset: CGFloat
     let onDismiss: () -> Void
 

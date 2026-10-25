@@ -28,7 +28,6 @@ final class UserPreferences {
         static let playerDoubleTapSeekEnabled = "playerDoubleTapSeekEnabled"
         static let playerEpisodeButtonsEnabled = "playerEpisodeButtonsEnabled"
         static let playerAdvancedControlsEnabled = "playerAdvancedControlsEnabled"
-        static let generatedScrubPreviewsEnabled = "generatedScrubPreviewsEnabled"
         static let alwaysPlayInLandscape = "alwaysPlayInLandscape"
         static let playerDoubleTapForwardInterval = "playerDoubleTapForwardInterval"
         static let playerDoubleTapBackwardInterval = "playerDoubleTapBackwardInterval"
@@ -149,13 +148,6 @@ final class UserPreferences {
     /// only reachable while this is on.
     var playerAdvancedControlsEnabled: Bool {
         didSet { UserDefaults.standard.set(playerAdvancedControlsEnabled, forKey: Keys.playerAdvancedControlsEnabled) }
-    }
-
-    /// While scrubbing, decode preview frames straight from the video file
-    /// when Plex has no preview thumbnails for it. Each preview reads a small
-    /// slice of the file, so it costs server bandwidth while you scrub.
-    var generatedScrubPreviewsEnabled: Bool {
-        didSet { UserDefaults.standard.set(generatedScrubPreviewsEnabled, forKey: Keys.generatedScrubPreviewsEnabled) }
     }
 
     /// iPhone player opens in landscape even when Portrait Orientation Lock is
@@ -474,7 +466,6 @@ final class UserPreferences {
         let playerDoubleTapSeekEnabled = defaults.object(forKey: Keys.playerDoubleTapSeekEnabled) as? Bool ?? true
         let playerEpisodeButtonsEnabled = defaults.bool(forKey: Keys.playerEpisodeButtonsEnabled)
         let playerAdvancedControlsEnabled = defaults.bool(forKey: Keys.playerAdvancedControlsEnabled)
-        let generatedScrubPreviewsEnabled = defaults.object(forKey: Keys.generatedScrubPreviewsEnabled) as? Bool ?? true
         let alwaysPlayInLandscape = defaults.object(forKey: Keys.alwaysPlayInLandscape) as? Bool ?? true
         let playerDoubleTapForwardInterval = Self.storedSeekInterval(
             forKey: Keys.playerDoubleTapForwardInterval,
@@ -550,7 +541,6 @@ final class UserPreferences {
         self.playerDoubleTapSeekEnabled = playerDoubleTapSeekEnabled
         self.playerEpisodeButtonsEnabled = playerEpisodeButtonsEnabled
         self.playerAdvancedControlsEnabled = playerAdvancedControlsEnabled
-        self.generatedScrubPreviewsEnabled = generatedScrubPreviewsEnabled
         self.alwaysPlayInLandscape = alwaysPlayInLandscape
         self.playerDoubleTapForwardInterval = playerDoubleTapForwardInterval
         self.playerDoubleTapBackwardInterval = playerDoubleTapBackwardInterval
