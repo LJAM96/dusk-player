@@ -178,6 +178,14 @@ struct HomeCinematicHero: View {
     @State private var tvPagePosition = ScrollPosition()
     /// The page `tvPages` is on or sliding to.
     @State private var tvRestingPage = 0
+    /// The page a jump left (`slideToPage`), drawn over the hero while it
+    /// fades out.
+    @State private var jumpFadeItem: PlexItem?
+    @State private var jumpFadeOpacity: Double = 0
+    /// Height of a page's action row, so the fading page's text sits exactly
+    /// where it did. It has no buttons of its own: they would be a second
+    /// focus target bound to the same page.
+    @State private var heroActionsHeight: CGFloat = 0
     #endif
     #if canImport(UIKit)
     @State private var preloadedHeroBackdropImages: [String: UIImage] = [:]
@@ -430,25 +438,71 @@ struct HomeCinematicHero: View {
                 }
             }
         }
+        .overlay {
+            if let jumpFadeItem {
+                heroSlide(
+                    item: jumpFadeItem,
+                    heroHeight: heroHeight,
+                    backdropWidth: backdropWidth,
+                    backdropHeight: backdropHeight,
+                    contentWidth: contentWidth,
+                    reservesPagerSpace: items.count > 1,
+                    showsActions: false
+                )
+                .frame(width: heroWidth, height: heroHeight)
+                .opacity(jumpFadeOpacity)
+                .allowsHitTesting(false)
+                .accessibilityHidden(true)
+            }
+        }
         .scrollIndicators(.hidden)
         .contentMargins(.zero, for: .scrollContent)
         .scrollPosition($tvPagePosition)
         .scrollDisabled(true)
         .onChange(of: focusedItemKey) { _, key in
-            // The page slide follows focus, with the hero's own curve.
             guard let key,
                   let index = heroItemIDs.firstIndex(of: key),
                   index != tvRestingPage else { return }
-            tvRestingPage = index
-            withAnimation(tvPageSlide) {
-                tvPagePosition.scrollTo(x: CGFloat(index) * heroWidth)
-            }
+            slideToPage(index, heroWidth: heroWidth)
         }
         .onScrollGeometryChange(for: Int.self) { geometry in
             guard heroWidth > 0 else { return 0 }
             return Int(((geometry.contentOffset.x + geometry.contentInsets.leading) / heroWidth).rounded())
         } action: { _, page in
             currentHeroIndex = min(max(page, 0), max(items.count - 1, 0))
+        }
+    }
+
+    /// The page slide that follows focus, with the hero's own curve.
+    ///
+    /// Only to a neighbouring page. Any page further away (the wrap past
+    /// either end, rotation going back to the start) would slide across every
+    /// full-screen page in between, which is what made the wrap stutter. That
+    /// move jumps there unanimated instead, and the page left behind fades out
+    /// on top.
+    private func slideToPage(_ index: Int, heroWidth: CGFloat) {
+        let from = tvRestingPage
+        tvRestingPage = index
+        let x = CGFloat(index) * heroWidth
+
+        guard abs(index - from) > 1, items.indices.contains(from) else {
+            withAnimation(tvPageSlide) {
+                tvPagePosition.scrollTo(x: x)
+            }
+            return
+        }
+
+        jumpFadeItem = items[from]
+        jumpFadeOpacity = 1
+        var jump = Transaction()
+        jump.disablesAnimations = true
+        withTransaction(jump) {
+            tvPagePosition.scrollTo(x: x)
+        }
+        withAnimation(.easeOut(duration: accessibilityReduceMotion ? 0.2 : 0.35)) {
+            jumpFadeOpacity = 0
+        } completion: {
+            if jumpFadeOpacity == 0 { jumpFadeItem = nil }
         }
     }
     #endif
@@ -540,7 +594,8 @@ struct HomeCinematicHero: View {
         backdropWidth: Int,
         backdropHeight: Int,
         contentWidth: CGFloat,
-        reservesPagerSpace: Bool
+        reservesPagerSpace: Bool,
+        showsActions: Bool = true
     ) -> some View {
         let metadata = viewModel.heroMetadata(for: item)
 
@@ -604,9 +659,22 @@ struct HomeCinematicHero: View {
                         .frame(maxWidth: contentWidth, alignment: heroContentFrameAlignment)
                 }
 
-                heroActions(for: item)
-                    .padding(.top, layout.actionsTopPadding)
-                    .padding(.bottom, layout.actionsBottomPadding)
+                Group {
+                    #if os(tvOS)
+                    if showsActions {
+                        heroActions(for: item)
+                            .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { height in
+                                heroActionsHeight = height
+                            }
+                    } else {
+                        Color.clear.frame(height: heroActionsHeight)
+                    }
+                    #else
+                    heroActions(for: item)
+                    #endif
+                }
+                .padding(.top, layout.actionsTopPadding)
+                .padding(.bottom, layout.actionsBottomPadding)
             }
             .padding(.leading, contentLeadingInset + layout.contentHorizontalPadding)
             .padding(.trailing, contentTrailingInset + layout.contentHorizontalPadding)

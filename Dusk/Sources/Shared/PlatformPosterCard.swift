@@ -41,7 +41,6 @@ struct PosterNavigationCard<ContextMenuContent: View>: View {
                     isDimmed: isDimmed
                 )
                 .contentShape(.contextMenuPreview, artworkShape)
-                .hoverEffect(.highlight)
             }
             .duskTVOSSystemPosterButton()
             .focused($isFocused)
@@ -154,7 +153,6 @@ struct PosterActionCard<ContextMenuContent: View>: View {
                     isUnwatchedEpisodeImage: isUnwatchedEpisodeImage
                 )
                 .contentShape(.contextMenuPreview, artworkShape)
-                .hoverEffect(.highlight)
             }
             .duskTVOSSystemPosterButton()
             .focused($isFocused)

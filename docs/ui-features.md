@@ -226,12 +226,17 @@ in Dusk. Read this with `docs/codebase-map.md`, `STYLE.md`, and `docs/data-and-p
   iOS stays a `LazyVGrid`.
 - On tvOS, library poster cells (`PosterNavigationCard` and `PosterActionCard`,
   shared by library grids, hub rows, collections, and search) use
-  `duskTVOSSystemPosterButton()`: `.buttonStyle(.card)`, a rounded-rectangle border
-  matching `PosterArtwork.cornerRadius`, and `.hoverEffect(.highlight)`. That is the
-  system lift, scale, parallax, and shadow. Keep the title outside the button. Do not
-  apply `duskSuppressTVOSButtonChrome()`, `duskTVOSFocusEffectShape`, or
+  `duskTVOSSystemPosterButton()`: `.buttonStyle(.card)` and a rounded-rectangle border
+  matching `PosterArtwork.cornerRadius`. That is the system lift, scale, parallax,
+  and shadow. Keep the title outside the button. Do not apply
+  `duskSuppressTVOSButtonChrome()`, `duskTVOSFocusEffectShape`, or
   `focusEffectDisabled()` to these cells — a custom button style replaces the system
-  effect. iOS keeps `.buttonStyle(.plain)` so the iPad pointer hover stays the system one.
+  effect. **Never add `.hoverEffect(.highlight)` on top** (on the button or its
+  label): the card style already is that effect. Stacked on every poster in 1.7.4
+  it roughly doubled Home's main-thread work per frame (measured on a tvOS
+  simulator Release build: hero paging and the move down into the shelves went
+  from ~160 to ~450 ms of dropped frames per press), and it flattened the card's
+  lift into a plain sheen. iOS keeps `.buttonStyle(.plain)` so the iPad pointer hover stays the system one.
 - Episode and cast artwork still use `duskSuppressTVOSButtonChrome()` plus
   `duskTVOSFocusEffectShape`. Avoid SwiftUI's `.plain`, `.borderless`, `.glass`, and
   `.card` button styles on those controls because real Apple TV hardware can draw
@@ -383,7 +388,11 @@ in Dusk. Read this with `docs/codebase-map.md`, `STYLE.md`, and `docs/data-and-p
   touch-surface swipes are therefore handled like any row of cards, and the pager
   pills follow the scroll offset. Past either end page the engine has no move, so
   the hero's `onMoveCommand` wraps around to the other end by moving focus there
-  (`onFocusItem`). That command fires for every move, also after the engine has
+  (`onFocusItem`). The page slide that follows focus (`slideToPage`) only animates
+  to a neighbouring page: to any page further away (the wrap, rotation returning to
+  the start) it would sweep across every full-screen page in between. It jumps
+  there unanimated instead and cross-fades the page it left (an overlay copy
+  without buttons, its action row stood in for by a spacer of the measured height). That command fires for every move, also after the engine has
   moved focus, and `focusedItemKey` may or may not have caught up yet (both seen
   in the simulator); only a move on an end page that is also at rest on screen
   (`currentHeroIndex`, which follows the scroll) wraps. Rotation is on
