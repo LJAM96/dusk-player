@@ -89,7 +89,7 @@ extension PlexService {
     func photoDisplayURL(for item: PlexPhotoItem, width: Int, height: Int) -> URL? {
         guard item.kind == .photo, let partKey = item.partKey,
               let connection = pool.connection(for: item.serverID),
-              let original = imageRequestURLString(for: partKey, includeToken: true, serverID: item.serverID) else {
+              let original = transcodeSourceURLString(for: partKey, serverID: item.serverID) else {
             return imageURL(for: item.thumb, serverID: item.serverID, width: width, height: height)
         }
 
