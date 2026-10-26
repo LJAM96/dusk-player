@@ -383,6 +383,14 @@ struct SupporterView: View {
                     url: SettingsSupport.githubURL,
                     link: "github"
                 )
+
+                aboutLinkRow(
+                    title: "Community",
+                    subtitle: "reddit.com/r/DuskPlayer",
+                    systemImage: "bubble.left.and.bubble.right",
+                    url: SettingsSupport.redditURL,
+                    link: "reddit"
+                )
             }
         }
     }

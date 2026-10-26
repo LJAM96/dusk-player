@@ -306,6 +306,13 @@ struct SettingsTVView: View {
                     tvRowDivider
 
                     TVSettingsExternalLinkRow(
+                        title: "Community",
+                        subtitle: "reddit.com/r/DuskPlayer"
+                    )
+
+                    tvRowDivider
+
+                    TVSettingsExternalLinkRow(
                         title: "Feedback",
                         subtitle: "info@getdusk.app"
                     )

@@ -23,7 +23,7 @@ enum SettingsSupport {
     static let homeTVFooterText = homeFooterText + " Show Clock puts the current time at the top right of Home."
     static let homeAdvancedFooterText = "Compact Continue Watching replaces the large artwork at the top of Home with a smaller Continue Watching row, like the one on library pages."
     static let appearanceFooterText = "System follows your device appearance. Light and Dark override it for the whole app. Blur Unwatched Episodes hides the images of episodes you haven’t finished, so they can’t spoil anything."
-    static let aboutFooterText = "Dusk is open source. Visit the repository, learn more about Marvin, or send feedback by email."
+    static let aboutFooterText = "Dusk is open source. Visit the repository, join the community on Reddit, learn more about Marvin, or send feedback by email."
     static let privacyFooterText = "Dusk sends a small number of anonymous events, including error reports, to its own server. This helps keep quality consistent and makes the app better for everyone. Nothing about your library, your server, what you watch, or what you search for is ever included."
     static let accountFooterText = "Clears the saved Plex session and returns to the sign-in flow."
     static let accountManagementFooterText = "Opens your Plex account settings inside Dusk. Plex account deletion is available there."
@@ -33,6 +33,7 @@ enum SettingsSupport {
     static let supporterFooterText = "Dusk is free and open source. Supporting is entirely optional and unlocks alternate app icons as a thank-you — the subscription adds three exclusive ones."
     #endif
     static let githubURL = URL(string: "https://github.com/marvinvr/dusk-player")!
+    static let redditURL = URL(string: "https://www.reddit.com/r/DuskPlayer/")!
     static let aboutMeURL = URL(string: "https://marvinvr.ch")!
     static let feedbackURL = URL(string: "mailto:info@getdusk.app")!
     static let plexAccountURL = URL(string: "https://app.plex.tv/desktop/#!/settings/account")!

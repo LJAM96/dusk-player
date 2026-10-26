@@ -551,6 +551,16 @@ struct SettingsIOSView: View {
                 }
                 .foregroundStyle(Color.duskTextPrimary)
 
+                Link(destination: SettingsSupport.redditURL) {
+                    SettingsAboutRow(
+                        title: "Community",
+                        subtitle: "reddit.com/r/DuskPlayer",
+                        systemImage: "bubble.left.and.bubble.right",
+                        trailingSystemImage: "arrow.up.right"
+                    )
+                }
+                .foregroundStyle(Color.duskTextPrimary)
+
                 Button {
                     openURL(SettingsSupport.feedbackURL)
                 } label: {
