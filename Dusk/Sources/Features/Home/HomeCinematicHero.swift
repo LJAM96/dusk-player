@@ -463,7 +463,18 @@ struct HomeCinematicHero: View {
             guard let key,
                   let index = heroItemIDs.firstIndex(of: key),
                   index != tvRestingPage else { return }
-            slideToPage(index, heroWidth: heroWidth)
+            slideToPage(index, from: tvRestingPage, heroWidth: heroWidth)
+        }
+        // A `scrollTo` issued while the previous slide is still running is
+        // sometimes dropped (measured with quick left/right presses): the
+        // hero settled a page or two short of the focused play button, which
+        // then sat off screen, and nothing moved it again until the next
+        // press. Once the scroll is at rest, finish the move it missed.
+        .onScrollPhaseChange { _, phase in
+            guard phase == .idle,
+                  currentHeroIndex != tvRestingPage,
+                  items.indices.contains(tvRestingPage) else { return }
+            slideToPage(tvRestingPage, from: currentHeroIndex, heroWidth: heroWidth)
         }
         .onScrollGeometryChange(for: Int.self) { geometry in
             guard heroWidth > 0 else { return 0 }
@@ -480,8 +491,7 @@ struct HomeCinematicHero: View {
     /// full-screen page in between, which is what made the wrap stutter. That
     /// move jumps there unanimated instead, and the page left behind fades out
     /// on top.
-    private func slideToPage(_ index: Int, heroWidth: CGFloat) {
-        let from = tvRestingPage
+    private func slideToPage(_ index: Int, from: Int, heroWidth: CGFloat) {
         tvRestingPage = index
         let x = CGFloat(index) * heroWidth
 
