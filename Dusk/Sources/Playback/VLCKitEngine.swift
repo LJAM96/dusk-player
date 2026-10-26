@@ -315,6 +315,8 @@ final class VLCKitEngine: NSObject, PlaybackEngine {
     private var currentSource: PlaybackSource?
     /// The user's subtitle size preference, pushed in by the coordinator.
     private var subtitleFontSize: SubtitleFontSize = .default
+    /// The user's subtitle look, pushed in by the coordinator before load.
+    private var subtitleStyle: SubtitleStyle = .default
     /// The text style (system caption style + Dusk's size step) the currently
     /// open media was started with. VLCKit 3.x's text renderer only reads its
     /// options when an input attaches, so a mismatch here means the session
@@ -1587,6 +1589,13 @@ final class VLCKitEngine: NSObject, PlaybackEngine {
         _ = reloadForSubtitleStylingIfNeeded()
     }
 
+    func applySubtitleStyle(_ style: SubtitleStyle) {
+        guard subtitleStyle != style else { return }
+        subtitleStyle = style
+        guard state == .playing else { return }
+        _ = reloadForSubtitleStylingIfNeeded()
+    }
+
     /// Returns `true` when it reopened the media (which also resumes playback).
     @discardableResult
     private func reloadForSubtitleStylingIfNeeded() -> Bool {
@@ -1603,14 +1612,14 @@ final class VLCKitEngine: NSObject, PlaybackEngine {
     }
 
     private var currentSubtitleStyle: VLCTextRendererStyle {
-        VLCTextRendererStyle(caption: .current(), size: subtitleFontSize)
+        VLCTextRendererStyle(caption: .current(for: subtitleStyle), size: subtitleFontSize)
     }
 
     private func applySubtitleStyling() {
         // Per-media `:freetype-…` options never reach the renderer: the vout
         // and its text renderer hang off the media player object, not the
-        // input, so they do not inherit input-item options. The system caption
-        // style is set as player-level variables instead (see
+        // input, so they do not inherit input-item options. The caption style
+        // (system or Dusk's) is set as player-level variables instead (see
         // DuskVLCTextRenderer); the renderer reads them when the next input
         // attaches. Size goes through VLCKit 3.x's own private setter, the way
         // VLC for iOS calls it.
@@ -1630,7 +1639,7 @@ final class VLCKitEngine: NSObject, PlaybackEngine {
             applied = DuskVLCTextRenderer.setFloat(value, forOption: option, on: mediaPlayer) && applied
         }
         if !applied {
-            vlcKitEngineLogger.error("VLCKit rejected part of the system subtitle style")
+            vlcKitEngineLogger.error("VLCKit rejected part of the subtitle style")
         }
         vlcKitEngineLogger.notice(
             "VLCKit subtitle style font=\(style.font, privacy: .public) size=\(style.relativeFontSize, privacy: .public) \(style.integers.sorted { $0.key < $1.key }.map { "\($0.key.dropFirst(9))=\($0.value)" }.joined(separator: " "), privacy: .public)"

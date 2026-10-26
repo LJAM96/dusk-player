@@ -73,6 +73,7 @@ final class AVPlayerEngine: NSObject, PlaybackEngine {
     #endif
     /// The user's subtitle size preference, pushed in by the coordinator.
     @ObservationIgnored private var subtitleFontSize: SubtitleFontSize = .default
+    @ObservationIgnored private var subtitleStyle: SubtitleStyle = .default
     @ObservationIgnored private var videoEnhancementRequest: VideoEnhancementRequest = .disabled
     @ObservationIgnored private var videoEnhancementRenderer: VideoEnhancementRenderer?
     @ObservationIgnored private var enhancedVideoOutput: AVPlayerItemVideoOutput?
@@ -1008,18 +1009,38 @@ final class AVPlayerEngine: NSObject, PlaybackEngine {
         player.currentItem?.textStyleRules = subtitleTextStyleRules
     }
 
-    /// Size only: colours, background, edge and font come from the system
-    /// caption style (`SystemCaptionStyle`), which AVPlayer's renderer applies
-    /// by itself for every attribute these rules leave alone. A size rule
-    /// replaces the system's text size, so that is folded back in here.
+    func applySubtitleStyle(_ style: SubtitleStyle) {
+        guard subtitleStyle != style else { return }
+        subtitleStyle = style
+        player.currentItem?.textStyleRules = subtitleTextStyleRules
+    }
+
+    /// System style: size only. Colours, background, edge and font come from
+    /// the system caption style (`SystemCaptionStyle`), which AVPlayer's
+    /// renderer applies by itself for every attribute these rules leave alone.
+    /// A size rule replaces the system's text size, so that is folded back in
+    /// here. Dusk style: the rules override the system look as well.
     private var subtitleTextStyleRules: [AVTextStyleRule] {
-        let attributes: [String: Any] = [
+        let caption = SystemCaptionStyle.current(for: subtitleStyle)
+        var attributes: [String: Any] = [
             kCMTextMarkupAttribute_RelativeFontSize as String:
                 PlaybackSubtitleStyle.avPlayerRelativeFontSize(
                     for: subtitleFontSize,
-                    systemScale: SystemCaptionStyle.current().relativeSize
+                    systemScale: caption.relativeSize
                 ),
         ]
+        if subtitleStyle == .dusk {
+            let foreground = caption.foreground
+            let background = caption.background
+            attributes[kCMTextMarkupAttribute_ForegroundColorARGB as String] =
+                [foreground.alpha, foreground.red, foreground.green, foreground.blue]
+            attributes[kCMTextMarkupAttribute_CharacterBackgroundColorARGB as String] =
+                [background.alpha, background.red, background.green, background.blue]
+            attributes[kCMTextMarkupAttribute_CharacterEdgeStyle as String] =
+                kCMTextMarkupCharacterEdgeStyle_DropShadow
+            attributes[kCMTextMarkupAttribute_FontFamilyName as String] =
+                VLCTextRendererStyle.defaultFont
+        }
 
         guard let rule = AVTextStyleRule(textMarkupAttributes: attributes) else {
             return []

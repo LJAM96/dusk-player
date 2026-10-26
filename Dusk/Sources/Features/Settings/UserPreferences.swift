@@ -16,6 +16,7 @@ final class UserPreferences {
         static let defaultSubtitleLanguage = "defaultSubtitleLanguage"
         static let subtitleForcedOnly = "subtitleForcedOnly"
         static let subtitleFontSize = "subtitleFontSize"
+        static let subtitleStyle = "subtitleStyle"
         static let defaultAudioLanguage = "defaultAudioLanguage"
         static let subtitleMode = "subtitleMode"
         static let forcedSubtitlesEnabled = "forcedSubtitlesEnabled"
@@ -90,6 +91,11 @@ final class UserPreferences {
     /// and can also be changed from inside the player.
     var subtitleFontSize: SubtitleFontSize {
         didSet { UserDefaults.standard.set(subtitleFontSize.rawValue, forKey: Keys.subtitleFontSize) }
+    }
+
+    /// Whether subtitles follow the system caption style or Dusk's own look.
+    var subtitleStyle: SubtitleStyle {
+        didSet { UserDefaults.standard.set(subtitleStyle.rawValue, forKey: Keys.subtitleStyle) }
     }
 
     /// ISO 639-1 language code for preferred audio track, or "" to keep each
@@ -447,6 +453,8 @@ final class UserPreferences {
         } else {
             subtitleFontSize = .default
         }
+        let subtitleStyle = defaults.string(forKey: Keys.subtitleStyle)
+            .flatMap(SubtitleStyle.init(rawValue:)) ?? .default
         let defaultAudioLanguage = defaults.string(forKey: Keys.defaultAudioLanguage)
             ?? defaults.string(forKey: Keys.accountAudioLanguage)
             ?? "en"
@@ -532,6 +540,7 @@ final class UserPreferences {
         self.subtitleMode = subtitleSettings.mode
         self.forcedSubtitlesEnabled = subtitleSettings.forcedSubtitlesEnabled
         self.subtitleFontSize = subtitleFontSize
+        self.subtitleStyle = subtitleStyle
         self.defaultAudioLanguage = defaultAudioLanguage
         self.continuousPlayEnabled = continuousPlayEnabled
         self.continuousPlayCountdown = continuousPlayCountdown

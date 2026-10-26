@@ -53,6 +53,13 @@ struct AudioSubtitleSettingsView: View {
                 }
                 .foregroundStyle(Color.duskTextPrimary)
 
+                Picker("Style", selection: $preferences.subtitleStyle) {
+                    ForEach(SubtitleStyle.allCases) { style in
+                        Text(style.displayName).tag(style)
+                    }
+                }
+                .foregroundStyle(Color.duskTextPrimary)
+
                 Picker("Size", selection: $preferences.subtitleFontSize) {
                     ForEach(SubtitleFontSize.allCases) { size in
                         Text(size.displayName).tag(size)
@@ -116,6 +123,15 @@ struct AudioSubtitleSettingsView: View {
                         selection: $preferences.defaultSubtitleLanguage,
                         selectedTitle: SettingsSupport.languageDisplayName(for: preferences.defaultSubtitleLanguage)
                     ) { SettingsSupport.languageDisplayName(for: $0) }
+
+                    tvRowDivider
+
+                    TVSettingsMenuRow(
+                        title: "Style",
+                        options: SubtitleStyle.allCases,
+                        selection: $preferences.subtitleStyle,
+                        selectedTitle: preferences.subtitleStyle.displayName
+                    ) { $0.displayName }
 
                     tvRowDivider
 

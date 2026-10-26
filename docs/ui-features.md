@@ -1191,7 +1191,7 @@ in Dusk. Read this with `docs/codebase-map.md`, `STYLE.md`, and `docs/data-and-p
   page on both platforms) holds every track-language setting: Audio › Language
   (`defaultAudioLanguage`, "" = Original), Subtitles › Show Subtitles
   (`subtitleMode`: Off/Auto/Always), Language (`defaultSubtitleLanguage`, never
-  "None" any more) and Size, and Advanced › Forced Subtitles
+  "None" any more), Style and Size, and Advanced › Forced Subtitles
   (`forcedSubtitlesEnabled`). The rules live in `SubtitleSelectionPolicy`
   (`playback.md` → Automatic Track Languages). The 1.8 page replaced the old
   Subtitles/Forced Only/Subtitle Size/Audio rows;
@@ -1210,6 +1210,10 @@ in Dusk. Read this with `docs/codebase-map.md`, `STYLE.md`, and `docs/data-and-p
   writes the same `UserPreferences` value, so it is one preference and not a
   per-session override. It is disabled for AirPlay sessions, whose subtitles are
   burned in by Plex. See `playback.md` for how each engine applies it.
+- `subtitleStyle` (Audio & Subtitles › Style, System/Dusk, default System)
+  picks the look of locally rendered text subtitles: the Accessibility caption
+  style, or Dusk's own (`SystemCaptionStyle.dusk`). Settings only, no player
+  control. See `playback.md` → System caption style.
 - Playback Info exposes Video Enhancement state and detail rows so AVPlayer and
   VLCKit sessions can explain whether enhancement is active, waiting for a
   frame, disabled by preference, or unavailable for a stream/runtime reason.

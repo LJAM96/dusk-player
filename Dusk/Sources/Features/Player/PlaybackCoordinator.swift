@@ -451,6 +451,7 @@ final class PlaybackCoordinator {
             let newEngine = PlaybackEngineFactory.makeEngine(type: engineType)
             newEngine.configureVideoEnhancement(.disabled)
             newEngine.applySubtitleFontSize(preferences.subtitleFontSize)
+            newEngine.applySubtitleStyle(preferences.subtitleStyle)
             newEngine.onPlaybackEnded = { [weak self] in
                 Task { @MainActor [weak self] in
                     await self?.handlePlaybackEnded()

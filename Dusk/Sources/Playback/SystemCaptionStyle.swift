@@ -4,11 +4,12 @@ import Foundation
 import MediaAccessibility
 
 /// The subtitle style picked in Settings › Accessibility › Subtitles &
-/// Captioning › Style, read through MediaAccessibility. Dusk always follows it
-/// (there is no Dusk-only look): AVPlayer's legible renderer applies it by
-/// itself as long as Dusk does not override it, and VLCKit gets it translated
-/// into libvlc's freetype text renderer options (`VLCTextRendererStyle`).
-/// Dusk's own Subtitle Size step scales on top of the system size.
+/// Captioning › Style, read through MediaAccessibility, or Dusk's own look
+/// (`dusk`) when Settings › Audio & Subtitles › Style is Dusk. AVPlayer's
+/// legible renderer applies the system style by itself as long as Dusk does not
+/// override it, and VLCKit gets either style translated into libvlc's freetype
+/// text renderer options (`VLCTextRendererStyle`). Dusk's own Subtitle Size
+/// step scales on top of the style's size.
 struct SystemCaptionStyle: Equatable, Sendable {
     struct Color: Equatable, Sendable {
         var red: Double
@@ -45,6 +46,20 @@ struct SystemCaptionStyle: Equatable, Sendable {
     static let didChangeNotification = Notification.Name(
         kMACaptionAppearanceSettingsChangedNotification as String
     )
+
+    /// Dusk's own look: white text on a translucent black box with a drop
+    /// shadow, in Helvetica Neue at the normal size.
+    static let dusk = SystemCaptionStyle(
+        foreground: .white,
+        background: Color(red: 0, green: 0, blue: 0, alpha: 0.68),
+        edge: .dropShadow,
+        relativeSize: 1,
+        fontFamily: nil
+    )
+
+    static func current(for style: SubtitleStyle) -> SystemCaptionStyle {
+        style == .dusk ? dusk : current()
+    }
 
     static func current() -> SystemCaptionStyle {
         let domain = MACaptionAppearanceDomain.user

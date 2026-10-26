@@ -127,6 +127,11 @@ protocol PlaybackEngine: AnyObject {
     /// player is up.
     func applySubtitleFontSize(_ size: SubtitleFontSize)
 
+    /// Applies the user's subtitle look (system caption style or Dusk's own).
+    /// Called with `applySubtitleFontSize(_:)` before `load(source:)`; it is
+    /// only changed in Settings, so a change reaches the next session.
+    func applySubtitleStyle(_ style: SubtitleStyle)
+
     // MARK: - State
 
     var state: PlaybackState { get }
@@ -241,6 +246,7 @@ extension PlaybackEngine {
     // Default: subtitle sizing is engine-specific; engines that render text
     // subtitles themselves override this.
     func applySubtitleFontSize(_ size: SubtitleFontSize) {}
+    func applySubtitleStyle(_ style: SubtitleStyle) {}
 
     // Bumped when the engine replaces its rendering view mid-session (VLCKit
     // entering Picture in Picture support mode); `PlayerViewModel` re-calls
@@ -279,6 +285,25 @@ extension PlaybackEngine {
     func setPictureInPictureDelegate(_ delegate: (any PlaybackPictureInPictureDelegate)?) {}
     func startPictureInPicture() {}
     func stopPictureInPicture() {}
+}
+
+/// Where locally rendered text subtitles get their look from. System follows
+/// Settings › Accessibility › Subtitles & Captioning; Dusk uses its own look
+/// (`SystemCaptionStyle.dusk`) whatever the system style is.
+enum SubtitleStyle: String, CaseIterable, Identifiable, Sendable {
+    case system
+    case dusk
+
+    static let `default`: SubtitleStyle = .system
+
+    var id: String { rawValue }
+
+    var displayName: String {
+        switch self {
+        case .system: "System"
+        case .dusk: "Dusk"
+        }
+    }
 }
 
 /// User-facing subtitle size preference. `medium` is the historical default

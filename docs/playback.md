@@ -1520,16 +1520,26 @@ inspection can separately confirm AV1 video copy and retained PQ/HLG metadata.
   subtitle selected and playing. Paused sessions defer the reopen to the next
   `play()`, and with subtitles off the new size simply rides along on the next
   media load (`loadedSubtitleStyle` tracks what the open media was built with).
-- System caption style (issue #18, no opt-out): subtitles always follow
+- System caption style (issue #18): with Settings › Audio & Subtitles ›
+  Style = System (default, `UserPreferences.subtitleStyle`) subtitles follow
   Settings › Accessibility › Subtitles & Captioning › Style, read through
   MediaAccessibility in `SystemCaptionStyle` (user domain: foreground,
   character background or else the window, edge style, text size, font).
-  Dusk's Subtitle Size step multiplies onto the system text size.
-  - AVPlayer: `textStyleRules` carry only `RelativeFontSize` (Dusk step ×
-    system size, because a size rule replaces the system's). AVFoundation
-    applies everything else and restyles live; the engine re-sets the rule on
-    `SystemCaptionStyle.didChangeNotification`. Never put colours, edge or
-    background back into the rules: they override the user's style.
+  Style = Dusk swaps in `SystemCaptionStyle.dusk` (white on 68% black, drop
+  shadow, Helvetica Neue, size 1) for both engines; it is the hook for
+  future Dusk-only styling. The coordinator pushes it with
+  `applySubtitleStyle(_:)` next to the size; Settings-only, so next session.
+  Dusk's Subtitle Size step multiplies onto the style's text size.
+  - AVPlayer: with System, `textStyleRules` carry only `RelativeFontSize`
+    (Dusk step × system size, because a size rule replaces the system's).
+    AVFoundation applies everything else and restyles live; the engine re-sets
+    the rule on `SystemCaptionStyle.didChangeNotification`. Colours, edge,
+    background and font go into the rules only for Dusk: they override the
+    user's style. Two AVFoundation limits (sim-verified): attributes a system
+    profile locks (Outline Text: background and edge) win over the rules, and
+    the Default profile's rounded window stays behind Dusk's text; and
+    embedded tx3g/mov_text in a direct-played MP4 ignores `textStyleRules`
+    entirely (size included), WebVTT in Plex HLS honours them.
   - VLCKit: `VLCTextRendererStyle` translates the style into libvlc
     `freetype-*` values (colour/opacity, background, outline thickness 4 for
     Outline, shadow angle/distance for drop shadow/raised/depressed).
