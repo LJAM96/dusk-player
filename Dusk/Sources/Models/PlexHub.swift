@@ -8,6 +8,9 @@ struct PlexHubSource: Sendable, Hashable, Codable {
     let key: String?
     let size: Int?
     let more: Bool?
+    /// That server's own `hubIdentifier`: a merged row keeps only its
+    /// representative's, and hiding the row needs every server's.
+    var hubIdentifier: String? = nil
 }
 
 /// A "hub" on the Plex home screen (e.g. "Continue Watching", "Recently Added Movies").
@@ -184,7 +187,7 @@ struct PlexHub: Decodable, Sendable, Identifiable, Hashable {
         items = metadataItems + directoryItems
 
         if let serverID {
-            sources = [PlexHubSource(serverID: serverID, key: key, size: size, more: more)]
+            sources = [PlexHubSource(serverID: serverID, key: key, size: size, more: more, hubIdentifier: hubIdentifier)]
         } else {
             sources = []
         }

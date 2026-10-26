@@ -615,6 +615,38 @@ final class HomeViewModel {
         await load()
     }
 
+    func canHideRow(_ hub: PlexHub) -> Bool {
+        plexService.canHideHomeRow(hub)
+    }
+
+    /// Takes the row off the owner's Home on every server it comes from
+    /// (`PlexService+HomeRows`). Settings › Home › Hidden Rows brings it back.
+    func hideRow(_ hub: PlexHub) async {
+        let rowID = hub.id
+        withAnimation(.easeInOut(duration: 0.3)) {
+            hubs.removeAll { $0.id == rowID }
+        }
+
+        var failure: (any Error)?
+        for row in await plexService.managedHomeRows(for: hub) {
+            do {
+                try await plexService.setManagedHub(
+                    row.hub.withOwnHome(false),
+                    sectionId: row.sectionID,
+                    serverID: row.serverID
+                )
+            } catch {
+                failure = failure ?? error
+            }
+        }
+
+        if let failure {
+            self.error = failure.localizedDescription
+        }
+        // A row no server would hide comes back here.
+        await load()
+    }
+
     func posterURL(for item: PlexItem, width: Int, height: Int) -> URL? {
         item.posterImageURL(plexService: plexService, width: width, height: height)
     }

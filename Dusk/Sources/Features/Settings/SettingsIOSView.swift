@@ -191,6 +191,13 @@ struct SettingsIOSView: View {
             .listRowBackground(Color.duskSurface)
 
             Section {
+                NavigationLink {
+                    HiddenHomeRowsSettingsView()
+                } label: {
+                    Text("Hidden Rows")
+                        .foregroundStyle(Color.duskTextPrimary)
+                }
+
                 Toggle("Personalized shelves", isOn: $preferences.personalizedShelvesEnabled)
                     .foregroundStyle(Color.duskTextPrimary)
                 Toggle("Show Live TV", isOn: $preferences.showsLiveTVOnHome)

@@ -302,7 +302,8 @@ in Dusk. Read this with `docs/codebase-map.md`, `STYLE.md`, and `docs/data-and-p
 - Home's arrangement is fixed and identical on both platforms: the cinematic hero,
   the Live TV shelf (when enabled), the Plex hubs, then the personalized shelves. `HomeIOSView` and
   `HomeTVView` each render that sequence directly. There is no user-editable Home
-  layout; do not reintroduce one.
+  layout; do not reintroduce one. Which Plex rows appear is Plex's per-library
+  Home flag (see Hidden Rows below), not a Dusk layout.
 - Home is **merged across every connected server**. `HomeViewModel.load()` fans
   `/hubs` and `/hubs/continueWatching` out to all of them. **The first paint is gated
   by `HomeFirstPaintGate`** (`HomeFirstPaintGate.swift`): painting the first server's
@@ -643,6 +644,22 @@ in Dusk. Read this with `docs/codebase-map.md`, `STYLE.md`, and `docs/data-and-p
   plex.tv itself. Entries for disabled servers, cloud providers, and servers whose
   sections failed to load are carried through untouched — never write an order for a
   server Dusk could not read. Storage format and traps: `docs/data-and-plex.md`.
+
+### Hidden Rows (Home)
+
+- Home's poster context menu has **Hide Row** on a Plex row (iOS + tvOS), and
+  Settings › **Home** › **Hidden Rows** (`HiddenHomeRowsSettingsView`) lists every
+  row of each movie/show/video library on servers the account owns, a switch each,
+  built like Hidden Libraries. This is how Plex's automatic rows (the seasonal
+  "Oh, The Horror!" = `movie.curated`, collections, …) leave Home.
+- Storage is Plex's own Manage Recommendations "Home" flag (`promotedToOwnHome`,
+  `PlexService+HomeRows.swift`), saved on the server: `GET /hubs` drops the row for
+  Dusk, Plex Web and every Plex app alike, so Home needs no filter. Nothing is
+  stored in Dusk.
+- Only owners can change it (shared servers and restricted profiles never see the
+  action), and account-wide rows (`home.*`: the type-wide Recently Added, Continue
+  Watching) are not in any library's list, so they cannot be hidden this way.
+- Known gap: on tvOS, hiding the focused row sends focus back to the hero.
 
 ### Hidden Libraries
 

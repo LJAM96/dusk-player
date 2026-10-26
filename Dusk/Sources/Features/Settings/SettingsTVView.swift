@@ -125,6 +125,12 @@ struct SettingsTVView: View {
                 }
 
                 TVSettingsSection(title: "Home", footer: SettingsSupport.homeTVFooterText) {
+                    TVSettingsNavigationRow(title: "Hidden Rows") {
+                        HiddenHomeRowsSettingsView()
+                    }
+
+                    tvRowDivider
+
                     TVSettingsToggleRow(title: "Personalized shelves", isOn: $preferences.personalizedShelvesEnabled)
 
                     tvRowDivider

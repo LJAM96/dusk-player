@@ -247,6 +247,9 @@ Settings:
 - `HiddenLibrariesSettingsView` (Settings › Libraries › Hidden Libraries) is the
   one place to hide a library: a switch per library, grouped by server. It reuses
   `LibraryOrderSettingsViewModel.setHidden`, which writes `pinnedSources[].isHidden`.
+- `HiddenHomeRowsSettingsView` (Settings › Home › Hidden Rows) switches Plex's
+  per-library Home flag (`PlexService+HomeRows.swift`); Home's Hide Row uses the
+  same write.
 - `PlexService/LibraryOrderStore` is the single source of that order, and of which
   libraries are hidden, for the whole app; `PlexService+LibraryOrder.swift` owns the
   plex.tv read/write. `PlexService/HiddenLibraryFilter` (`libraryOrder.hiddenLibraryFilter`,

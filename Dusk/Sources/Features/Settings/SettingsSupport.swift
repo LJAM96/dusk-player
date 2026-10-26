@@ -19,7 +19,7 @@ enum SettingsSupport {
     #endif
     static let downloadsFooterText = "Preferred Version picks which Plex version is downloaded when a title has several. Download quality is chosen each time you start a download. Wi-Fi Only lets the system wait for a non-cellular network before starting new transfer tasks."
     static let librariesFooterText = "Choose which library and Live TV destinations appear in the navigation bar and the order they use. Hidden Libraries removes a library from Dusk completely, including Home and search. Server Priority decides which of your servers Dusk uses, and which one plays a title that is on more than one."
-    static let homeFooterText = "Personalized shelves add recommendations from Dusk to Home. Show Live TV adds currently airing channels without changing the Live TV tab."
+    static let homeFooterText = "Hidden Rows chooses which of Plex’s rows appear on Home. Personalized shelves add recommendations from Dusk to Home. Show Live TV adds currently airing channels without changing the Live TV tab."
     static let homeTVFooterText = homeFooterText + " Show Clock puts the current time at the top right of Home."
     static let homeAdvancedFooterText = "Compact Continue Watching replaces the large artwork at the top of Home with a smaller Continue Watching row, like the one on library pages."
     static let appearanceFooterText = "System follows your device appearance. Light and Dark override it for the whole app. Blur Unwatched Episodes hides the images of episodes you haven’t finished, so they can’t spoil anything."

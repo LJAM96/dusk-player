@@ -522,15 +522,7 @@ struct HomeTVView: View {
                         viewModel.posterURL(for: item, width: width, height: height)
                     }
                 ) { item in
-                    PlexItemContextMenuContent(
-                        item: item,
-                        onMarkWatched: {
-                            Task { await viewModel.setWatched(true, for: item) }
-                        },
-                        onMarkUnwatched: {
-                            Task { await viewModel.setWatched(false, for: item) }
-                        }
-                    )
+                    hubContextMenu(item, in: hub)
                 }
                 .homeTVShelfFocus(focus(.hub(hub.id)))
             }
@@ -565,6 +557,25 @@ struct HomeTVView: View {
                     )
                 }
                 .homeTVShelfFocus(focus(.personalized(shelf.id)))
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func hubContextMenu(_ item: PlexItem, in hub: PlexHub) -> some View {
+        PlexItemContextMenuContent(
+            item: item,
+            onMarkWatched: {
+                Task { await viewModel.setWatched(true, for: item) }
+            },
+            onMarkUnwatched: {
+                Task { await viewModel.setWatched(false, for: item) }
+            }
+        )
+
+        if viewModel.canHideRow(hub) {
+            Button("Hide Row", systemImage: "minus.circle") {
+                Task { await viewModel.hideRow(hub) }
             }
         }
     }

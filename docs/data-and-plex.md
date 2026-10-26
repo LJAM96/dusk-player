@@ -599,6 +599,15 @@ state `PlexService/WatchlistStore.swift` (`plexService.watchlist`).
   (`hubIdentifier`, `server.machineIdentifier`, `isHidden`, `hasCustomizations`). The
   Watchlist reads Plex Web's copy for Home placement; Plex's watchlist row is
   `home.watchlist`.
+- **Current Plex Web (4.163) no longer renders Home from `homeSettings.hubs`**: it only
+  migrates it (`hasCustomizations` → `autoHomeHubsEnabled=false`). Hiding a Home row is
+  per server: `GET /hubs/sections/{id}/manage` lists the library's rows by kind
+  (`movie.curated`, `custom.collection.<section>.<id>`), and
+  `PUT …/manage/{identifier}?promotedToRecommended=&promotedToOwnHome=&promotedToSharedHome=`
+  (all three, 1/0, as Plex Web sends them) sets them. `GET /hubs` rows usually lack
+  `librarySectionID`, and their identifier is kind + section + variant
+  (`movie.curated.2.1`), so the trailing number is NOT the section
+  (`PlexManagedHub.matches`). Owner-only. See `PlexService+HomeRows.swift`.
 
 ## Playlists
 File: `PlexService+Playlists.swift`, models `Models/PlexPlaylist.swift`
